@@ -8,3 +8,7 @@ name = "Basalt"
 [[lean_exe]]
 name = "basalt"
 root = "Main"
+
+[[require]]
+name = "mathlib"
+scope = "leanprover-community"
