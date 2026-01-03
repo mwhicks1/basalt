@@ -3,6 +3,8 @@ import Basalt.RandomChoice
 open Lean.Order
 
 /-!
+# Generator Representation
+
 This file defines the top-level interface of PBT generators.
 -/
 
@@ -16,8 +18,8 @@ This file defines the top-level interface of PBT generators.
   Generators that do not terminate structurally, or at all, are still expressable. (The monad's bind
   operation should respect the partial order.)
 
-NOTE: I'm not sure this is actually right. This doesn't work well with higher-order generators, and
-it also makes `Gen` a `Type → Type 1`, which feels odd.
+**NOTE**: I'm not sure this is actually right. This doesn't work well with higher-order generators,
+and it also makes `Gen` a `Type → Type 1`, which feels odd.
 -/
 def Gen (α : Type) :=
   ∀ {m : Type → Type}
