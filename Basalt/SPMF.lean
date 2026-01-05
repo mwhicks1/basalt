@@ -648,6 +648,159 @@ theorem IsPMF_of_half_plus_half_weighted_avg
       rwa [ENNReal.add_le_add_iff_left hne_top] at hmul'
     exact le_trans hc_ge_one hc_le
 
+/-- Helper lemma: the weighted combination t + (1-t)*x is monotone increasing in t for fixed x ≤ 1.
+    This is because t + (1-t)*x = t*(1-x) + x, which is linear in t with non-negative slope 1-x. -/
+lemma weighted_avg_mono_ennreal {t p x : ℝ≥0∞}
+    (htp : t ≥ p) (hx_le_one : x ≤ 1) (ht_le_one : t ≤ 1) (hp_le_one : p ≤ 1) :
+    t + (1 - t) * x ≥ p + (1 - p) * x := by
+  have ht_ne_top : t ≠ ⊤ := ne_of_lt (lt_of_le_of_lt ht_le_one ENNReal.one_lt_top)
+  have hp_ne_top : p ≠ ⊤ := ne_of_lt (lt_of_le_of_lt hp_le_one ENNReal.one_lt_top)
+  have hx_ne_top : x ≠ ⊤ := ne_of_lt (lt_of_le_of_lt hx_le_one ENNReal.one_lt_top)
+  have h1mt_ne_top : (1 - t) ≠ ⊤ := ne_top_of_le_ne_top ENNReal.one_ne_top tsub_le_self
+  have h1mp_ne_top : (1 - p) ≠ ⊤ := ne_top_of_le_ne_top ENNReal.one_ne_top tsub_le_self
+  -- t + (1-t)*x = t*(1-x) + x (when all terms are well-defined)
+  have heq_t : t + (1 - t) * x = t * (1 - x) + x := by
+    calc t + (1 - t) * x
+      _ = t * 1 + (1 - t) * x := by rw [mul_one]
+      _ = t * ((1 - x) + x) + (1 - t) * x := by rw [tsub_add_cancel_of_le hx_le_one]
+      _ = t * (1 - x) + t * x + (1 - t) * x := by rw [mul_add]
+      _ = t * (1 - x) + (t * x + (1 - t) * x) := by rw [add_assoc]
+      _ = t * (1 - x) + (t + (1 - t)) * x := by rw [add_mul]
+      _ = t * (1 - x) + 1 * x := by rw [add_tsub_cancel_of_le ht_le_one]
+      _ = t * (1 - x) + x := by rw [one_mul]
+  have heq_p : p + (1 - p) * x = p * (1 - x) + x := by
+    calc p + (1 - p) * x
+      _ = p * 1 + (1 - p) * x := by rw [mul_one]
+      _ = p * ((1 - x) + x) + (1 - p) * x := by rw [tsub_add_cancel_of_le hx_le_one]
+      _ = p * (1 - x) + p * x + (1 - p) * x := by rw [mul_add]
+      _ = p * (1 - x) + (p * x + (1 - p) * x) := by rw [add_assoc]
+      _ = p * (1 - x) + (p + (1 - p)) * x := by rw [add_mul]
+      _ = p * (1 - x) + 1 * x := by rw [add_tsub_cancel_of_le hp_le_one]
+      _ = p * (1 - x) + x := by rw [one_mul]
+  -- Now show t*(1-x) + x ≥ p*(1-x) + x
+  have h1 : t * (1 - x) + x ≥ p * (1 - x) + x := by
+    have : t * (1 - x) ≥ p * (1 - x) := mul_le_mul_left htp (1 - x)
+    exact add_le_add this (le_refl x)
+  rw [heq_t, heq_p]
+  exact h1
+
+/-- A generalized version of `IsPMF_of_half_plus_half_weighted_avg` for arbitrary
+    termination probability `p > 0`.
+
+    If we have a family of SPMFs indexed by `ι` such that each has mass of the form
+    `term_prob i + cont_prob i * (body_mass i)` where:
+    - `term_prob i ≥ p` for some fixed `p > 0`
+    - `body_mass i ≥ infimum of all masses`
+
+    Then all SPMFs in the family are PMFs (have mass 1).
+-/
+theorem IsPMF_of_positive_termination_prob
+    {ι : Type*} {α : Type*} [Nonempty ι]
+    (g : ι → SPMF α)
+    (p : ℝ≥0∞)
+    (hp_pos : p > 0)
+    (hp_le_one : p ≤ 1)
+    (term_prob : ι → ℝ≥0∞)
+    (body_mass : ι → ℝ≥0∞)
+    (h_term_ge : ∀ i, term_prob i ≥ p)
+    (h_body_ge : ∀ i, body_mass i ≥ ⨅ j, (g j).mass)
+    (h_rec : ∀ i, (g i).mass ≥ term_prob i + (1 - term_prob i) * body_mass i) :
+    ∀ i, IsPMF (g i) := by
+  intro i
+  unfold IsPMF
+  apply le_antisymm
+  · exact (g i).tsum_coe
+  · let c := ⨅ j, (g j).mass
+    have hc_le : c ≤ (g i).mass := iInf_le _ i
+    have hne_top : c ≠ ⊤ := by
+      apply ne_of_lt
+      calc c ≤ (g i).mass := hc_le
+        _ ≤ 1 := (g i).tsum_coe
+        _ < ⊤ := ENNReal.one_lt_top
+    have hc_ge_one : c ≥ 1 := by
+      -- Show that c ≥ p + (1-p) * c, which implies c ≥ 1
+      have h_lower : ∀ j, (g j).mass ≥ p + (1 - p) * c := fun j => by
+        have hterm : term_prob j ≥ p := h_term_ge j
+        have hbody : body_mass j ≥ c := h_body_ge j
+        have hterm_le_one : term_prob j ≤ 1 := by
+          calc term_prob j ≤ (g j).mass := by
+                have := h_rec j
+                calc term_prob j ≤ term_prob j + (1 - term_prob j) * body_mass j := le_self_add
+                  _ ≤ (g j).mass := this
+            _ ≤ 1 := (g j).tsum_coe
+        -- Key insight: t + (1-t)*x ≥ p + (1-p)*x when t ≥ p and x ≤ 1
+        -- Because: t + (1-t)*x - (p + (1-p)*x) = (t - p) * (1 - x) ≥ 0
+        have hc_le_one : c ≤ 1 := by
+          calc c ≤ (g i).mass := hc_le
+            _ ≤ 1 := (g i).tsum_coe
+        -- First show: term_prob j + (1 - term_prob j) * c ≥ p + (1 - p) * c
+        have h_weighted : term_prob j + (1 - term_prob j) * c ≥ p + (1 - p) * c := by
+          -- Use the helper lemma weighted_avg_mono_ennreal
+          exact weighted_avg_mono_ennreal hterm hc_le_one hterm_le_one hp_le_one
+        calc (g j).mass
+          _ ≥ term_prob j + (1 - term_prob j) * body_mass j := h_rec j
+          _ ≥ term_prob j + (1 - term_prob j) * c := by gcongr
+          _ ≥ p + (1 - p) * c := h_weighted
+      have hiInf_lower : c ≥ p + (1 - p) * c := le_ciInf (fun j => h_lower j)
+      -- From c ≥ p + (1-p)*c we derive c ≥ 1
+      by_cases hp_one : p = 1
+      · -- If p = 1, then mass ≥ 1 directly
+        calc c ≥ p + (1 - p) * c := hiInf_lower
+          _ = 1 + (1 - 1) * c := by rw [hp_one]
+          _ = 1 := by simp
+      · -- p < 1
+        have hp_lt_one : p < 1 := lt_of_le_of_ne hp_le_one hp_one
+        have hp_ne_top : p ≠ ⊤ := ne_of_lt (lt_of_le_of_lt hp_le_one ENNReal.one_lt_top)
+        -- The key: from c ≥ p + (1-p)*c we get c*(1-(1-p)) ≥ p, i.e., c*p ≥ p
+        -- Since p > 0, we get c ≥ 1
+        by_cases hc_zero : c = 0
+        · -- If c = 0, then 0 ≥ p, contradicting p > 0
+          exfalso
+          rw [hc_zero] at hiInf_lower
+          simp at hiInf_lower
+          exact ne_of_gt hp_pos hiInf_lower
+        · -- c > 0, show c ≥ 1
+          -- From c ≥ p + (1-p)*c we get c - (1-p)*c ≥ p
+          -- i.e., c*p ≥ p, so c ≥ 1
+          have h1mp_ne_top : (1 - p) ≠ ⊤ := by
+            apply ne_of_lt
+            calc 1 - p ≤ 1 := tsub_le_self
+              _ < ⊤ := ENNReal.one_lt_top
+          have h1mpc_ne_top : (1 - p) * c ≠ ⊤ := by
+            apply ENNReal.mul_ne_top h1mp_ne_top hne_top
+          have h1 : c * p ≥ p := by
+            -- c - (1-p)*c = c*p when we factor
+            have hsub_ge : c - (1 - p) * c ≥ p := by
+              calc c - (1 - p) * c ≥ (p + (1 - p) * c) - (1 - p) * c := by gcongr
+                _ = p := ENNReal.add_sub_cancel_right h1mpc_ne_top
+            -- c - (1-p)*c = c*(1 - (1-p)) = c*p
+            have hsub_eq : c - (1 - p) * c = c * p := by
+              rw [mul_comm (1 - p) c]
+              -- Now: c - c * (1-p) = c * p
+              -- Since p ≤ 1, we have 1 - (1 - p) = p
+              have h1m1mp : (1 : ℝ≥0∞) - (1 - p) = p := ENNReal.sub_sub_cancel ENNReal.one_ne_top hp_le_one
+              -- c - c * (1-p) = c * 1 - c * (1-p) = c * (1 - (1-p)) = c * p
+              -- Use ENNReal.mul_sub: a * (b - c) = a * b - a * c when 0 < c → c < b → a ≠ ∞
+              have hmul_sub : c * (1 - (1 - p)) = c * 1 - c * (1 - p) := by
+                rw [ENNReal.mul_sub]
+                intro h1mp_pos h1mp_lt_one
+                exact hne_top
+              rw [h1m1mp] at hmul_sub
+              rw [mul_one] at hmul_sub
+              exact hmul_sub.symm
+            rw [← hsub_eq]
+            exact hsub_ge
+          -- From c * p ≥ p and p > 0, we get c ≥ 1
+          have hc_ge_one' : c ≥ 1 := by
+            have hdiv : c * p / p ≥ p / p := by gcongr
+            rw [ENNReal.mul_div_cancel_right _ hp_ne_top] at hdiv
+            rw [ENNReal.div_self (ne_of_gt hp_pos) hp_ne_top] at hdiv
+            exact hdiv
+            exact ne_of_gt hp_pos
+          exact hc_ge_one'
+    calc (g i).mass ≥ c := hc_le
+      _ ≥ 1 := hc_ge_one
+
 end is_pmf
 
 end SPMF
