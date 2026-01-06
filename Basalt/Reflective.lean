@@ -217,4 +217,39 @@ def reflectOneOrTwo : {r : Reflector Nat // Reflects genOneOrTwo r} := by
     . apply reflectPure
     . apply reflectPure
 
+def genNat : Gen Nat := do
+  if (← choose 0 1 (by simp)) == 0 then
+    pure 0
+  else
+    let n ← genNat
+    return n + 1
+partial_fixpoint
+
+instance : Inhabited (Reflector α) where
+  default := fun _ => []
+
+/--
+error: fail to show termination for
+  reflectNat
+with errors
+failed to infer structural recursion:
+no parameters suitable for structural recursion
+
+well-founded recursion cannot be used, `reflectNat` does not take any (non-fixed) arguments
+-/
+#guard_msgs in
+def reflectNat : {r : Reflector Nat // Reflects genNat r} := by
+  rw [genNat]
+  apply reflectBind (inv := fun | .zero => some 0 | .succ _ => some 1)
+  case hinv => sorry
+  . apply reflectChoose
+  . intro a
+    split
+    . apply reflectPure
+    . apply reflectBind (inv := fun x => some (x - 1))
+      case hinv => sorry
+      . exact reflectNat
+      . intro a
+        apply reflectPure
+
 end simple_example
