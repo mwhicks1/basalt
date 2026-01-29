@@ -21,7 +21,7 @@ This file defines the top-level interface of PBT generators.
 **NOTE**: I'm not sure this is actually right. This doesn't work well with higher-order generators,
 and it also makes `Gen` a `Type → Type 1`, which feels odd.
 -/
-def Gen (α : Type) :=
+def Gen (α : Type) : Type 1 :=
   ∀ {m : Type → Type}
     [∀ α, Inhabited (m α)]
     [Monad m]

@@ -188,7 +188,8 @@ to get choices `[0]` or `[1]` respectively.
 -/
 
 def genOneOrTwo : Gen Nat := do
-  if (← choose 0 1 (by simp)) == 0 then
+  let b ← choose 0 1 (by simp)
+  if b == 0 then
     pure 1
   else
     pure 2
