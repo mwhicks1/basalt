@@ -44,45 +44,29 @@ theorem Tree.genBST_support :
 #eval (for _ in [0:20] do
   IO.println <| repr (← Gen.runIO (Tree.genBST 0 10)) : IO Unit)
 
--- Helper lemmas (to be moved to Basalt.SPMF later)
-
-/-- A lower bound on `(x >>= f).mass` in terms of `x.mass * c` when each branch ≥ c.
-    Generalises `SPMF.mass_bind_ge_of_ge` by not requiring `x.mass = 1`. -/
 private lemma mass_bind_ge_mul {x : SPMF α} {f : α → SPMF β} {c : ENNReal}
     (hf : ∀ a, (f a).mass ≥ c) : (x >>= f).mass ≥ x.mass * c := by
-  unfold SPMF.mass
-  simp only [Bind.bind, SPMF.bind, DFunLike.coe]
+  simp only [SPMF.mass, Bind.bind, SPMF.bind, DFunLike.coe]
   rw [ENNReal.tsum_comm]
-  calc ∑' a, ∑' b, x a * (f a) b
-      _ = ∑' a, x a * ∑' b, (f a) b := by simp_rw [ENNReal.tsum_mul_left]
-      _ ≥ ∑' a, x a * c := by
-          apply ENNReal.tsum_le_tsum
-          intro a; gcongr; exact hf a
-      _ = (∑' a, x a) * c := by rw [ENNReal.tsum_mul_right]
+  simp [ENNReal.tsum_mul_left, ← ENNReal.tsum_mul_right]
+  gcongr with a
+  exact hf a
 
-/-- If `c ≤ 1` and `c ≥ 1/2 + 1/2 * c²`, then `c = 1`.
-    By AM-GM, `1/2 + 1/2 * c² ≥ c` always, so we have equality with forces `(c-1)² = 0`. -/
 private lemma ennreal_one_of_ge_half_add_half_sq {c : ENNReal}
     (hc_le : c ≤ 1) (h : c ≥ 1 / 2 + 1 / 2 * c ^ 2) : c = 1 := by
-  have hc_ne : c ≠ ⊤ := ne_top_of_le_ne_top ENNReal.one_ne_top hc_le
-  have hc2_le : c ^ 2 ≤ 1 := pow_le_one₀ (zero_le _) hc_le
-  have hc2_ne : c ^ 2 ≠ ⊤ := ne_top_of_le_ne_top ENNReal.one_ne_top hc2_le
-  have half_ne : (1 / 2 : ENNReal) ≠ ⊤ := by norm_num
-  have hmul_ne : (1 / 2 * c ^ 2 : ENNReal) ≠ ⊤ := ENNReal.mul_ne_top half_ne hc2_ne
-  -- Convert to ℝ via toReal
-  have hle : c.toReal ≤ 1 := by
-    have := (ENNReal.toReal_le_toReal hc_ne ENNReal.one_ne_top).mpr hc_le
-    rwa [ENNReal.toReal_one] at this
+  have hc_ne  : c ≠ ⊤     := ne_top_of_le_ne_top ENNReal.one_ne_top hc_le
+  have hc2_ne : c ^ 2 ≠ ⊤ := ne_top_of_le_ne_top ENNReal.one_ne_top (pow_le_one₀ (zero_le _) hc_le)
+  have hle : c.toReal ≤ 1 := by simpa using (ENNReal.toReal_le_toReal hc_ne ENNReal.one_ne_top).mpr hc_le
   have hge : c.toReal ≥ 1 / 2 + 1 / 2 * c.toReal ^ 2 := by
-    have hmono := (ENNReal.toReal_le_toReal (by exact ENNReal.add_ne_top.mpr ⟨half_ne, hmul_ne⟩) hc_ne).mpr h
-    have hval : (1 / 2 + 1 / 2 * c ^ 2 : ENNReal).toReal = 1 / 2 + 1 / 2 * c.toReal ^ 2 := by
-      rw [ENNReal.toReal_add half_ne hmul_ne, ENNReal.toReal_mul, ENNReal.toReal_pow]
-      norm_num [ENNReal.toReal_div, ENNReal.toReal_one, ENNReal.toReal_ofNat]
-    linarith [hval ▸ hmono]
-  have hone : c.toReal = 1 := by nlinarith [sq_nonneg (c.toReal - 1)]
-  calc c = ENNReal.ofReal c.toReal := (ENNReal.ofReal_toReal hc_ne).symm
-    _ = ENNReal.ofReal 1 := by rw [hone]
-    _ = 1 := ENNReal.ofReal_one
+    have h2ne : (1 / 2 + 1 / 2 * c ^ 2 : ENNReal) ≠ ⊤ :=
+      ENNReal.add_ne_top.mpr ⟨by norm_num, ENNReal.mul_ne_top (by norm_num) hc2_ne⟩
+    have hmono := (ENNReal.toReal_le_toReal h2ne hc_ne).mpr h
+    rw [ENNReal.toReal_add (by norm_num) (ENNReal.mul_ne_top (by norm_num) hc2_ne),
+        ENNReal.toReal_mul, ENNReal.toReal_pow] at hmono
+    norm_num at hmono
+    linarith
+  have hone : c.toReal = 1 := by nlinarith
+  rw [← ENNReal.ofReal_toReal hc_ne, hone, ENNReal.ofReal_one]
 
 theorem Tree.genBST_terminates : SPMF.IsPMF (Tree.genBST lo hi) := by
   -- We work with c = ⨅ (lo', hi'), mass(genBST lo' hi') over all parameter pairs.
@@ -104,13 +88,9 @@ theorem Tree.genBST_terminates : SPMF.IsPMF (Tree.genBST lo hi) := by
     intro ⟨lo', hi'⟩
     by_cases hlt : lo' > hi'
     · -- Base case: genBST lo' hi' = pure leaf, mass = 1
-      have heq : (Tree.genBST lo' hi' : SPMF (Tree Nat)) = Pure.pure Tree.leaf := by
-        conv_lhs => rw [Tree.genBST]
-        rw [dif_pos hlt]
+      have heq : (Tree.genBST lo' hi' : SPMF (Tree Nat)) = Pure.pure Tree.leaf := by grind [= genBST]
       rw [heq, SPMF.mass_pure]
-      have hcsq : c ^ 2 ≤ 1 := by
-        calc c ^ 2 ≤ 1 ^ 2 := by gcongr
-          _ = 1 := one_pow _
+      have hcsq : c ^ 2 ≤ 1 := Right.pow_le_one_of_le hc_le_one
       calc 1 / 2 + 1 / 2 * c ^ 2
           ≤ 1 / 2 + 1 / 2 * 1 := by gcongr
         _ = 1 := by rw [mul_one]; exact ENNReal.add_halves 1
