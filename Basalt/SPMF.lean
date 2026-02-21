@@ -192,17 +192,17 @@ theorem pick_apply {x y : SPMF α} (a : α) :
     simp only [Finset.mem_Icc, not_and, not_le] at hn
     have hn' : ¬(0 ≤ n ∧ n ≤ 1) := by push_neg; intro _; omega
     have hzero : (choose 0 1 pick._proof_1 : SPMF Nat) n = 0 := by
-      simp only [RandomChoice.choose, instFunLike]
-      simp only [hn', ite_false]
+      simp [RandomChoice.choose, DFunLike.coe]
+      omega
     simp only [hzero, zero_mul]
   rw [tsum_eq_sum h_supp]
   have hIcc : Finset.Icc 0 1 = ({0, 1} : Finset Nat) := by decide
   rw [hIcc, Finset.sum_pair (by simp : (0 : Nat) ≠ 1)]
   have h0 : (choose 0 1 pick._proof_1 : SPMF Nat) 0 = 1 / 2 := by
-    simp only [RandomChoice.choose, instFunLike]
+    simp only [RandomChoice.choose, DFunLike.coe]
     norm_num
   have h1 : (choose 0 1 pick._proof_1 : SPMF Nat) 1 = 1 / 2 := by
-    simp only [RandomChoice.choose, instFunLike]
+    simp only [RandomChoice.choose, DFunLike.coe]
     norm_num
   simp only [h0, h1, beq_self_eq_true, ite_true, one_ne_zero, beq_iff_eq, ite_false]
 
@@ -215,14 +215,14 @@ section equations
 
 theorem pure_bind (a : α) (f : α → SPMF β) : bind (pure a) f = f a := by
   ext b
-  simp only [bind, pure, instFunLike]
+  simp only [bind, pure, DFunLike.coe]
   rw [tsum_eq_single a]
   · simp
   · intro b' hb; simp [hb]
 
 theorem bind_pure (p : SPMF α) : bind p pure = p := by
   ext b
-  simp only [bind, pure, instFunLike]
+  simp only [bind, pure, DFunLike.coe]
   rw [tsum_eq_single b]
   · simp
   · intro b' hb
@@ -231,7 +231,7 @@ theorem bind_pure (p : SPMF α) : bind p pure = p := by
 theorem bind_assoc (m : SPMF α) (f : α → SPMF β) (g : β → SPMF γ) :
     bind (bind m f) g = bind m (fun x => bind (f x) g) := by
   ext c
-  simp only [bind, instFunLike]
+  simp only [bind, DFunLike.coe]
   trans ∑' (b : β) (a : α), m a * f a b * g b c
   · congr; ext b
     rw [ENNReal.tsum_mul_right]
@@ -442,7 +442,7 @@ theorem mass_choose (lo hi : Nat) (h : lo ≤ hi) : (choose lo hi h : SPMF Nat).
     have hsupp : ∀ a, a ∉ Finset.Icc lo hi →
         ((choose lo hi h : SPMF Nat) a) = 0 := by
       intro a ha
-      simp only [RandomChoice.choose, instFunLike]
+      simp only [RandomChoice.choose, DFunLike.coe]
       simp only [Finset.mem_Icc, not_and, not_le] at ha
       by_cases hlo : lo ≤ a
       · have := ha hlo; simp [hlo, Nat.not_le.mpr this]
@@ -461,7 +461,7 @@ theorem mass_choose (lo hi : Nat) (h : lo ≤ hi) : (choose lo hi h : SPMF Nat).
         _ = ∑ a ∈ Finset.Icc lo hi, (choose lo hi h : SPMF Nat) a := by
             apply Finset.sum_congr rfl
             intro x hx
-            simp only [RandomChoice.choose, instFunLike]
+            simp only [RandomChoice.choose, DFunLike.coe]
             have n_eq : (n : ℝ≥0∞) = ↑hi - ↑lo + 1 := by
               simp only [n]
               norm_cast

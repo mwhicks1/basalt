@@ -188,7 +188,7 @@ theorem List.unfold_IsPMF_of_termination_prob {α β : Type} {p : ENNReal}
     · intro b'
       exact iInf_le _ b'
 
-/-- warning: declaration uses 'sorry' -/
+/-- warning: declaration uses `sorry` -/
 #guard_msgs in
 theorem List.IsPMF_genSorted' (m : Nat) : SPMF.IsPMF (List.genSorted' m) := by
   sorry
@@ -197,7 +197,7 @@ end NatListExample
 
 namespace TreeExample
 
-/-- warning: declaration uses 'sorry' -/
+/-- warning: declaration uses `sorry` -/
 #guard_msgs in
 theorem Tree.IsPMF_isBST (lo hi : Nat) : SPMF.IsPMF (Tree.genBST lo hi) := by
   sorry

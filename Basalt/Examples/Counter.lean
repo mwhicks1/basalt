@@ -11,14 +11,14 @@ def genOneOrTwo : Gen Nat := do
 
 example : (1, 1) ∈ (genOneOrTwo : Counter Nat).support := by
   unfold genOneOrTwo
-  simp [Counter.instMonad, Counter.bind, Counter.pure, choose, SPMF.support, SPMF.pure, SPMF.bind, DFunLike.coe]
+  simp [bind, pure, Counter.bind, Counter.pure, choose, SPMF.support, SPMF.pure, SPMF.bind, DFunLike.coe]
   exists 0
   simp
 
 example : (a, count) ∈ (genOneOrTwo : Counter Nat).support → count = 1 := by
   intro h
   unfold genOneOrTwo at h
-  simp [Counter.instMonad, Counter.bind, Counter.pure, choose, SPMF.support, SPMF.pure, SPMF.bind, DFunLike.coe] at h
+  simp [bind, pure, Counter.bind, Counter.pure, choose, SPMF.support, SPMF.pure, SPMF.bind, DFunLike.coe] at h
   grind
 
 def Nat.arbitrary : Gen Nat := do
@@ -34,11 +34,11 @@ example : (n, count) ∈ (Nat.arbitrary : Counter Nat).support → count = n + 1
   induction n generalizing count with
   | zero =>
     unfold Nat.arbitrary at h
-    simp [Counter.instMonad, Counter.bind, Counter.pure, pick, choose, SPMF.support, SPMF.pure, SPMF.bind, DFunLike.coe] at h
+    simp [bind, pure, Counter.bind, Counter.pure, pick, choose, SPMF.support, SPMF.pure, SPMF.bind, DFunLike.coe] at h
     aesop
   | succ n' ih =>
     unfold Nat.arbitrary at h
-    simp [Counter.instMonad, Counter.bind, Counter.pure, pick, choose, SPMF.support, SPMF.pure, SPMF.bind, DFunLike.coe] at h
+    simp [bind, pure, Counter.bind, Counter.pure, pick, choose, SPMF.support, SPMF.pure, SPMF.bind, DFunLike.coe] at h
     aesop (config := {warnOnNonterminal := false})
     have := ih (by aesop)
     grind

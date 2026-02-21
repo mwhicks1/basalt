@@ -24,13 +24,12 @@ def List.arbitrary : Gen (List Nat) := do
       return x :: xs)
 partial_fixpoint
 
-theorem List.arbitrary_support : SPMF.support List.arbitrary = ⊤ := by
-  simp
+theorem List.arbitrary_support : SPMF.support List.arbitrary = Set.univ := by
   refine (Set.ext ?_)
   intro xs
-  induction xs <;> simp_all <;> rw [List.arbitrary]
+  induction xs <;> rw [List.arbitrary]
   case _ => simp
-  case _ x xs ih => simp [*, Nat.arbitrary_support]
+  case _ x xs ih => simp [ih, Nat.arbitrary_support]
 
 def List.genSorted (m : Nat) : Gen (List Nat) := do
   pick
@@ -80,13 +79,19 @@ example : (List.genSorted m : SPMF _) = List.genSorted' m := by
   | nil =>
     rw [List.genSorted, List.genSorted', List.unfold]
     rw [SPMF.bind_pick]
-    simp only [SPMF.pick_apply, Bind.bind, Pure.pure, SPMF.pure, SPMF.bind, SPMF.instFunLike]
+    simp only [SPMF.pick_apply]
+    simp only [Bind.bind, Pure.pure, SPMF.pure, SPMF.bind, DFunLike.coe]
     simp
     nth_rewrite 1 [← add_zero (2⁻¹ : ENNReal)]
     congr 1
-    simp
+    symm
+    rw [mul_eq_zero]
+    right
+    rw [ENNReal.tsum_eq_zero]
     intro a
-    cases a <;> simp
+    cases a with
+    | nilStep => simp
+    | consStep x b' => simp
   | cons x xs ih =>
     rw [List.genSorted, List.genSorted', List.unfold]
     rw [SPMF.bind_pick]
@@ -104,7 +109,7 @@ example : (List.genSorted m : SPMF _) = List.genSorted' m := by
     dsimp [Pure.pure, SPMF.pure]
     congr 1
     refine congr_arg (HMul.hMul (1/2 : ENNReal)) ?_
-    simp only [Bind.bind, SPMF.bind, SPMF.instFunLike]
+    simp only [Bind.bind, SPMF.bind, DFunLike.coe]
     apply tsum_congr
     intro delta
     congr 1

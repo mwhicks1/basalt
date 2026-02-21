@@ -38,7 +38,6 @@ instance instMonoBind : MonoBind Counter where
     intro pair
     simp only [Bind.bind, bind]
     unfold SPMF.bind
-    simp only [SPMF.instFunLike]
     apply ENNReal.tsum_le_tsum
     intro ⟨a, n₁⟩
     simp only [Lean.Order.PartialOrder.rel] at h
@@ -48,7 +47,7 @@ instance instMonoBind : MonoBind Counter where
     intro pair
     simp only [Bind.bind, bind]
     unfold SPMF.bind
-    simp only [SPMF.instFunLike, Lean.Order.PartialOrder.rel] at h ⊢
+    simp only [Lean.Order.PartialOrder.rel] at h ⊢
     apply ENNReal.tsum_le_tsum
     intro ⟨a, n₁⟩
     gcongr ?_ * ?_
