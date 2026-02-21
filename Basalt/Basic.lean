@@ -2,6 +2,7 @@ import Basalt.RandomChoice
 import Basalt.Gen
 import Basalt.IO
 import Basalt.SPMF
+import Basalt.Counter
 
 /-!
 # A Coinductive Model for Generators

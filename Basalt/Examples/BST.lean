@@ -9,6 +9,10 @@ inductive Tree (α : Type) where
   | node : Tree α → α → Tree α → Tree α
 deriving Repr
 
+def Tree.size : Tree α → Nat
+  | leaf => 0
+  | node l _ r => l.size + r.size + 1
+
 def Tree.isBST (lo hi : Nat) : Tree Nat → Prop
   | leaf => true
   | node l x r =>
@@ -144,5 +148,40 @@ theorem Tree.genBST_terminates : SPMF.IsPMF (Tree.genBST lo hi) := by
   -- mass(genBST lo hi) ≥ c = 1
   calc (1 : ENNReal) = c := hc_one.symm
     _ ≤ (Tree.genBST lo hi : SPMF (Tree Nat)).mass := iInf_le _ (lo, hi)
+
+set_option maxHeartbeats 2000000 in
+private lemma Tree.genBST_linear_fixed :
+    (t, count) ∈ (Tree.genBST lo hi : Counter _).support →
+    count ≤ 3 * t.size + 1 := by
+  induction t generalizing lo hi count with
+  | leaf =>
+    intro h
+    rw [Tree.genBST] at h
+    split at h
+    · simp [SPMF.support, pure, Counter.pure, SPMF.pure, DFunLike.coe] at h
+      omega
+    · simp [SPMF.support, pure, Counter.pure, SPMF.pure, DFunLike.coe, pick, bind, choose, Counter.bind, SPMF.bind] at h
+      aesop
+  | node l x r ihl ihr =>
+    intro h
+    rw [Tree.genBST] at h
+    split at h
+    · simp [SPMF.support, pure, Counter.pure, SPMF.pure, DFunLike.coe] at h
+    · simp +arith [SPMF.support, pure, Counter.pure, SPMF.pure, DFunLike.coe, pick, bind, choose, Counter.bind, SPMF.bind, size] at *
+      replace ⟨x1, ⟨h1, ⟨x2, ⟨h2, h⟩⟩⟩⟩ := h
+      have : x2 ≤ (3 * l.size + 1) + (3 * r.size + 1) + 1 := by
+        aesop (config := {warnOnNonterminal := false})
+        have := @ihl lo (x - 1) w left_2
+        have := @ihr (x + 1) hi w_1 right
+        grind
+      grind
+
+theorem Tree.genBST_linear :
+    (t, count) ∈ (Tree.genBST lo hi : Counter _).support →
+    ∃ m b, count ≤ m * t.size + b := by
+  intro h
+  exists 3
+  exists 1
+  exact Tree.genBST_linear_fixed h
 
 end TreeExample
