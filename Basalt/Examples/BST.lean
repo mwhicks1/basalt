@@ -149,6 +149,44 @@ theorem Tree.genBST_terminates : SPMF.IsPMF (Tree.genBST lo hi) := by
   calc (1 : ENNReal) = c := hc_one.symm
     _ ≤ (Tree.genBST lo hi : SPMF (Tree Nat)).mass := iInf_le _ (lo, hi)
 
+namespace Counter
+
+def ProducesWithCount (g : Counter α) (P : α → Nat → Prop) : Prop :=
+  ∀ a count, (a, count) ∈ g.support → P a count
+
+theorem count_pure :
+    ProducesWithCount (pure a) (fun _ count => count = 0) := by
+  unfold ProducesWithCount
+  simp [pure, Counter.pure, SPMF.pure, SPMF.support, DFunLike.coe]
+
+theorem count_bind
+    {P : α → Nat → Prop}
+    {Q : α → β → Nat → Prop}
+    (hx : ProducesWithCount x P)
+    (hf : (a : α) → ProducesWithCount (f a) (Q a)) :
+    ProducesWithCount
+      (x >>= f)
+      (fun b count => ∃ a countX countF, P a countX ∧ Q a b countF ∧ count = countX + countF) := by
+  unfold ProducesWithCount at *
+  intro b count h
+  simp [bind, Counter.bind, SPMF.support, SPMF.bind, DFunLike.coe, SPMF.pure] at *
+  grind
+
+theorem count_choose :
+    ProducesWithCount (choose lo hi pf) (fun _ count => count = 1) := by
+  unfold ProducesWithCount at *
+  simp [choose, SPMF.support, SPMF.bind, DFunLike.coe, SPMF.pure] at *
+
+theorem count_strengthen
+    {P Q : α → Nat → Prop}
+    (hP : ProducesWithCount g P)
+    (h : ∀ a count, P a count → Q a count) :
+    ProducesWithCount g Q := by
+  unfold ProducesWithCount at *
+  grind
+
+end Counter
+
 set_option maxHeartbeats 2000000 in
 private lemma Tree.genBST_linear_fixed :
     (t, count) ∈ (Tree.genBST lo hi : Counter _).support →
