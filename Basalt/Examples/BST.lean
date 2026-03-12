@@ -20,7 +20,7 @@ def Tree.isBST (lo hi : Nat) : Tree Nat → Prop
     isBST lo (x - 1) l ∧
     isBST (x + 1) hi r
 
-def Tree.genBST (lo hi : Nat) : Gen (Tree Nat) := do
+def Tree.genBST [Gen G] (lo hi : Nat) : G (Tree Nat) := do
   if h : lo > hi then
     return leaf
   else
@@ -46,7 +46,7 @@ theorem Tree.genBST_support :
 
 #guard_msgs(drop info) in
 #eval (for _ in [0:20] do
-  IO.println <| repr (← Gen.runIO (Tree.genBST 0 10)) : IO Unit)
+  IO.println <| repr (← Tree.genBST 0 10) : IO Unit)
 
 private lemma mass_bind_ge_mul {x : SPMF α} {f : α → SPMF β} {c : ENNReal}
     (hf : ∀ a, (f a).mass ≥ c) : (x >>= f).mass ≥ x.mass * c := by
@@ -151,39 +151,39 @@ theorem Tree.genBST_terminates : SPMF.IsPMF (Tree.genBST lo hi) := by
 
 namespace Counter
 
-def ProducesWithCount (g : Counter α) (P : α → Nat → Prop) : Prop :=
-  ∀ a count, (a, count) ∈ g.support → P a count
+def ProducesWithBound (g : Counter α) (f : α → Nat) : Prop :=
+  ∀ a count, (a, count) ∈ g.support → count ≤ f a
 
-theorem count_pure :
-    ProducesWithCount (pure a) (fun _ count => count = 0) := by
-  unfold ProducesWithCount
-  simp [pure, Counter.pure, SPMF.pure, SPMF.support, DFunLike.coe]
+-- theorem count_pure :
+--     ProducesWithCount (pure a) (fun _ count => count = 0) := by
+--   unfold ProducesWithCount
+--   simp [pure, Counter.pure, SPMF.pure, SPMF.support, DFunLike.coe]
 
-theorem count_bind
-    {P : α → Nat → Prop}
-    {Q : α → β → Nat → Prop}
-    (hx : ProducesWithCount x P)
-    (hf : (a : α) → ProducesWithCount (f a) (Q a)) :
-    ProducesWithCount
-      (x >>= f)
-      (fun b count => ∃ a countX countF, P a countX ∧ Q a b countF ∧ count = countX + countF) := by
-  unfold ProducesWithCount at *
-  intro b count h
-  simp [bind, Counter.bind, SPMF.support, SPMF.bind, DFunLike.coe, SPMF.pure] at *
-  grind
+-- theorem count_bind
+--     {P : α → Nat → Prop}
+--     {Q : α → β → Nat → Prop}
+--     (hx : ProducesWithCount x P)
+--     (hf : (a : α) → ProducesWithCount (f a) (Q a)) :
+--     ProducesWithCount
+--       (x >>= f)
+--       (fun b count => ∃ a countX countF, P a countX ∧ Q a b countF ∧ count = countX + countF) := by
+--   unfold ProducesWithCount at *
+--   intro b count h
+--   simp [bind, Counter.bind, SPMF.support, SPMF.bind, DFunLike.coe, SPMF.pure] at *
+--   grind
 
-theorem count_choose :
-    ProducesWithCount (choose lo hi pf) (fun _ count => count = 1) := by
-  unfold ProducesWithCount at *
-  simp [choose, SPMF.support, SPMF.bind, DFunLike.coe, SPMF.pure] at *
+-- theorem count_choose :
+--     ProducesWithCount (choose lo hi pf) (fun _ count => count = 1) := by
+--   unfold ProducesWithCount at *
+--   simp [choose, SPMF.support, SPMF.bind, DFunLike.coe, SPMF.pure] at *
 
-theorem count_strengthen
-    {P Q : α → Nat → Prop}
-    (hP : ProducesWithCount g P)
-    (h : ∀ a count, P a count → Q a count) :
-    ProducesWithCount g Q := by
-  unfold ProducesWithCount at *
-  grind
+-- theorem count_strengthen
+--     {P Q : α → Nat → Prop}
+--     (hP : ProducesWithCount g P)
+--     (h : ∀ a count, P a count → Q a count) :
+--     ProducesWithCount g Q := by
+--   unfold ProducesWithCount at *
+--   grind
 
 end Counter
 

@@ -3,7 +3,7 @@ import Basalt.Gen
 
 open RandomChoice
 
-def genOneOrTwo : Gen Nat := do
+def genOneOrTwo [Gen G] : G Nat := do
   if (← choose 0 1 (by simp)) == 0 then
     pure 1
   else
@@ -21,7 +21,7 @@ example : (a, count) ∈ (genOneOrTwo : Counter Nat).support → count = 1 := by
   simp [bind, pure, Counter.bind, Counter.pure, choose, SPMF.support, SPMF.pure, SPMF.bind, DFunLike.coe] at h
   grind
 
-def Nat.arbitrary : Gen Nat := do
+def Nat.arbitrary [Gen G] : G Nat := do
   pick
     (fun () => pure 0)
     (fun () => do

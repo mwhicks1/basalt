@@ -3,7 +3,7 @@ import Basalt.SPMF
 
 open Lean.Order RandomChoice
 
-def CorrectGen (P : Set α) := {g : Gen α // SPMF.support g = P}
+def CorrectGen (P : Set α) := {g : (∀ {G : Type → Type} [Gen G], G α) // SPMF.support g = P}
 
 namespace Example
 
@@ -24,7 +24,7 @@ def Tree.isAllTwo : Tree Nat → Prop
   | node l x r => x = 2 ∧ l.isAllTwo ∧ r.isAllTwo
 coinductive_fixpoint
 
-/-- warning: declaration uses 'sorry' -/
+/-- warning: declaration uses `sorry` -/
 #guard_msgs in
 example : CorrectGen Tree.isAllTwo := by
   sorry

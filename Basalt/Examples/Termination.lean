@@ -161,7 +161,7 @@ lemma List.unfoldBodySPMF_mass_ge {α β : Type}
 
 theorem List.unfold_IsPMF_of_termination_prob {α β : Type} {p : ENNReal}
     (hp : p > 0) (hp_le_one : p ≤ 1)
-    (coalg : β → Gen (ListF α β)) (b : β)
+    (coalg : β → SPMF (ListF α β)) (b : β)
     (h_coalg_pmf : ∀ b, SPMF.IsPMF (coalg b))
     (h_term_prob : ∀ b, (coalg b : SPMF (ListF α β)) ListF.nilStep ≥ p) :
     SPMF.IsPMF (List.unfold coalg b) := by

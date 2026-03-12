@@ -33,7 +33,7 @@ instance : CCPO (ParserGen α) := inferInstanceAs (CCPO (StateT (List Nat) Optio
 instance : MonoBind ParserGen := inferInstanceAs (MonoBind (StateT (List Nat) Option))
 
 /-- We can interpret a `Gen` as a parser of sequences of natural number choices. -/
-def parse (g : Gen α) : List Nat → Option α := (g : ParserGen α).run'
+def parse (g : ParserGen α) : List Nat → Option α := g.run'
 
 /-- A parser is "well-behaved" if it consumes a prefix of the input string. -/
 def WellBehaved (g : ParserGen α) : Prop :=
@@ -187,7 +187,7 @@ Here's a simple example. This generator produces 1 or 2, and we should be able t
 to get choices `[0]` or `[1]` respectively.
 -/
 
-def genOneOrTwo : Gen Nat := do
+def genOneOrTwo [Gen G] : G Nat := do
   let b ← choose 0 1 (by simp)
   if b == 0 then
     pure 1
@@ -218,7 +218,7 @@ def reflectOneOrTwo : {r : Reflector Nat // Reflects genOneOrTwo r} := by
     . apply reflectPure
     . apply reflectPure
 
-def genNat : Gen Nat := do
+def genNat [Gen G] : G Nat := do
   if (← choose 0 1 (by simp)) == 0 then
     pure 0
   else

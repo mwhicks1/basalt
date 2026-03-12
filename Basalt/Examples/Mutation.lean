@@ -16,7 +16,7 @@ def Tree.isBST (lo hi : Nat) : Tree Nat → Prop
     isBST lo (x - 1) l ∧
     isBST (x + 1) hi r
 
-def Tree.dropRandomLeaf : Tree α → Gen (Tree α)
+def Tree.dropRandomLeaf [Gen G] : Tree α → G (Tree α)
   | leaf => pure leaf
   | node leaf x leaf => pure leaf
   | node l x leaf => (node · x leaf) <$> Tree.dropRandomLeaf l
