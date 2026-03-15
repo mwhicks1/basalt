@@ -178,7 +178,6 @@ section operation_uses
 
 -- TODO: Should we have these "_apply" lemmas for every operation? Or is that redundant with `mass`
 -- below? We should figure this out based on usages in the `Examples` directory.
-
 theorem pick_apply {x y : SPMF α} (a : α) :
     (pick (fun () => x) (fun () => y)) a =
     (1/2 : ℝ≥0∞) * x a + (1/2 : ℝ≥0∞) * y a := by
@@ -331,6 +330,13 @@ theorem support_bind
       _ ≤ ∑' a, x a * f a b := ENNReal.le_tsum a
 
 @[simp]
+theorem mem_support_bind_iff
+    {x : SPMF α}
+    {f : α → SPMF β} :
+    b ∈ (bind x f).support ↔ ∃ a ∈ x.support, b ∈ (f a).support := by
+  simp [support, Function.mem_support, SPMF.bind, DFunLike.coe]
+
+@[simp]
 theorem support_pure :
     (Pure.pure a : SPMF _).support = {a} := by
   classical
@@ -345,6 +351,11 @@ theorem support_pure :
   · intro h
     show (if x = a then (1 : ℝ≥0∞) else 0) ≠ 0
     simp [h]
+
+@[simp]
+theorem mem_support_pure_iff :
+    b ∈ (pure a).support ↔ b = a := by
+  simp [support, Function.mem_support, SPMF.pure, DFunLike.coe]
 
 @[simp]
 theorem support_map
@@ -374,6 +385,11 @@ theorem support_choose :
     exact ENNReal.inv_ne_zero.mpr (ENNReal.natCast_ne_top _)
 
 @[simp]
+theorem mem_support_choose_iff :
+    a ∈ (choose lo hi h : SPMF Nat).support ↔ lo ≤ a ∧ a ≤ hi := by
+  simp [support_choose]
+
+@[simp]
 theorem support_pick
     {x y : SPMF α} :
     (pick (fun () => x) (fun () => y)).support = x.support ∪ y.support := by
@@ -393,6 +409,48 @@ theorem support_pick
     | inr hy =>
       refine ⟨1, ⟨Nat.zero_le _, le_refl _⟩, ?_⟩
       simpa using hy
+
+@[simp]
+theorem mem_support_pick_iff
+    {x y : SPMF α} :
+    a ∈ (pick (fun () => x) (fun () => y)).support ↔ a ∈ x.support ∨ a ∈ y.support := by
+  simp
+
+theorem bind_congr_support
+    {x : SPMF α}
+    (h : ∀ a ∈ x.support, f a = g a) :
+    bind x f = bind x g := by
+  simp only [bind]
+  ext a
+  simp only [DFunLike.coe]
+  congr
+  funext v
+  by_cases hsupport : v ∈ x.support
+  · rw [h]; assumption
+  · simp only [support, Function.notMem_support] at hsupport
+    simp_all [DFunLike.coe]
+
+private theorem csup_apply {c : SPMF α → Prop} (hc : chain c) (a : α) :
+    (CCPO.csup hc) a = ⨆ f, ⨆ (_ : c f), f a := by
+  have hge : ∀ b, ⨆ f, ⨆ (_ : c f), f b ≤ (CCPO.csup hc) b :=
+    fun b => iSup₂_le (fun f hf => le_csup hc hf b)
+  have hsum : ∑' b, ⨆ f, ⨆ (_ : c f), f b ≤ 1 :=
+    (ENNReal.tsum_le_tsum hge).trans (tsum_coe _)
+  exact le_antisymm
+    ((csup_le hc (fun f hf b => le_iSup₂_of_le f hf le_rfl) :
+        CCPO.csup hc ⊑ ⟨fun b => ⨆ f, ⨆ (_ : c f), f b, hsum⟩) a)
+    (hge a)
+
+theorem mem_support_csup {c : SPMF α → Prop} (hc : chain c) {a : α} :
+    a ∈ (CCPO.csup hc).support ↔ ∃ f, c f ∧ a ∈ f.support := by
+  simp only [mem_support_iff, csup_apply, ne_eq]
+  constructor
+  · intro h
+    by_contra h'
+    push_neg at h'
+    exact h ((iSup₂_le (fun f hf => (h' f hf).le)).antisymm (zero_le _))
+  · rintro ⟨f, hcf, haf⟩ h
+    exact haf ((le_iSup₂ f hcf).trans h.le |>.antisymm (zero_le _))
 
 end support
 
@@ -470,7 +528,7 @@ theorem mass_choose (lo hi : Nat) (h : lo ≤ hi) : (choose lo hi h : SPMF Nat).
             (tsum_eq_sum hsupp).symm
     exact le_of_eq eq1
 
--- TODO: Change to mass_map
+-- TODO: Change to mass_map?
 theorem mass_bind_pure {x : SPMF α} {f : α → β} :
     (x >>= fun a => Pure.pure (f a)).mass = x.mass := by
   classical
@@ -486,8 +544,6 @@ theorem mass_bind_pure {x : SPMF α} {f : α → β} :
     split_ifs with heq
     · simp_all
     · rfl
-
--- TODO: There are a lot of bind lemmas here; we should try to generalize them if possible. Also,
 
 theorem mass_bind_const {x : SPMF α} {y : SPMF β} :
     (x >>= fun _ => y).mass = x.mass * y.mass := by
@@ -520,46 +576,15 @@ theorem mass_bind {x : SPMF α} {f : α → SPMF β} (hf : ∀ a, (f a).mass = 1
     _ = ∑' a, x a * 1 := by simp_rw [hf]
     _ = ∑' a, x a := by simp
 
-theorem mass_bind_ge_of_ge {x : SPMF α} {f : α → SPMF β} {c : ℝ≥0∞}
-    (hx : x.mass = 1) (hf : ∀ a, (f a).mass ≥ c) :
-    (x >>= f).mass ≥ c := by
-  unfold mass at *
-  simp only [Bind.bind, bind, DFunLike.coe]
-  rw [ENNReal.tsum_comm]
-  calc ∑' a, ∑' b, x a * (f a) b
-    _ = ∑' a, x a * (∑' b, (f a) b) := by simp_rw [ENNReal.tsum_mul_left]
-    _ ≥ ∑' a, x a * c := by
-        apply ENNReal.tsum_le_tsum
-        intro a
-        gcongr
-        exact hf a
-    _ = c * ∑' a, x a := by rw [ENNReal.tsum_mul_right]; ring
-    _ = c * 1 := by rw [hx]
-    _ = c := by ring
-
-theorem mass_eq_one_of_half_plus_half_self {p : SPMF α}
-    (h : p.mass = 1/2 + 1/2 * p.mass) : p.mass = 1 := by
-  have hle : p.mass ≤ 1 := p.tsum_coe
-  have hne_top : p.mass ≠ ⊤ := ne_of_lt (lt_of_le_of_lt hle ENNReal.one_lt_top)
-  have h2ne0 : (2 : ℝ≥0∞) ≠ 0 := by norm_num
-  have h2netop : (2 : ℝ≥0∞) ≠ ⊤ := by norm_num
-  have h12 : (1/2 : ℝ≥0∞) * 2 = 1 := ENNReal.div_mul_cancel h2ne0 h2netop
-  have hmul : 2 * p.mass = 1 + p.mass := by
-    conv_lhs => rw [h]
-    calc 2 * (1/2 + 1/2 * p.mass)
-      _ = 2 * (1/2) + 2 * (1/2 * p.mass) := by rw [mul_add]
-      _ = 2 * (1/2) + 2 * (1/2) * p.mass := by rw [mul_assoc]
-      _ = 1 + 1 * p.mass := by rw [mul_comm 2 (1/2), h12]
-      _ = 1 + p.mass := by rw [one_mul]
-  have hsub : 2 * p.mass - p.mass = 1 := by
-    rw [hmul]
-    exact ENNReal.add_sub_cancel_right hne_top
-  have hlhs : 2 * p.mass - p.mass = p.mass := by
-    have : (2 : ℝ≥0∞) * p.mass = p.mass + p.mass := by ring
-    rw [this]
-    exact ENNReal.add_sub_cancel_left hne_top
-  rw [hlhs] at hsub
-  exact hsub
+theorem mass_bind_ge_mul {x : SPMF α} {f : α → SPMF β} {c d : ℝ≥0∞}
+    (hx : x.mass ≥ c) (hf : ∀ a, (f a).mass ≥ d) : (x >>= f).mass ≥ c * d := by
+  have h : (x >>= f).mass ≥ x.mass * d := by
+    simp only [mass, Bind.bind, bind, DFunLike.coe]
+    rw [ENNReal.tsum_comm]
+    simp [ENNReal.tsum_mul_left, ← ENNReal.tsum_mul_right]
+    gcongr with a; exact hf a
+  calc (x >>= f).mass ≥ x.mass * d := h
+    _ ≥ c * d := by gcongr
 
 end mass
 
@@ -592,64 +617,6 @@ theorem IsPMF_bind {x : SPMF α} {f : α → SPMF β} (hx : IsPMF x) (hf : ∀ a
   unfold IsPMF
   rw [mass_bind hf, hx]
 
--- TODO: This is pretty specific. Can we generalize?
-theorem IsPMF_pick_pure_of_mass_eq {a : α} {body : SPMF α} {full : SPMF α}
-    (h_eq : full = pick (fun () => Pure.pure a) (fun () => body))
-    (h_mass : body.mass = full.mass) : IsPMF full := by
-  unfold IsPMF
-  apply mass_eq_one_of_half_plus_half_self
-  calc full.mass
-    _ = (pick (fun () => Pure.pure a) (fun () => body)).mass := by rw [h_eq]
-    _ = 1/2 * (Pure.pure a : SPMF α).mass + 1/2 * body.mass := mass_pick
-    _ = 1/2 * 1 + 1/2 * body.mass := by rw [mass_pure]
-    _ = 1/2 + 1/2 * full.mass := by rw [h_mass]; ring
-
--- TODO: This is also too specific. This should be true for weights `w` and `1 - w`, right?
-theorem IsPMF_of_half_plus_half_weighted_avg
-    {ι : Type*} {α : Type*} [Nonempty ι]
-    (g : ι → SPMF α)
-    (body_mass : ι → ℝ≥0∞)
-    (h_body_ge : ∀ i, body_mass i ≥ ⨅ j, (g j).mass)
-    (h_rec : ∀ i, (g i).mass = 1/2 + 1/2 * body_mass i) :
-    ∀ i, IsPMF (g i) := by
-  intro i
-  unfold IsPMF
-  apply le_antisymm
-  · exact (g i).tsum_coe
-  · let c := ⨅ j, (g j).mass
-    have hc_le : c ≤ (g i).mass := iInf_le _ i
-    have hc_ge_one : c ≥ 1 := by
-      have h_lower : ∀ j, (g j).mass ≥ 1/2 + 1/2 * c := fun j => by
-        have hbody : body_mass j ≥ c := h_body_ge j
-        calc (g j).mass
-          _ = 1/2 + 1/2 * body_mass j := h_rec j
-          _ ≥ 1/2 + 1/2 * c := by
-              gcongr
-      have hiInf_lower : c ≥ 1/2 + 1/2 * c := le_ciInf (fun j => h_lower j)
-      have hne_top : c ≠ ⊤ := by
-        apply ne_of_lt
-        calc c ≤ (g i).mass := hc_le
-          _ ≤ 1 := (g i).tsum_coe
-          _ < ⊤ := ENNReal.one_lt_top
-      have h2ne0 : (2 : ℝ≥0∞) ≠ 0 := by norm_num
-      have h2netop : (2 : ℝ≥0∞) ≠ ⊤ := by norm_num
-      have h12 : (1/2 : ℝ≥0∞) * 2 = 1 := ENNReal.div_mul_cancel h2ne0 h2netop
-      have hmul : 2 * c ≥ 1 + c := by
-        have h1 : 2 * c ≥ 2 * (1/2 + 1/2 * c) := by
-          gcongr
-        calc 2 * c
-          _ ≥ 2 * (1/2 + 1/2 * c) := h1
-          _ = 2 * (1/2) + 2 * (1/2) * c := by ring
-          _ = 1 + 1 * c := by rw [mul_comm 2 (1/2), h12]
-          _ = 1 + c := by ring
-      have h2c_eq : 2 * c = c + c := by ring
-      rw [h2c_eq] at hmul
-      have hmul' : c + 1 ≤ c + c := by rw [add_comm 1 c] at hmul; exact hmul
-      rwa [ENNReal.add_le_add_iff_left hne_top] at hmul'
-    exact le_trans hc_ge_one hc_le
-
-/-- Helper lemma: the weighted combination t + (1-t)*x is monotone increasing in t for fixed x ≤ 1.
-    This is because t + (1-t)*x = t*(1-x) + x, which is linear in t with non-negative slope 1-x. -/
 lemma weighted_avg_mono_ennreal {t p x : ℝ≥0∞}
     (htp : t ≥ p) (hx_le_one : x ≤ 1) (ht_le_one : t ≤ 1) (hp_le_one : p ≤ 1) :
     t + (1 - t) * x ≥ p + (1 - p) * x := by
@@ -658,7 +625,6 @@ lemma weighted_avg_mono_ennreal {t p x : ℝ≥0∞}
   have hx_ne_top : x ≠ ⊤ := ne_of_lt (lt_of_le_of_lt hx_le_one ENNReal.one_lt_top)
   have h1mt_ne_top : (1 - t) ≠ ⊤ := ne_top_of_le_ne_top ENNReal.one_ne_top tsub_le_self
   have h1mp_ne_top : (1 - p) ≠ ⊤ := ne_top_of_le_ne_top ENNReal.one_ne_top tsub_le_self
-  -- t + (1-t)*x = t*(1-x) + x (when all terms are well-defined)
   have heq_t : t + (1 - t) * x = t * (1 - x) + x := by
     calc t + (1 - t) * x
       _ = t * 1 + (1 - t) * x := by rw [mul_one]
@@ -677,23 +643,12 @@ lemma weighted_avg_mono_ennreal {t p x : ℝ≥0∞}
       _ = p * (1 - x) + (p + (1 - p)) * x := by rw [add_mul]
       _ = p * (1 - x) + 1 * x := by rw [add_tsub_cancel_of_le hp_le_one]
       _ = p * (1 - x) + x := by rw [one_mul]
-  -- Now show t*(1-x) + x ≥ p*(1-x) + x
   have h1 : t * (1 - x) + x ≥ p * (1 - x) + x := by
     have : t * (1 - x) ≥ p * (1 - x) := mul_le_mul_left htp (1 - x)
     exact add_le_add this (le_refl x)
   rw [heq_t, heq_p]
   exact h1
 
-/-- A generalized version of `IsPMF_of_half_plus_half_weighted_avg` for arbitrary
-    termination probability `p > 0`.
-
-    If we have a family of SPMFs indexed by `ι` such that each has mass of the form
-    `term_prob i + cont_prob i * (body_mass i)` where:
-    - `term_prob i ≥ p` for some fixed `p > 0`
-    - `body_mass i ≥ infimum of all masses`
-
-    Then all SPMFs in the family are PMFs (have mass 1).
--/
 theorem IsPMF_of_positive_termination_prob
     {ι : Type*} {α : Type*} [Nonempty ι]
     (g : ι → SPMF α)
@@ -718,7 +673,6 @@ theorem IsPMF_of_positive_termination_prob
         _ ≤ 1 := (g i).tsum_coe
         _ < ⊤ := ENNReal.one_lt_top
     have hc_ge_one : c ≥ 1 := by
-      -- Show that c ≥ p + (1-p) * c, which implies c ≥ 1
       have h_lower : ∀ j, (g j).mass ≥ p + (1 - p) * c := fun j => by
         have hterm : term_prob j ≥ p := h_term_ge j
         have hbody : body_mass j ≥ c := h_body_ge j
@@ -728,59 +682,40 @@ theorem IsPMF_of_positive_termination_prob
                 calc term_prob j ≤ term_prob j + (1 - term_prob j) * body_mass j := le_self_add
                   _ ≤ (g j).mass := this
             _ ≤ 1 := (g j).tsum_coe
-        -- Key insight: t + (1-t)*x ≥ p + (1-p)*x when t ≥ p and x ≤ 1
-        -- Because: t + (1-t)*x - (p + (1-p)*x) = (t - p) * (1 - x) ≥ 0
         have hc_le_one : c ≤ 1 := by
           calc c ≤ (g i).mass := hc_le
             _ ≤ 1 := (g i).tsum_coe
-        -- First show: term_prob j + (1 - term_prob j) * c ≥ p + (1 - p) * c
         have h_weighted : term_prob j + (1 - term_prob j) * c ≥ p + (1 - p) * c := by
-          -- Use the helper lemma weighted_avg_mono_ennreal
           exact weighted_avg_mono_ennreal hterm hc_le_one hterm_le_one hp_le_one
         calc (g j).mass
           _ ≥ term_prob j + (1 - term_prob j) * body_mass j := h_rec j
           _ ≥ term_prob j + (1 - term_prob j) * c := by gcongr
           _ ≥ p + (1 - p) * c := h_weighted
       have hiInf_lower : c ≥ p + (1 - p) * c := le_ciInf (fun j => h_lower j)
-      -- From c ≥ p + (1-p)*c we derive c ≥ 1
       by_cases hp_one : p = 1
-      · -- If p = 1, then mass ≥ 1 directly
-        calc c ≥ p + (1 - p) * c := hiInf_lower
+      · calc c ≥ p + (1 - p) * c := hiInf_lower
           _ = 1 + (1 - 1) * c := by rw [hp_one]
           _ = 1 := by simp
-      · -- p < 1
-        have hp_lt_one : p < 1 := lt_of_le_of_ne hp_le_one hp_one
+      · have hp_lt_one : p < 1 := lt_of_le_of_ne hp_le_one hp_one
         have hp_ne_top : p ≠ ⊤ := ne_of_lt (lt_of_le_of_lt hp_le_one ENNReal.one_lt_top)
-        -- The key: from c ≥ p + (1-p)*c we get c*(1-(1-p)) ≥ p, i.e., c*p ≥ p
-        -- Since p > 0, we get c ≥ 1
         by_cases hc_zero : c = 0
-        · -- If c = 0, then 0 ≥ p, contradicting p > 0
-          exfalso
+        · exfalso
           rw [hc_zero] at hiInf_lower
           simp at hiInf_lower
           exact ne_of_gt hp_pos hiInf_lower
-        · -- c > 0, show c ≥ 1
-          -- From c ≥ p + (1-p)*c we get c - (1-p)*c ≥ p
-          -- i.e., c*p ≥ p, so c ≥ 1
-          have h1mp_ne_top : (1 - p) ≠ ⊤ := by
+        · have h1mp_ne_top : (1 - p) ≠ ⊤ := by
             apply ne_of_lt
             calc 1 - p ≤ 1 := tsub_le_self
               _ < ⊤ := ENNReal.one_lt_top
           have h1mpc_ne_top : (1 - p) * c ≠ ⊤ := by
             apply ENNReal.mul_ne_top h1mp_ne_top hne_top
           have h1 : c * p ≥ p := by
-            -- c - (1-p)*c = c*p when we factor
             have hsub_ge : c - (1 - p) * c ≥ p := by
               calc c - (1 - p) * c ≥ (p + (1 - p) * c) - (1 - p) * c := by gcongr
                 _ = p := ENNReal.add_sub_cancel_right h1mpc_ne_top
-            -- c - (1-p)*c = c*(1 - (1-p)) = c*p
             have hsub_eq : c - (1 - p) * c = c * p := by
               rw [mul_comm (1 - p) c]
-              -- Now: c - c * (1-p) = c * p
-              -- Since p ≤ 1, we have 1 - (1 - p) = p
               have h1m1mp : (1 : ℝ≥0∞) - (1 - p) = p := ENNReal.sub_sub_cancel ENNReal.one_ne_top hp_le_one
-              -- c - c * (1-p) = c * 1 - c * (1-p) = c * (1 - (1-p)) = c * p
-              -- Use ENNReal.mul_sub: a * (b - c) = a * b - a * c when 0 < c → c < b → a ≠ ∞
               have hmul_sub : c * (1 - (1 - p)) = c * 1 - c * (1 - p) := by
                 rw [ENNReal.mul_sub]
                 intro h1mp_pos h1mp_lt_one
@@ -790,7 +725,6 @@ theorem IsPMF_of_positive_termination_prob
               exact hmul_sub.symm
             rw [← hsub_eq]
             exact hsub_ge
-          -- From c * p ≥ p and p > 0, we get c ≥ 1
           have hc_ge_one' : c ≥ 1 := by
             have hdiv : c * p / p ≥ p / p := by gcongr
             rw [ENNReal.mul_div_cancel_right _ hp_ne_top] at hdiv
@@ -801,6 +735,81 @@ theorem IsPMF_of_positive_termination_prob
     calc (g i).mass ≥ c := hc_le
       _ ≥ 1 := hc_ge_one
 
+lemma ennreal_one_of_ge_half_add_half_sq {c : ℝ≥0∞}
+    (hc_le : c ≤ 1) (h : c ≥ 1 / 2 + 1 / 2 * c ^ 2) : c = 1 := by
+  have hc_ne  : c ≠ ⊤     := ne_top_of_le_ne_top ENNReal.one_ne_top hc_le
+  have hc2_ne : c ^ 2 ≠ ⊤ := ne_top_of_le_ne_top ENNReal.one_ne_top (pow_le_one₀ (zero_le _) hc_le)
+  have hle : c.toReal ≤ 1 := by simpa using (ENNReal.toReal_le_toReal hc_ne ENNReal.one_ne_top).mpr hc_le
+  have hge : c.toReal ≥ 1 / 2 + 1 / 2 * c.toReal ^ 2 := by
+    have h2ne : (1 / 2 + 1 / 2 * c ^ 2 : ℝ≥0∞) ≠ ⊤ :=
+      ENNReal.add_ne_top.mpr ⟨by norm_num, ENNReal.mul_ne_top (by norm_num) hc2_ne⟩
+    have hmono := (ENNReal.toReal_le_toReal h2ne hc_ne).mpr h
+    rw [ENNReal.toReal_add (by norm_num) (ENNReal.mul_ne_top (by norm_num) hc2_ne),
+        ENNReal.toReal_mul, ENNReal.toReal_pow] at hmono
+    norm_num at hmono
+    linarith
+  have hone : c.toReal = 1 := by nlinarith
+  rw [← ENNReal.ofReal_toReal hc_ne, hone, ENNReal.ofReal_one]
+
+/-- A general fixpoint principle for proving almost-sure termination.
+
+If the mass of each generator satisfies `mass ≥ F(inf mass)` and `F` is such that
+`c ≤ 1 ∧ c ≥ F c → c = 1`, then all generators are PMFs. -/
+theorem IsPMF_of_mass_fixpoint {ι : Type*} {α : Type*} [Nonempty ι]
+    (g : ι → SPMF α) (F : ℝ≥0∞ → ℝ≥0∞)
+    (hF : ∀ c : ℝ≥0∞, c ≤ 1 → c ≥ F c → c = 1)
+    (h_step : ∀ i, (⨅ j, (g j).mass) ≤ 1 → (g i).mass ≥ F (⨅ j, (g j).mass)) :
+    ∀ i, IsPMF (g i) := by
+  intro i
+  unfold IsPMF
+  apply le_antisymm (g i).tsum_coe
+  have hc_le : (⨅ j, (g j).mass) ≤ 1 := (iInf_le _ i).trans (g i).tsum_coe
+  have hc_ge_F : (⨅ j, (g j).mass) ≥ F (⨅ j, (g j).mass) := le_iInf (fun j => h_step j hc_le)
+  calc (1 : ℝ≥0∞) = ⨅ j, (g j).mass := (hF _ hc_le hc_ge_F).symm
+    _ ≤ (g i).mass := iInf_le _ i
+
 end is_pmf
+
+section couplings
+
+/-- Compose two couplings through a shared marginal `y`.
+
+Given coupling `couplingXY` with marginals `x` and `y`, and coupling `couplingYZ`
+with marginals `y` and `z`, produce a coupling of `x` and `z`. -/
+noncomputable def composeCouplings {α β γ : Type}
+    (y : SPMF β)
+    (couplingXY : SPMF (α × β))
+    (couplingYZ : SPMF (β × γ))
+    (hXY : ∀ b, ∑' a, couplingXY (a, b) = y b)
+    (hYZ : ∀ b, ∑' c, couplingYZ (b, c) = y b) : SPMF (α × γ) := by
+  refine ⟨fun (a, c) => ∑' b, couplingXY (a, b) * couplingYZ (b, c) / y b, ?_⟩
+  classical
+  have hy_ne_top : ∀ b : β, y b ≠ ⊤ := fun b =>
+    ne_top_of_lt ((ENNReal.le_tsum b).trans y.property |>.trans_lt ENNReal.one_lt_top)
+  calc ∑' (ac : α × γ) (b : β), couplingXY (ac.1, b) * couplingYZ (b, ac.2) / y b
+      = ∑' (b : β) (ac : α × γ), couplingXY (ac.1, b) * couplingYZ (b, ac.2) / y b := by
+        rw [ENNReal.tsum_comm]
+    _ = ∑' (b : β), (y b)⁻¹ * ∑' (ac : α × γ), couplingXY (ac.1, b) * couplingYZ (b, ac.2) := by
+        congr 1; ext b
+        rw [← ENNReal.tsum_mul_left]
+        congr 1; ext ⟨a₁, a₂⟩
+        rw [ENNReal.div_eq_inv_mul, mul_comm (y b)⁻¹]
+    _ = ∑' (b : β), (y b)⁻¹ * ((∑' a : α, couplingXY (a, b)) * ∑' c : γ, couplingYZ (b, c)) := by
+        congr 1; ext b; congr 1
+        rw [ENNReal.tsum_prod']
+        simp_rw [ENNReal.tsum_mul_left]
+        rw [ENNReal.tsum_mul_right]
+    _ = ∑' (b : β), (y b)⁻¹ * (y b * y b) := by
+        congr 1; ext b; congr 1; congr 1
+        · exact hXY b
+        · exact hYZ b
+    _ = ∑' (b : β), y b := by
+        congr 1; ext b
+        rcases eq_or_ne (y b) 0 with h | h
+        · simp [h]
+        · rw [← mul_assoc, ENNReal.inv_mul_cancel h (hy_ne_top b), one_mul]
+    _ ≤ 1 := y.property
+
+end couplings
 
 end SPMF
