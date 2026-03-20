@@ -34,6 +34,7 @@ def Tree.genBST [Gen G] (lo hi : Nat) : G (Tree Nat) := do
         return node l x r)
 partial_fixpoint
 
+/-- `genBST` produces the correct set of inputs. -/
 theorem Tree.genBST_support :
     SPMF.support (Tree.genBST lo hi) = {t | Tree.isBST lo hi t} := by
   refine (Set.ext ?_)
@@ -45,7 +46,7 @@ theorem Tree.genBST_support :
     <;> simp
     <;> grind
 
-
+/-- `genBST` terminates with probability 1. -/
 theorem Tree.genBST_terminates : SPMF.IsPMF (Tree.genBST lo hi) := by
   haveI : Nonempty (Nat × Nat) := ⟨(0, 0)⟩
   refine (SPMF.IsPMF_of_mass_fixpoint
@@ -72,9 +73,10 @@ theorem Tree.genBST_terminates : SPMF.IsPMF (Tree.genBST lo hi) := by
           intro l
           exact le_trans (iInf_le _ (x + 1, hi')) SPMF.mass_bind_pure.symm.le)
 
-open Lean.Order in
+/-- `genBST` makes a linear number of choices in the size of the tree it generates (no backtracking choices). -/
 theorem Tree.genBST_cost :
     ∃ m b, IsBounded (Tree.genBST lo hi) (fun t => m * t.size + b) := by
+  open Lean.Order in
   exists 3; exists 1
   delta genBST
   apply (fix_induct (motive := fun (g : Nat → Nat → CostSPMF (Tree Nat)) => ∀ lo hi, IsBounded (g lo hi) (fun t => 3 * t.size + 1)) _ ?admissible ?step)
@@ -94,6 +96,7 @@ theorem Tree.genBST_cost :
         CostSPMF.mem_support_pure_iff
       ]
 
+/- `genBST` can be run in `IO`. -/
 #guard_msgs(drop info) in
 #eval (for _ in [0:20] do
   IO.println <| repr (← Tree.genBST 0 10) : IO Unit)
