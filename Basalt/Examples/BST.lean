@@ -68,26 +68,30 @@ theorem Tree.genBST_terminates : SPMF.IsPMF (Tree.genBST lo hi) := by
   refine (SPMF.IsPMF_of_mass_fixpoint
       (g := fun (lo, hi) => (Tree.genBST lo hi : SPMF (Tree Nat)))
       (F := fun c => 1 / 2 + 1 / 2 * c ^ 2)
-      (fun c hle hge => ennreal_one_of_ge_half_add_half_sq hle hge) ?_) (lo, hi)
-  intro ⟨lo', hi'⟩ hc_le
-  dsimp only
-  by_cases hlt : lo' > hi'
-  · rw [Tree.genBST, dif_pos hlt, SPMF.mass_pure]
-    calc (1 : ENNReal) = 1 / 2 + 1 / 2 := (ENNReal.add_halves 1).symm
-      _ ≥ 1 / 2 + 1 / 2 * (⨅ p : Nat × Nat, (Tree.genBST p.1 p.2 : SPMF (Tree Nat)).mass) ^ 2 := by
-          gcongr
-          exact mul_le_of_le_one_right (zero_le _) (pow_le_one₀ (zero_le _) hc_le)
-  · push_neg at hlt
-    conv_lhs => rw [Tree.genBST, dif_neg (show ¬lo' > hi' by omega)]
-    rw [SPMF.mass_pick, SPMF.mass_pure, mul_one]
-    gcongr
-    simpa [one_mul] using SPMF.mass_bind_ge_mul
-        (SPMF.IsPMF_choose lo' hi' hlt).symm.le
-        (fun x => by
-          rw [sq]
-          apply SPMF.mass_bind_ge_mul (iInf_le _ (lo', x - 1))
-          intro l
-          exact le_trans (iInf_le _ (x + 1, hi')) SPMF.mass_bind_pure.symm.le)
+      ?bounds ?mass) (lo, hi)
+  case bounds =>
+    intro c hle hge
+    exact ennreal_one_of_ge_half_add_half_sq hle hge
+  case mass =>
+    intro ⟨lo', hi'⟩ hc_le
+    dsimp only
+    by_cases hlt : lo' > hi'
+    · rw [Tree.genBST, dif_pos hlt, SPMF.mass_pure]
+      calc (1 : ENNReal) = 1 / 2 + 1 / 2 := (ENNReal.add_halves 1).symm
+        _ ≥ 1 / 2 + 1 / 2 * (⨅ p : Nat × Nat, (Tree.genBST p.1 p.2 : SPMF (Tree Nat)).mass) ^ 2 := by
+            gcongr
+            exact mul_le_of_le_one_right (zero_le _) (pow_le_one₀ (zero_le _) hc_le)
+    · push_neg at hlt
+      conv_lhs => rw [Tree.genBST, dif_neg (show ¬lo' > hi' by omega)]
+      rw [SPMF.mass_pick, SPMF.mass_pure, mul_one]
+      gcongr
+      simpa [one_mul] using SPMF.mass_bind_ge_mul
+          (SPMF.IsPMF_choose lo' hi' hlt).symm.le
+          (fun x => by
+            rw [sq]
+            apply SPMF.mass_bind_ge_mul (iInf_le _ (lo', x - 1))
+            intro l
+            exact le_trans (iInf_le _ (x + 1, hi')) SPMF.mass_bind_pure.symm.le)
 
 /-- `genBST` makes a linear number of choices in the size of the tree it generates (no backtracking choices). -/
 theorem Tree.genBST_cost :
