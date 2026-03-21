@@ -46,22 +46,6 @@ theorem Tree.genBST_support :
     <;> simp
     <;> grind
 
-lemma ennreal_one_of_ge_half_add_half_sq {c : ENNReal}
-    (hc_le : c ≤ 1) (h : c ≥ 1 / 2 + 1 / 2 * c ^ 2) : c = 1 := by
-  have hc_ne  : c ≠ ⊤     := ne_top_of_le_ne_top ENNReal.one_ne_top hc_le
-  have hc2_ne : c ^ 2 ≠ ⊤ := ne_top_of_le_ne_top ENNReal.one_ne_top (pow_le_one₀ (zero_le _) hc_le)
-  have hle : c.toReal ≤ 1 := by simpa using (ENNReal.toReal_le_toReal hc_ne ENNReal.one_ne_top).mpr hc_le
-  have hge : c.toReal ≥ 1 / 2 + 1 / 2 * c.toReal ^ 2 := by
-    have h2ne : (1 / 2 + 1 / 2 * c ^ 2 : ENNReal) ≠ ⊤ :=
-      ENNReal.add_ne_top.mpr ⟨by norm_num, ENNReal.mul_ne_top (by norm_num) hc2_ne⟩
-    have hmono := (ENNReal.toReal_le_toReal h2ne hc_ne).mpr h
-    rw [ENNReal.toReal_add (by norm_num) (ENNReal.mul_ne_top (by norm_num) hc2_ne),
-        ENNReal.toReal_mul, ENNReal.toReal_pow] at hmono
-    norm_num at hmono
-    linarith
-  have hone : c.toReal = 1 := by nlinarith
-  rw [← ENNReal.ofReal_toReal hc_ne, hone, ENNReal.ofReal_one]
-
 /-- `genBST` terminates with probability 1. -/
 theorem Tree.genBST_terminates : SPMF.IsPMF (Tree.genBST lo hi) := by
   haveI : Nonempty (Nat × Nat) := ⟨(0, 0)⟩
@@ -70,8 +54,20 @@ theorem Tree.genBST_terminates : SPMF.IsPMF (Tree.genBST lo hi) := by
       (F := fun c => 1 / 2 + 1 / 2 * c ^ 2)
       ?bounds ?mass) (lo, hi)
   case bounds =>
-    intro c hle hge
-    exact ennreal_one_of_ge_half_add_half_sq hle hge
+    intro c hc_le h
+    have hc_ne  : c ≠ ⊤     := ne_top_of_le_ne_top ENNReal.one_ne_top hc_le
+    have hc2_ne : c ^ 2 ≠ ⊤ := ne_top_of_le_ne_top ENNReal.one_ne_top (pow_le_one₀ (zero_le _) hc_le)
+    have hle : c.toReal ≤ 1 := by simpa using (ENNReal.toReal_le_toReal hc_ne ENNReal.one_ne_top).mpr hc_le
+    have hge : c.toReal ≥ 1 / 2 + 1 / 2 * c.toReal ^ 2 := by
+      have h2ne : (1 / 2 + 1 / 2 * c ^ 2 : ENNReal) ≠ ⊤ :=
+        ENNReal.add_ne_top.mpr ⟨by norm_num, ENNReal.mul_ne_top (by norm_num) hc2_ne⟩
+      have hmono := (ENNReal.toReal_le_toReal h2ne hc_ne).mpr h
+      rw [ENNReal.toReal_add (by norm_num) (ENNReal.mul_ne_top (by norm_num) hc2_ne),
+          ENNReal.toReal_mul, ENNReal.toReal_pow] at hmono
+      norm_num at hmono
+      linarith
+    have hone : c.toReal = 1 := by nlinarith
+    rw [← ENNReal.ofReal_toReal hc_ne, hone, ENNReal.ofReal_one]
   case mass =>
     intro ⟨lo', hi'⟩ hc_le
     dsimp only
