@@ -13,6 +13,16 @@ This file defines a type of sub-probability mass functions, similar to `PMF` fro
 /-- A sub-probability mass function is similar to a PMF, but the total mass may be less than 1. -/
 def SPMF.{u} (α : Type u) : Type u := {μ : α → ℝ≥0∞ // (∑' a, μ a) ≤ 1}
 
+/-- If `c ≤ 1`, `v ≠ ⊤`, `c ≥ v`, and real arithmetic shows `x ≥ v.toReal ∧ x ≤ 1 → x = 1`,
+then `c = 1`. Used to close the `bounds` case of `IsPMF_of_mass_fixpoint` proofs. -/
+lemma ENNReal.eq_one_of_fixed_ineq {c v : ENNReal}
+    (hle : c ≤ 1) (hv_ne : v ≠ ⊤) (hge : c ≥ v)
+    (hf_one : c.toReal ≥ v.toReal → c.toReal ≤ 1 → c.toReal = 1) : c = 1 := by
+  have hc_ne : c ≠ ⊤ := ne_top_of_le_ne_top one_ne_top hle
+  have hle' : c.toReal ≤ 1 := (toReal_le_toReal hc_ne one_ne_top).mpr hle
+  have hmono := (toReal_le_toReal hv_ne hc_ne).mpr hge
+  rw [← ofReal_toReal hc_ne, hf_one hmono hle', ofReal_one]
+
 namespace SPMF
 
 instance instBot : Bot (SPMF α) where
@@ -534,6 +544,22 @@ theorem mass_bind_pure {x : SPMF α} {f : α → β} :
   classical
   unfold mass
   simp only [Bind.bind, bind, Pure.pure, pure, DFunLike.coe]
+  rw [ENNReal.tsum_comm]
+  congr 1
+  ext a
+  rw [tsum_eq_single (f a)]
+  · simp
+  · intro b hb
+    simp only [mul_ite, mul_one, mul_zero]
+    split_ifs with heq
+    · simp_all
+    · rfl
+
+theorem mass_map {x : SPMF α} {f : α → β} :
+    (f <$> x).mass = x.mass := by
+  classical
+  unfold mass
+  simp only [Functor.map, bind, pure, DFunLike.coe, Function.comp_apply]
   rw [ENNReal.tsum_comm]
   congr 1
   ext a

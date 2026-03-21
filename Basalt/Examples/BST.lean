@@ -53,40 +53,31 @@ theorem Tree.genBST_terminates : SPMF.IsPMF (Tree.genBST lo hi) := by
       (F := fun c => 1 / 2 + 1 / 2 * c ^ 2)
       ?bounds ?mass) (lo, hi)
   case bounds =>
-    intro c hc_le h
-    have hc_ne  : c ≠ ⊤     := ne_top_of_le_ne_top ENNReal.one_ne_top hc_le
-    have hc2_ne : c ^ 2 ≠ ⊤ := ne_top_of_le_ne_top ENNReal.one_ne_top (pow_le_one₀ (zero_le _) hc_le)
-    have hle : c.toReal ≤ 1 := by simpa using (ENNReal.toReal_le_toReal hc_ne ENNReal.one_ne_top).mpr hc_le
-    have hge : c.toReal ≥ 1 / 2 + 1 / 2 * c.toReal ^ 2 := by
-      have h2ne : (1 / 2 + 1 / 2 * c ^ 2 : ENNReal) ≠ ⊤ :=
-        ENNReal.add_ne_top.mpr ⟨by norm_num, ENNReal.mul_ne_top (by norm_num) hc2_ne⟩
-      have hmono := (ENNReal.toReal_le_toReal h2ne hc_ne).mpr h
-      rw [ENNReal.toReal_add (by norm_num) (ENNReal.mul_ne_top (by norm_num) hc2_ne),
-          ENNReal.toReal_mul, ENNReal.toReal_pow] at hmono
+    intro c hle hge
+    apply ENNReal.eq_one_of_fixed_ineq hle _ hge
+    . intro hmono hle'
+      rw [ENNReal.toReal_add (by norm_num) (by aesop), ENNReal.toReal_mul] at hmono
       norm_num at hmono
-      linarith
-    have hone : c.toReal = 1 := by nlinarith
-    rw [← ENNReal.ofReal_toReal hc_ne, hone, ENNReal.ofReal_one]
+      nlinarith
+    . aesop
   case mass =>
-    intro ⟨lo', hi'⟩ hc_le
+    intro ⟨lo, hi⟩ hc_le
     dsimp only
-    by_cases hlt : lo' > hi'
+    by_cases hlt : lo > hi
     · rw [Tree.genBST, dif_pos hlt, SPMF.mass_pure]
-      calc (1 : ENNReal) = 1 / 2 + 1 / 2 := (ENNReal.add_halves 1).symm
-        _ ≥ 1 / 2 + 1 / 2 * (⨅ p : Nat × Nat, (Tree.genBST p.1 p.2 : SPMF (Tree Nat)).mass) ^ 2 := by
-            gcongr
-            exact mul_le_of_le_one_right (zero_le _) (pow_le_one₀ (zero_le _) hc_le)
+      conv_lhs => rw [← ENNReal.add_halves 1]
+      simp [mul_le_of_le_one_right, zero_le, pow_le_one₀, hc_le]
     · push_neg at hlt
-      conv_lhs => rw [Tree.genBST, dif_neg (show ¬lo' > hi' by omega)]
+      conv_lhs => rw [Tree.genBST, dif_neg (by omega)]
       rw [SPMF.mass_pick, SPMF.mass_pure, mul_one]
       gcongr
-      simpa [one_mul] using SPMF.mass_bind_ge_mul
-          (SPMF.IsPMF_choose lo' hi' hlt).symm.le
-          (fun x => by
-            rw [sq]
-            apply SPMF.mass_bind_ge_mul (iInf_le _ (lo', x - 1))
-            intro l
-            exact le_trans (iInf_le _ (x + 1, hi')) SPMF.mass_bind_pure.symm.le)
+      rw [sq]
+      apply le_trans (Eq.le (one_mul _).symm)
+      apply SPMF.mass_bind_ge_mul (SPMF.IsPMF_choose lo hi hlt).symm.le
+      intro x
+      apply SPMF.mass_bind_ge_mul (iInf_le _ (lo, x - 1))
+      intro l
+      exact le_trans (iInf_le _ (x + 1, hi)) SPMF.mass_bind_pure.symm.le
 
 /-- `genBST` makes a linear number of choices in the size of the tree it generates (no backtracking choices). -/
 theorem Tree.genBST_cost :
