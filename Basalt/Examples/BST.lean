@@ -1,5 +1,4 @@
 import Basalt
-import Basalt.Cost.CostSPMF
 
 open RandomChoice
 
