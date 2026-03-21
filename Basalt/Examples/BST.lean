@@ -2,7 +2,7 @@ import Basalt
 
 open RandomChoice
 
-namespace TreeExample
+namespace BST
 
 inductive Tree (α : Type) where
   | leaf : Tree α
@@ -116,4 +116,4 @@ theorem Tree.genBST_cost :
 #eval (for _ in [0:20] do
   IO.println <| repr (← Tree.genBST 0 10) : IO Unit)
 
-end TreeExample
+end BST
