@@ -15,7 +15,6 @@ partial_fixpoint
 theorem Nat.arbitrary_support : n ∈ SPMF.support Nat.arbitrary := by
   induction n <;> rw [Nat.arbitrary] <;> simp [*]
 
-
 theorem Nat.arbitrary_terminates : SPMF.IsPMF Nat.arbitrary := by
   refine (SPMF.IsPMF_of_mass_fixpoint
     (g := fun () => (Nat.arbitrary : SPMF Nat))
@@ -51,6 +50,11 @@ theorem Nat.arbitrary_cost :
       CostSPMF.mem_support_choose_iff,
       CostSPMF.mem_support_pure_iff
     ]
+
+instance : LawfulGenerator Nat.arbitrary ⊤ (fun n => n + 1) where
+  is_correct := by simp [Nat.arbitrary_support]
+  is_ast := Nat.arbitrary_terminates
+  is_cost_bounded := Nat.arbitrary_cost
 
 #guard_msgs(drop info) in
 #eval (for _ in [0:20] do

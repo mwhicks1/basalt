@@ -14,9 +14,7 @@ def List.arbitrary [Gen G] : G (List Nat) := do
       return x :: xs)
 partial_fixpoint
 
-theorem List.arbitrary_support : SPMF.support List.arbitrary = Set.univ := by
-  refine (Set.ext ?_)
-  intro xs
+theorem List.arbitrary_support : xs ∈ SPMF.support List.arbitrary := by
   induction xs <;> rw [List.arbitrary]
   case _ => simp
   case _ x xs ih => simp [ih, Nat.arbitrary_support]
@@ -64,6 +62,11 @@ theorem List.arbitrary_cost :
     · simp_all [CostSPMF.mem_support_pure_iff]
     · simp only [CostSPMF.mem_support_bind_iff, CostSPMF.mem_support_pure_iff] at hrest
       grind
+
+instance : LawfulGenerator List.arbitrary ⊤ (fun xs => 2 * xs.length + xs.sum + 1) where
+  is_correct := by simp [List.arbitrary_support]
+  is_ast := List.arbitrary_terminates
+  is_cost_bounded := List.arbitrary_cost
 
 #guard_msgs(drop info) in
 #eval (for _ in [0:20] do

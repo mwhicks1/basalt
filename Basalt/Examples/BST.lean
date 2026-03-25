@@ -35,9 +35,7 @@ partial_fixpoint
 
 /-- `genBST` produces the correct set of inputs. -/
 theorem Tree.genBST_support :
-    SPMF.support (Tree.genBST lo hi) = {t | Tree.isBST lo hi t} := by
-  refine (Set.ext ?_)
-  intro t
+    t ∈ SPMF.support (Tree.genBST lo hi) ↔ t ∈ {t | Tree.isBST lo hi t} := by
   simp
   fun_induction Tree.isBST
     <;> rw [Tree.genBST]
@@ -100,6 +98,11 @@ theorem Tree.genBST_cost :
         CostSPMF.mem_support_choose_iff,
         CostSPMF.mem_support_pure_iff
       ]
+
+instance {lo hi : Nat} : LawfulGenerator (Tree.genBST lo hi) (Tree.isBST lo hi) (fun t => 3 * t.size + 1) where
+  is_correct := Tree.genBST_support
+  is_ast := Tree.genBST_terminates
+  is_cost_bounded := Tree.genBST_cost
 
 /- `genBST` can be run in `IO`. -/
 #guard_msgs(drop info) in
