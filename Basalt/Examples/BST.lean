@@ -81,9 +81,8 @@ theorem Tree.genBST_terminates : SPMF.IsPMF (Tree.genBST lo hi) := by
 
 /-- `genBST` makes a linear number of choices in the size of the tree it generates (no backtracking choices). -/
 theorem Tree.genBST_cost :
-    ∃ m b, IsBounded (Tree.genBST lo hi) (fun t => m * t.size + b) := by
+    IsBounded (Tree.genBST lo hi) (fun t => 3 * t.size + 1) := by
   open Lean.Order in
-  exists 3; exists 1
   delta genBST
   apply (fix_induct (motive := fun (g : Nat → Nat → CostSPMF (Tree Nat)) => ∀ lo hi, IsBounded (g lo hi) (fun t => 3 * t.size + 1)) _ ?admissible ?step)
   case admissible =>

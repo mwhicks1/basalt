@@ -43,7 +43,27 @@ theorem List.arbitrary_terminates : SPMF.IsPMF List.arbitrary := by
     apply le_trans _ (SPMF.mass_bind_ge_mul Nat.arbitrary_terminates.symm.le (fun x => SPMF.mass_map.symm.le))
     simp
 
--- TODO: Cost
+theorem List.arbitrary_cost :
+    IsBounded List.arbitrary (fun xs => 2 * xs.length + xs.sum + 1) := by
+  open Lean.Order in
+  delta arbitrary
+  apply fix_induct (motive := fun (g : CostSPMF (List Nat)) =>
+    IsBounded g (fun xs => 2 * xs.length + xs.sum + 1)) _ ?admissible ?step
+  case admissible =>
+    apply admissible_IsBounded
+  case step =>
+    intro arbitrary_rec ih
+    simp [IsBounded_iff] at *
+    have hnat : ∀ p ∈ (Nat.arbitrary : CostSPMF Nat).support,
+        p.2 ≤ p.1 + 1 := IsBounded_iff.mp Nat.arbitrary_cost
+    intro xs c hxs
+    unfold pick at hxs
+    simp only [CostSPMF.mem_support_bind_iff, CostSPMF.mem_support_choose_iff] at hxs
+    obtain ⟨k, c1, c2, ⟨_, hk1, rfl⟩, hrest, rfl⟩ := hxs
+    split_ifs at hrest with hk
+    · simp_all [CostSPMF.mem_support_pure_iff]
+    · simp only [CostSPMF.mem_support_bind_iff, CostSPMF.mem_support_pure_iff] at hrest
+      grind
 
 #guard_msgs(drop info) in
 #eval (for _ in [0:20] do

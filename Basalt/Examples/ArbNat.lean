@@ -35,11 +35,10 @@ theorem Nat.arbitrary_terminates : SPMF.IsPMF Nat.arbitrary := by
     simp [SPMF.mass_pick, SPMF.mass_pure, SPMF.mass_map]
 
 theorem Nat.arbitrary_cost :
-    ∃ m b, IsBounded Nat.arbitrary (fun n => m * n + b) := by
+    IsBounded Nat.arbitrary (fun n => n + 1) := by
   open Lean.Order in
-  exists 1; exists 1
   delta arbitrary
-  apply fix_induct (motive := fun (g : CostSPMF Nat) => IsBounded g (fun n => 1 * n + 1)) _ ?admissible ?step
+  apply fix_induct (motive := fun (g : CostSPMF Nat) => IsBounded g (fun n => n + 1)) _ ?admissible ?step
   case admissible =>
     apply admissible_IsBounded
   case step =>
