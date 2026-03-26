@@ -176,9 +176,7 @@ end operations
 
 section operation_uses
 
--- TODO: Should we have these "_apply" lemmas for every operation? Or is that redundant with `mass`
--- below? We should figure this out based on usages in the `Examples` directory.
-theorem pick_apply {x y : SPMF α} (a : α) :
+private lemma pick_apply {x y : SPMF α} (a : α) :
     (pick (fun () => x) (fun () => y)) a =
     (1/2 : ℝ≥0∞) * x a + (1/2 : ℝ≥0∞) * y a := by
   simp only [pick, Bind.bind, bind]
@@ -205,8 +203,7 @@ theorem pick_apply {x y : SPMF α} (a : α) :
     norm_num
   simp only [h0, h1, beq_self_eq_true, ite_true, one_ne_zero, beq_iff_eq, ite_false]
 
-@[simp]
-theorem bot_apply (a : α) : Bot.bot (α := SPMF α) a = 0 := rfl
+private lemma bot_apply (a : α) : Bot.bot (α := SPMF α) a = 0 := rfl
 
 end operation_uses
 

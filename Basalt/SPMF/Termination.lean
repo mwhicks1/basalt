@@ -21,13 +21,13 @@ theorem mass_pick {x y : SPMF α} :
 
 @[simp]
 theorem mass_bot : Bot.bot (α := SPMF α).mass = 0 := by
-  simp [mass]
+  simp only [mass, ENNReal.tsum_eq_zero]
+  solve_by_elim
 
 theorem mass_eq_zero_iff {x : SPMF α} : x.mass = 0 ↔ x = Bot.bot := by
   constructor
   · intro h
     ext a
-    simp only [bot_apply]
     have : ∑' a, x a = 0 := h
     exact (ENNReal.tsum_eq_zero.mp this) a
   · intro h
@@ -78,7 +78,6 @@ theorem mass_choose (lo hi : Nat) (h : lo ≤ hi) : (choose lo hi h : SPMF Nat).
             (tsum_eq_sum hsupp).symm
     exact le_of_eq eq1
 
--- TODO: Change to mass_map?
 theorem mass_bind_pure {x : SPMF α} {f : α → β} :
     (x >>= fun a => Pure.pure (f a)).mass = x.mass := by
   classical
