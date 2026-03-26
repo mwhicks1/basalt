@@ -45,22 +45,22 @@ theorem List.arbitrary_cost :
     IsBounded List.arbitrary (fun xs => 2 * xs.length + xs.sum + 1) := by
   open Lean.Order in
   delta arbitrary
-  apply fix_induct (motive := fun (g : CostSPMF (List Nat)) =>
+  apply fix_induct (motive := fun (g : SPMF.Cost (List Nat)) =>
     IsBounded g (fun xs => 2 * xs.length + xs.sum + 1)) _ ?admissible ?step
   case admissible =>
     apply admissible_IsBounded
   case step =>
     intro arbitrary_rec ih
     simp [IsBounded_iff] at *
-    have hnat : ∀ p ∈ (Nat.arbitrary : CostSPMF Nat).support,
+    have hnat : ∀ p ∈ (Nat.arbitrary : SPMF.Cost Nat).support,
         p.2 ≤ p.1 + 1 := IsBounded_iff.mp Nat.arbitrary_cost
     intro xs c hxs
     unfold pick at hxs
-    simp only [CostSPMF.mem_support_bind_iff, CostSPMF.mem_support_choose_iff] at hxs
+    simp only [SPMF.Cost.mem_support_bind_iff, SPMF.Cost.mem_support_choose_iff] at hxs
     obtain ⟨k, c1, c2, ⟨_, hk1, rfl⟩, hrest, rfl⟩ := hxs
     split_ifs at hrest with hk
-    · simp_all [CostSPMF.mem_support_pure_iff]
-    · simp only [CostSPMF.mem_support_bind_iff, CostSPMF.mem_support_pure_iff] at hrest
+    · simp_all [SPMF.Cost.mem_support_pure_iff]
+    · simp only [SPMF.Cost.mem_support_bind_iff, SPMF.Cost.mem_support_pure_iff] at hrest
       grind
 
 instance : LawfulGenerator List.arbitrary ⊤ (fun xs => 2 * xs.length + xs.sum + 1) where

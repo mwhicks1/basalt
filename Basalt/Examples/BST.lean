@@ -82,7 +82,7 @@ theorem Tree.genBST_cost :
     IsBounded (Tree.genBST lo hi) (fun t => 3 * t.size + 1) := by
   open Lean.Order in
   delta genBST
-  apply (fix_induct (motive := fun (g : Nat → Nat → CostSPMF (Tree Nat)) => ∀ lo hi, IsBounded (g lo hi) (fun t => 3 * t.size + 1)) _ ?admissible ?step)
+  apply (fix_induct (motive := fun (g : Nat → Nat → SPMF.Cost (Tree Nat)) => ∀ lo hi, IsBounded (g lo hi) (fun t => 3 * t.size + 1)) _ ?admissible ?step)
   case admissible =>
     exact admissible_pi_apply _ fun _ => admissible_pi_apply _ fun _ => admissible_IsBounded _
   case step =>
@@ -94,9 +94,9 @@ theorem Tree.genBST_cost :
     · grind only [
         pick,
         size,
-        CostSPMF.mem_support_bind_iff,
-        CostSPMF.mem_support_choose_iff,
-        CostSPMF.mem_support_pure_iff
+        SPMF.Cost.mem_support_bind_iff,
+        SPMF.Cost.mem_support_choose_iff,
+        SPMF.Cost.mem_support_pure_iff
       ]
 
 instance {lo hi : Nat} : LawfulGenerator (Tree.genBST lo hi) (Tree.isBST lo hi) (fun t => 3 * t.size + 1) where

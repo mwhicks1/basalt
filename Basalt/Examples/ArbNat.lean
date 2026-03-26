@@ -37,7 +37,7 @@ theorem Nat.arbitrary_cost :
     IsBounded Nat.arbitrary (fun n => n + 1) := by
   open Lean.Order in
   delta arbitrary
-  apply fix_induct (motive := fun (g : CostSPMF Nat) => IsBounded g (fun n => n + 1)) _ ?admissible ?step
+  apply fix_induct (motive := fun (g : SPMF.Cost Nat) => IsBounded g (fun n => n + 1)) _ ?admissible ?step
   case admissible =>
     apply admissible_IsBounded
   case step =>
@@ -46,9 +46,9 @@ theorem Nat.arbitrary_cost :
     intro n c hn
     grind only [
       pick,
-      CostSPMF.mem_support_bind_iff,
-      CostSPMF.mem_support_choose_iff,
-      CostSPMF.mem_support_pure_iff
+      SPMF.Cost.mem_support_bind_iff,
+      SPMF.Cost.mem_support_choose_iff,
+      SPMF.Cost.mem_support_pure_iff
     ]
 
 instance : LawfulGenerator Nat.arbitrary ⊤ (fun n => n + 1) where

@@ -3,37 +3,80 @@ import Basalt.RandomChoice
 
 open RandomChoice
 
-abbrev CostSPMF (α : Type) : Type := SPMF (α × Nat)
+namespace SPMF
 
-namespace CostSPMF
+/-- Compose two couplings through a shared marginal `y`.
 
-instance instInhabited : Inhabited (CostSPMF α) where
+Given coupling `couplingXY` with marginals `x` and `y`, and coupling `couplingYZ`
+with marginals `y` and `z`, produce a coupling of `x` and `z`. -/
+noncomputable def composeCouplings {α β γ : Type}
+    (y : SPMF β)
+    (couplingXY : SPMF (α × β))
+    (couplingYZ : SPMF (β × γ))
+    (hXY : ∀ b, ∑' a, couplingXY (a, b) = y b)
+    (hYZ : ∀ b, ∑' c, couplingYZ (b, c) = y b) : SPMF (α × γ) := by
+  refine ⟨fun (a, c) => ∑' b, couplingXY (a, b) * couplingYZ (b, c) / y b, ?_⟩
+  classical
+  have hy_ne_top : ∀ b : β, y b ≠ ⊤ := fun b =>
+    ne_top_of_lt ((ENNReal.le_tsum b).trans y.property |>.trans_lt ENNReal.one_lt_top)
+  calc ∑' (ac : α × γ) (b : β), couplingXY (ac.1, b) * couplingYZ (b, ac.2) / y b
+      = ∑' (b : β) (ac : α × γ), couplingXY (ac.1, b) * couplingYZ (b, ac.2) / y b := by
+        rw [ENNReal.tsum_comm]
+    _ = ∑' (b : β), (y b)⁻¹ * ∑' (ac : α × γ), couplingXY (ac.1, b) * couplingYZ (b, ac.2) := by
+        congr 1; ext b
+        rw [← ENNReal.tsum_mul_left]
+        congr 1; ext ⟨a₁, a₂⟩
+        rw [ENNReal.div_eq_inv_mul, mul_comm (y b)⁻¹]
+    _ = ∑' (b : β), (y b)⁻¹ * ((∑' a : α, couplingXY (a, b)) * ∑' c : γ, couplingYZ (b, c)) := by
+        congr 1; ext b; congr 1
+        rw [ENNReal.tsum_prod']
+        simp_rw [ENNReal.tsum_mul_left]
+        rw [ENNReal.tsum_mul_right]
+    _ = ∑' (b : β), (y b)⁻¹ * (y b * y b) := by
+        congr 1; ext b; congr 1; congr 1
+        · exact hXY b
+        · exact hYZ b
+    _ = ∑' (b : β), y b := by
+        congr 1; ext b
+        rcases eq_or_ne (y b) 0 with h | h
+        · simp [h]
+        · rw [← mul_assoc, ENNReal.inv_mul_cancel h (hy_ne_top b), one_mul]
+    _ ≤ 1 := y.property
+
+/-- A cost-tracking SPMF: pairs each output with the number of random choices made. -/
+abbrev Cost (α : Type) : Type := SPMF (α × Nat)
+
+end SPMF
+
+namespace SPMF.Cost
+
+instance instInhabited : Inhabited (SPMF.Cost α) where
   default := @Bot.bot (SPMF (α × Nat)) _
 
-noncomputable instance instMonad : Monad CostSPMF where
-  pure a := (pure (a, 0) : SPMF _)
+noncomputable instance instMonad : Monad SPMF.Cost where
+  pure a := (SPMF.pure (a, 0) : SPMF _)
   bind m f :=
-    Bind.bind (m := SPMF) m fun pair =>
-      Bind.bind (f pair.1) fun pair2 =>
-        pure (pair2.1, pair.2 + pair2.2)
+    SPMF.bind m fun pair =>
+      SPMF.bind (f pair.1) fun pair2 =>
+        SPMF.pure (pair2.1, pair.2 + pair2.2)
 
 section CCPO
 
 open Lean.Order
 
-instance instPartialOrder : Lean.Order.PartialOrder (CostSPMF α) where
+instance instPartialOrder : Lean.Order.PartialOrder (SPMF.Cost α) where
   rel p q := @PartialOrder.rel (SPMF (α × Nat)) _ p q
   rel_refl := @PartialOrder.rel_refl (SPMF (α × Nat)) _
   rel_trans := @PartialOrder.rel_trans (SPMF (α × Nat)) _
   rel_antisymm := @PartialOrder.rel_antisymm (SPMF (α × Nat)) _
 
-instance instCCPO : CCPO (CostSPMF α) where
+instance instCCPO : CCPO (SPMF.Cost α) where
   has_csup := by
     intros c hc
     exact @CCPO.has_csup (SPMF (α × Nat)) _ c hc
 
-instance instMonoBind : MonoBind CostSPMF where
-  bind_mono_left {α β} {m₁ m₂ : CostSPMF α} {f : α → CostSPMF β} (h : m₁ ⊑ m₂) := by
+instance instMonoBind : MonoBind SPMF.Cost where
+  bind_mono_left {α β} {m₁ m₂ : SPMF.Cost α} {f : α → SPMF.Cost β} (h : m₁ ⊑ m₂) := by
     intro pair
     simp only [Bind.bind, bind]
     unfold SPMF.bind
@@ -42,7 +85,7 @@ instance instMonoBind : MonoBind CostSPMF where
     simp only [Lean.Order.PartialOrder.rel] at h
     gcongr
     exact h (a, n₁)
-  bind_mono_right {α β} {m : CostSPMF α} {f₁ f₂ : α → CostSPMF β} (h : ∀ a, f₁ a ⊑ f₂ a) := by
+  bind_mono_right {α β} {m : SPMF.Cost α} {f₁ f₂ : α → SPMF.Cost β} (h : ∀ a, f₁ a ⊑ f₂ a) := by
     intro pair
     simp only [Bind.bind, bind]
     unfold SPMF.bind
@@ -57,13 +100,13 @@ instance instMonoBind : MonoBind CostSPMF where
 
 end CCPO
 
-noncomputable instance instRandomChoice : RandomChoice CostSPMF where
+noncomputable instance instRandomChoice : RandomChoice SPMF.Cost where
   choose lo hi h :=
     SPMF.bind (@RandomChoice.choose SPMF _ lo hi h) fun n => SPMF.pure (n, 1)
 
-noncomputable def charge (n : Nat) : CostSPMF Unit := SPMF.pure ((), n)
+noncomputable def charge (n : Nat) : SPMF.Cost Unit := SPMF.pure ((), n)
 
-instance : LE (CostSPMF α) where
+instance : LE (SPMF.Cost α) where
   le p q :=
     ∃ (coupling : SPMF ((α × ℕ) × (α × ℕ))),
       (·.1) <$> coupling = p ∧
@@ -87,9 +130,9 @@ private lemma map_snd_tsum {α β : Type} (c : SPMF (α × β)) (p : SPMF β)
     rw [tsum_eq_single b (by intro a₂ ha₂; simp [if_neg (Ne.symm ha₂)])]
   simpa using key
 
-instance : Preorder (CostSPMF α) where
+instance : Preorder (SPMF.Cost α) where
   le_refl x := by
-    exists (x >>= fun a => pure (a, a))
+    exists (x >>= fun a => Pure.pure (a, a))
     refine ⟨?_, ?_, ?_⟩ <;> simp
     grind
   le_trans x y z hxy hyz := by
@@ -155,8 +198,8 @@ instance : Preorder (CostSPMF α) where
       exact ⟨hab.1.trans hbc.1, hab.2.trans hbc.2⟩
 
 theorem bind_mono_left
-    {x y : CostSPMF α}
-    {f : α → CostSPMF β}
+    {x y : SPMF.Cost α}
+    {f : α → SPMF.Cost β}
     (hxy : x ≤ y) :
     x >>= f ≤ y >>= f := by
   have ⟨c, hcx, hcy, hc_cost⟩ := hxy
@@ -168,11 +211,11 @@ theorem bind_mono_left
   case left_marginal =>
     simp only [Functor.map] at *
     rw [← hcx]
-    simp +arith [bind, pure, SPMF.bind_assoc, SPMF.pure_bind]
+    simp +arith [Bind.bind, Pure.pure, SPMF.bind_assoc, SPMF.pure_bind]
   case right_marginal =>
     simp only [Functor.map] at *
     rw [← hcy]
-    simp only [bind, pure, SPMF.bind_assoc, SPMF.pure_bind, Function.comp_apply]
+    simp only [Bind.bind, Pure.pure, SPMF.bind_assoc, SPMF.pure_bind, Function.comp_apply]
     apply SPMF.bind_congr_support
     intro a ha
     simp +arith [(hc_cost a ha).1]
@@ -180,7 +223,7 @@ theorem bind_mono_left
     grind only [SPMF.support_bind, usr Set.mem_setOf_eq, SPMF.support_pure, = Set.mem_singleton_iff]
 
 theorem bind_mono_right
-    {f g : α → CostSPMF β}
+    {f g : α → SPMF.Cost β}
     (hfg : ∀ a, f a ≤ g a) :
     x >>= f ≤ x >>= g := by
   exists do
@@ -189,46 +232,46 @@ theorem bind_mono_right
     return ((b, ca + cb), (b, ca + cb'))
   refine ⟨?left_marginal, ?right_marginal, ?cost_refinement⟩
   case left_marginal =>
-    simp only [Functor.map, bind, Prod.forall, pure, SPMF.bind_assoc, SPMF.pure_bind, Function.comp_apply]
+    simp only [Functor.map, Bind.bind, Prod.forall, Pure.pure, SPMF.bind_assoc, SPMF.pure_bind, Function.comp_apply]
     grind only [SPMF.bind_congr_support, Classical.choose_spec, usr Exists.choose_spec, SPMF.bind_assoc, SPMF.pure_bind]
   case right_marginal =>
-    simp only [Functor.map, bind, Prod.forall, pure, SPMF.bind_assoc, SPMF.pure_bind, Function.comp_apply]
+    simp only [Functor.map, Bind.bind, Prod.forall, Pure.pure, SPMF.bind_assoc, SPMF.pure_bind, Function.comp_apply]
     grind only [SPMF.bind_congr_support, Classical.choose_spec, usr Exists.choose_spec, SPMF.bind_assoc, SPMF.pure_bind]
   case cost_refinement =>
     intro p hp
     simp only [Prod.forall, bind_pure_comp, SPMF.support_bind, SPMF.support_map, Prod.exists, Set.mem_setOf_eq] at hp
     grind
 
-noncomputable def noCharge (x : CostSPMF α) : CostSPMF α := Bind.bind (m := SPMF) (x : SPMF (α × Nat)) (fun (a, _) => pure (a, 0))
+noncomputable def noCharge (x : SPMF.Cost α) : SPMF.Cost α := SPMF.bind x (fun (a, _) => SPMF.pure (a, 0))
 
 @[simp]
-theorem noCharge_pure : noCharge (pure a) = pure a := by
-  simp [bind, pure, noCharge, SPMF.pure_bind]
+theorem noCharge_pure : noCharge (Pure.pure a) = Pure.pure a := by
+  simp [Pure.pure, noCharge, SPMF.pure_bind]
 
 @[simp]
 theorem noCharge_bind : noCharge (x >>= f) = noCharge x >>= noCharge ∘ f := by
-  simp [bind, pure, noCharge, SPMF.bind_assoc, SPMF.pure_bind]
+  simp [Bind.bind, noCharge, SPMF.bind_assoc, SPMF.pure_bind]
 
 @[simp]
-theorem noCharge_charge : noCharge (charge n) = pure () := by
-  simp [noCharge, charge, pure, bind, SPMF.pure_bind]
+theorem noCharge_charge : noCharge (charge n) = Pure.pure () := by
+  simp [noCharge, charge, Pure.pure, SPMF.pure_bind]
 
 @[simp]
-theorem noCharge_choose : noCharge (choose lo hi h) = Bind.bind (m := SPMF) (choose lo hi h : CostSPMF Nat) fun (a, _) => pure (a, 0) := by
+theorem noCharge_choose : noCharge (choose lo hi h) = SPMF.bind (choose lo hi h : SPMF.Cost Nat) fun (a, _) => SPMF.pure (a, 0) := by
   simp [noCharge]
 
 section support
 
 @[simp] theorem mem_support_pure_iff {a b : α} {n : Nat} :
-    (b, n) ∈ (pure a : CostSPMF α).support ↔ b = a ∧ n = 0 := by
-  have : (pure a : CostSPMF α) = (SPMF.pure (a, 0) : SPMF _) := rfl
+    (b, n) ∈ (Pure.pure a : SPMF.Cost α).support ↔ b = a ∧ n = 0 := by
+  have : (Pure.pure a : SPMF.Cost α) = (SPMF.pure (a, 0) : SPMF _) := rfl
   simp [this, SPMF.mem_support_pure_iff, Prod.mk.injEq]
 
 @[simp] theorem mem_support_bind_iff
-    {m : CostSPMF α} {f : α → CostSPMF β} {b : β} {n : Nat} :
+    {m : SPMF.Cost α} {f : α → SPMF.Cost β} {b : β} {n : Nat} :
     (b, n) ∈ (m >>= f).support ↔
     ∃ a n1 n2, (a, n1) ∈ m.support ∧ (b, n2) ∈ (f a).support ∧ n = n1 + n2 := by
-  have : (m >>= f : CostSPMF β) =
+  have : (m >>= f : SPMF.Cost β) =
       SPMF.bind m fun pair =>
         SPMF.bind (f pair.1) fun pair2 =>
           (SPMF.pure (pair2.1, pair.2 + pair2.2) : SPMF _) := rfl
@@ -242,8 +285,8 @@ section support
 
 @[simp] theorem mem_support_choose_iff
     {lo hi : Nat} {h : lo ≤ hi} {n c : Nat} :
-    (n, c) ∈ (choose lo hi h : CostSPMF Nat).support ↔ lo ≤ n ∧ n ≤ hi ∧ c = 1 := by
-  have : (choose lo hi h : CostSPMF Nat) =
+    (n, c) ∈ (choose lo hi h : SPMF.Cost Nat).support ↔ lo ≤ n ∧ n ≤ hi ∧ c = 1 := by
+  have : (choose lo hi h : SPMF.Cost Nat) =
       SPMF.bind (choose lo hi h : SPMF Nat) fun k => (SPMF.pure (k, 1) : SPMF _) := rfl
   rw [this]
   simp only [SPMF.mem_support_bind_iff, SPMF.support_choose, Set.mem_setOf_eq,
@@ -256,14 +299,14 @@ section support
 
 end support
 
-end CostSPMF
+end SPMF.Cost
 
-open CostSPMF
+open SPMF.Cost
 
-def IsBounded (x : CostSPMF α) (f : α → Nat) : Prop :=
+def IsBounded (x : SPMF.Cost α) (f : α → Nat) : Prop :=
   x ≤ (noCharge x >>= fun a => do charge (f a); pure a)
 
-theorem IsBounded_iff {x : CostSPMF α} {f : α → Nat} :
+theorem IsBounded_iff {x : SPMF.Cost α} {f : α → Nat} :
     IsBounded x f ↔
     ∀ p ∈ SPMF.support x, p.2 ≤ f p.1 := by
   constructor
@@ -315,7 +358,7 @@ theorem IsBounded_bind
     IsBounded (x >>= f) c := by
   simp_all only [IsBounded_iff]
   intro (b, nb) hb
-  simp only [bind, pure, SPMF.mem_support_bind_iff, SPMF.mem_support_pure_iff] at hb
+  simp only [bind, SPMF.mem_support_bind_iff, SPMF.mem_support_pure_iff] at hb
   replace ⟨(a, na), ha, ⟨(b, nb), hb, h⟩⟩ := hb
   cases h
   simp_all
@@ -330,7 +373,7 @@ theorem IsBounded_mono
 
 open Lean.Order in
 theorem admissible_IsBounded (f : α → Nat) :
-    admissible (fun (x : CostSPMF α) => IsBounded x f) := by
+    admissible (fun (x : SPMF.Cost α) => IsBounded x f) := by
   intro c hc ih
   simp only [IsBounded_iff] at *
   intro p hp
@@ -339,7 +382,7 @@ theorem admissible_IsBounded (f : α → Nat) :
   exact ih x hxc p hxp
 
 theorem IsBounded_pick
-    {fx fy : Unit → CostSPMF α}
+    {fx fy : Unit → SPMF.Cost α}
     {cx cy : α → Nat}
     (hx : IsBounded (fx ()) cx)
     (hy : IsBounded (fy ()) cy) :

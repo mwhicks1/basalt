@@ -2,7 +2,7 @@ import Basalt.RandomChoice
 import Basalt.Gen
 import Basalt.IO
 import Basalt.SPMF
-import Basalt.CostSPMF
+import Basalt.SPMF.Cost
 import Basalt.Classes
 
 /-!

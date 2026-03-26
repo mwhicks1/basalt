@@ -30,7 +30,7 @@ def List.sorted (xs : List Nat) : Prop :=
   | [_] => True
   | x :: y :: xs => x <= y ∧ List.sorted (y :: xs)
 
-lemma List.sorted_le : List.sorted (x :: xs) → List.Forall (x ≤ ·) xs := by
+lemma List.sorted_cons_forall_le : List.sorted (x :: xs) → List.Forall (x ≤ ·) xs := by
   intro h
   induction xs
   case _ => simp
@@ -68,7 +68,7 @@ theorem List.genSortedGt_support (xs : List Nat) (m : Nat) :
       replace ⟨h, hx, hy, hxs⟩ := h
       exists x - m
       grind only [
-        List.forall_iff_forall_mem, List.Forall.eq_def, List.Forall.imp, List.sorted_le,
+        List.forall_iff_forall_mem, List.Forall.eq_def, List.Forall.imp, List.sorted_cons_forall_le,
         sorted.eq_def, Nat.arbitrary_support]
 
 theorem List.genSorted_support (xs : List Nat) :
