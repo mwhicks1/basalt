@@ -1,25 +1,54 @@
+/-
+Copyright (c) 2025 Harrison Goldstein. All rights reserved.
+Released under MIT license as described in the file LICENSE.
+Authors: Harrison Goldstein
+-/
 import Basalt.SPMF.Core
 
 open Lean.Order RandomChoice NNReal ENNReal MeasureTheory
+
+/-!
+# SPMF Support
+
+<TODO: summarize>
+
+## Main Definitions
+
+- `SPMF.support` — <fill in>
+
+## Main Theorems
+
+- `support_bind` — <fill in>
+- `support_pure` — <fill in>
+- `support_choose` — <fill in>
+- `support_pick` — <fill in>
+- `mem_support_csup` — <fill in>
+-/
 
 namespace SPMF
 
 section support
 
+/-- TODO: document -/
 def support (p : SPMF α) : Set α := Function.support p
 
+/-- TODO: document -/
 theorem mem_support_iff (p : SPMF α) (a : α) : a ∈ p.support ↔ p a ≠ 0 := Iff.rfl
 
+/-- TODO: document -/
 @[simp]
 theorem support_countable (p : SPMF α) : p.support.Countable :=
   Summable.countable_support_ennreal (tsum_coe_ne_top p)
 
+/-- TODO: document -/
 theorem apply_eq_zero_iff (p : SPMF α) (a : α) : p a = 0 ↔ a ∉ p.support := by
   rw [mem_support_iff, Classical.not_not]
 
+/-- TODO: document -/
 theorem apply_pos_iff (p : SPMF α) (a : α) : 0 < p a ↔ a ∈ p.support :=
   pos_iff_ne_zero.trans (p.mem_support_iff a).symm
 
+/-- TODO: document -/
 @[simp]
 theorem support_bind
     {x : SPMF α}
@@ -44,6 +73,7 @@ theorem support_bind
     calc 0 < x a * f a b := ENNReal.mul_pos ha hb
       _ ≤ ∑' a, x a * f a b := ENNReal.le_tsum a
 
+/-- TODO: document -/
 @[simp]
 theorem mem_support_bind_iff
     {x : SPMF α}
@@ -51,6 +81,7 @@ theorem mem_support_bind_iff
     b ∈ (bind x f).support ↔ ∃ a ∈ x.support, b ∈ (f a).support := by
   simp [support, Function.mem_support, SPMF.bind, DFunLike.coe]
 
+/-- TODO: document -/
 @[simp]
 theorem support_pure :
     (Pure.pure a : SPMF _).support = {a} := by
@@ -67,11 +98,13 @@ theorem support_pure :
     show (if x = a then (1 : ℝ≥0∞) else 0) ≠ 0
     simp [h]
 
+/-- TODO: document -/
 @[simp]
 theorem mem_support_pure_iff :
     b ∈ (pure a).support ↔ b = a := by
   simp [support, Function.mem_support, SPMF.pure, DFunLike.coe]
 
+/-- TODO: document -/
 @[simp]
 theorem support_map
     {x : SPMF α}
@@ -81,6 +114,7 @@ theorem support_map
   simp only [support_bind, support_pure]
   grind
 
+/-- TODO: document -/
 @[simp]
 theorem support_choose :
     (choose lo hi h : SPMF _).support = {a | lo ≤ a ∧ a ≤ hi} := by
@@ -99,11 +133,13 @@ theorem support_choose :
     simp only [hlo, hhi, and_self, ↓reduceIte, ne_eq, one_div]
     exact ENNReal.inv_ne_zero.mpr (ENNReal.natCast_ne_top _)
 
+/-- TODO: document -/
 @[simp]
 theorem mem_support_choose_iff :
     a ∈ (choose lo hi h : SPMF Nat).support ↔ lo ≤ a ∧ a ≤ hi := by
   simp [support_choose]
 
+/-- TODO: document -/
 @[simp]
 theorem support_pick
     {x y : SPMF α} :
@@ -125,12 +161,14 @@ theorem support_pick
       refine ⟨1, ⟨Nat.zero_le _, le_refl _⟩, ?_⟩
       simpa using hy
 
+/-- TODO: document -/
 @[simp]
 theorem mem_support_pick_iff
     {x y : SPMF α} :
     a ∈ (pick (fun () => x) (fun () => y)).support ↔ a ∈ x.support ∨ a ∈ y.support := by
   simp
 
+/-- TODO: document -/
 theorem bind_congr_support
     {x : SPMF α}
     (h : ∀ a ∈ x.support, f a = g a) :
@@ -156,6 +194,7 @@ private theorem csup_apply {c : SPMF α → Prop} (hc : chain c) (a : α) :
         CCPO.csup hc ⊑ ⟨fun b => ⨆ f, ⨆ (_ : c f), f b, hsum⟩) a)
     (hge a)
 
+/-- TODO: document -/
 theorem mem_support_csup {c : SPMF α → Prop} (hc : chain c) {a : α} :
     a ∈ (CCPO.csup hc).support ↔ ∃ f, c f ∧ a ∈ f.support := by
   simp only [mem_support_iff, csup_apply, ne_eq]

@@ -64,9 +64,9 @@ theorem List.arbitrary_cost :
       grind
 
 instance : LawfulGenerator List.arbitrary ⊤ (fun xs => 2 * xs.length + xs.sum + 1) where
-  is_correct := by simp [List.arbitrary_support]
-  is_ast := List.arbitrary_terminates
-  is_cost_bounded := List.arbitrary_cost
+  support_iff := by simp [List.arbitrary_support]
+  is_pmf := List.arbitrary_terminates
+  is_bounded := List.arbitrary_cost
 
 #guard_msgs(drop info) in
 #eval (for _ in [0:20] do

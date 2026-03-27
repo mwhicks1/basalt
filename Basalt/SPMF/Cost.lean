@@ -1,7 +1,30 @@
+/-
+Copyright (c) 2025 Harrison Goldstein. All rights reserved.
+Released under MIT license as described in the file LICENSE.
+Authors: Harrison Goldstein
+-/
 import Basalt.SPMF
 import Basalt.RandomChoice
 
 open RandomChoice
+
+/-!
+# Cost-Tracking SPMF
+
+<TODO: summarize>
+
+## Main Definitions
+
+- `SPMF.Cost` — <fill in>
+- `IsBounded` — <fill in>
+- `SPMF.composeCouplings` — <fill in>
+
+## Main Theorems
+
+- `IsBounded_iff` — <fill in>
+- `IsBounded_bind` — <fill in>
+- `IsBounded_pick` — <fill in>
+-/
 
 namespace SPMF
 
@@ -50,9 +73,11 @@ end SPMF
 
 namespace SPMF.Cost
 
+/-- TODO: document -/
 instance instInhabited : Inhabited (SPMF.Cost α) where
   default := @Bot.bot (SPMF (α × Nat)) _
 
+/-- TODO: document -/
 noncomputable instance instMonad : Monad SPMF.Cost where
   pure a := (SPMF.pure (a, 0) : SPMF _)
   bind m f :=
@@ -64,17 +89,20 @@ section CCPO
 
 open Lean.Order
 
+/-- TODO: document -/
 instance instPartialOrder : Lean.Order.PartialOrder (SPMF.Cost α) where
   rel p q := @PartialOrder.rel (SPMF (α × Nat)) _ p q
   rel_refl := @PartialOrder.rel_refl (SPMF (α × Nat)) _
   rel_trans := @PartialOrder.rel_trans (SPMF (α × Nat)) _
   rel_antisymm := @PartialOrder.rel_antisymm (SPMF (α × Nat)) _
 
+/-- TODO: document -/
 instance instCCPO : CCPO (SPMF.Cost α) where
   has_csup := by
     intros c hc
     exact @CCPO.has_csup (SPMF (α × Nat)) _ c hc
 
+/-- TODO: document -/
 instance instMonoBind : MonoBind SPMF.Cost where
   bind_mono_left {α β} {m₁ m₂ : SPMF.Cost α} {f : α → SPMF.Cost β} (h : m₁ ⊑ m₂) := by
     intro pair
@@ -100,10 +128,12 @@ instance instMonoBind : MonoBind SPMF.Cost where
 
 end CCPO
 
+/-- TODO: document -/
 noncomputable instance instRandomChoice : RandomChoice SPMF.Cost where
   choose lo hi h :=
     SPMF.bind (@RandomChoice.choose SPMF _ lo hi h) fun n => SPMF.pure (n, 1)
 
+/-- TODO: document -/
 noncomputable def charge (n : Nat) : SPMF.Cost Unit := SPMF.pure ((), n)
 
 instance : LE (SPMF.Cost α) where
@@ -197,6 +227,7 @@ instance : Preorder (SPMF.Cost α) where
       have hbc := hyz₃ (b, c) ((SPMF.mem_support_iff _ _).mpr hbc_ne)
       exact ⟨hab.1.trans hbc.1, hab.2.trans hbc.2⟩
 
+/-- TODO: document -/
 theorem bind_mono_left
     {x y : SPMF.Cost α}
     {f : α → SPMF.Cost β}
@@ -222,6 +253,7 @@ theorem bind_mono_left
   case cost_refinement =>
     grind only [SPMF.support_bind, usr Set.mem_setOf_eq, SPMF.support_pure, = Set.mem_singleton_iff]
 
+/-- TODO: document -/
 theorem bind_mono_right
     {f g : α → SPMF.Cost β}
     (hfg : ∀ a, f a ≤ g a) :
@@ -242,32 +274,41 @@ theorem bind_mono_right
     simp only [Prod.forall, bind_pure_comp, SPMF.support_bind, SPMF.support_map, Prod.exists, Set.mem_setOf_eq] at hp
     grind
 
+/-- TODO: document -/
 noncomputable def noCharge (x : SPMF.Cost α) : SPMF.Cost α := SPMF.bind x (fun (a, _) => SPMF.pure (a, 0))
 
+/-- TODO: document -/
 @[simp]
 theorem noCharge_pure : noCharge (Pure.pure a) = Pure.pure a := by
   simp [Pure.pure, noCharge, SPMF.pure_bind]
 
+/-- TODO: document -/
 @[simp]
 theorem noCharge_bind : noCharge (x >>= f) = noCharge x >>= noCharge ∘ f := by
   simp [Bind.bind, noCharge, SPMF.bind_assoc, SPMF.pure_bind]
 
+/-- TODO: document -/
 @[simp]
 theorem noCharge_charge : noCharge (charge n) = Pure.pure () := by
   simp [noCharge, charge, Pure.pure, SPMF.pure_bind]
 
+/-- TODO: document -/
 @[simp]
 theorem noCharge_choose : noCharge (choose lo hi h) = SPMF.bind (choose lo hi h : SPMF.Cost Nat) fun (a, _) => SPMF.pure (a, 0) := by
   simp [noCharge]
 
 section support
 
-@[simp] theorem mem_support_pure_iff {a b : α} {n : Nat} :
+/-- TODO: document -/
+@[simp]
+theorem mem_support_pure_iff {a b : α} {n : Nat} :
     (b, n) ∈ (Pure.pure a : SPMF.Cost α).support ↔ b = a ∧ n = 0 := by
   have : (Pure.pure a : SPMF.Cost α) = (SPMF.pure (a, 0) : SPMF _) := rfl
   simp [this, SPMF.mem_support_pure_iff, Prod.mk.injEq]
 
-@[simp] theorem mem_support_bind_iff
+/-- TODO: document -/
+@[simp]
+theorem mem_support_bind_iff
     {m : SPMF.Cost α} {f : α → SPMF.Cost β} {b : β} {n : Nat} :
     (b, n) ∈ (m >>= f).support ↔
     ∃ a n1 n2, (a, n1) ∈ m.support ∧ (b, n2) ∈ (f a).support ∧ n = n1 + n2 := by
@@ -283,7 +324,9 @@ section support
   · rintro ⟨a, n1, n2, hmem1, hmem2, rfl⟩
     exact ⟨⟨a, n1⟩, hmem1, ⟨b, n2⟩, hmem2, rfl, rfl⟩
 
-@[simp] theorem mem_support_choose_iff
+/-- TODO: document -/
+@[simp]
+theorem mem_support_choose_iff
     {lo hi : Nat} {h : lo ≤ hi} {n c : Nat} :
     (n, c) ∈ (choose lo hi h : SPMF.Cost Nat).support ↔ lo ≤ n ∧ n ≤ hi ∧ c = 1 := by
   have : (choose lo hi h : SPMF.Cost Nat) =
@@ -303,9 +346,11 @@ end SPMF.Cost
 
 open SPMF.Cost
 
+/-- TODO: document -/
 def IsBounded (x : SPMF.Cost α) (f : α → Nat) : Prop :=
   x ≤ (noCharge x >>= fun a => do charge (f a); pure a)
 
+/-- TODO: document -/
 theorem IsBounded_iff {x : SPMF.Cost α} {f : α → Nat} :
     IsBounded x f ↔
     ∀ p ∈ SPMF.support x, p.2 ≤ f p.1 := by
@@ -342,12 +387,15 @@ theorem IsBounded_iff {x : SPMF.Cost α} {f : α → Nat} :
     case cost_refinement =>
       simp_all
 
+/-- TODO: document -/
 theorem IsBounded_pure : IsBounded (pure a) (fun _ => 0) := by
   simp +arith [IsBounded, noCharge, charge, pure, bind, SPMF.pure_bind]
 
+/-- TODO: document -/
 theorem IsBounded_choose : IsBounded (choose lo hi h) (fun _ => 1) := by
   simp +arith [IsBounded, noCharge, charge, pure, bind, SPMF.pure_bind, choose, SPMF.bind_assoc]
 
+/-- TODO: document -/
 theorem IsBounded_bind
     {cx : α → Nat}
     {cf : α → β → Nat}
@@ -364,6 +412,7 @@ theorem IsBounded_bind
   simp_all
   grind
 
+/-- TODO: document -/
 theorem IsBounded_mono
     (hc₁ : IsBounded x c₁)
     (h : ∀ a, c₁ a ≤ c₂ a) :
@@ -372,6 +421,7 @@ theorem IsBounded_mono
   grind
 
 open Lean.Order in
+/-- TODO: document -/
 theorem admissible_IsBounded (f : α → Nat) :
     admissible (fun (x : SPMF.Cost α) => IsBounded x f) := by
   intro c hc ih
@@ -381,6 +431,7 @@ theorem admissible_IsBounded (f : α → Nat) :
   obtain ⟨x, hxc, hxp⟩ := hp
   exact ih x hxc p hxp
 
+/-- TODO: document -/
 theorem IsBounded_pick
     {fx fy : Unit → SPMF.Cost α}
     {cx cy : α → Nat}

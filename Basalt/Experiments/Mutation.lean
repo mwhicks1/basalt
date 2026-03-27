@@ -1,14 +1,35 @@
+/-
+Copyright (c) 2025 Harrison Goldstein. All rights reserved.
+Released under MIT license as described in the file LICENSE.
+Authors: Harrison Goldstein
+-/
 import Basalt
+
+/-!
+# Mutation Testing
+
+<TODO: summarize>
+
+## Main Definitions
+
+- `Tree.dropRandomLeaf` — <fill in>
+
+## Main Theorems
+
+- <fill in>
+-/
 
 namespace MutationTest
 
 open RandomChoice
 
+/-- TODO: document -/
 inductive Tree (α : Type) where
   | leaf : Tree α
   | node : Tree α → α → Tree α → Tree α
 deriving Repr
 
+/-- TODO: document -/
 def Tree.isBST (lo hi : Nat) : Tree Nat → Prop
   | leaf => true
   | node l x r =>
@@ -16,6 +37,7 @@ def Tree.isBST (lo hi : Nat) : Tree Nat → Prop
     isBST lo (x - 1) l ∧
     isBST (x + 1) hi r
 
+/-- TODO: document -/
 def Tree.dropRandomLeaf [Gen G] : Tree α → G (Tree α)
   | leaf => pure leaf
   | node leaf x leaf => pure leaf

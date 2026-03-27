@@ -1,7 +1,27 @@
+/-
+Copyright (c) 2025 Harrison Goldstein. All rights reserved.
+Released under MIT license as described in the file LICENSE.
+Authors: Harrison Goldstein
+-/
 import Basalt.RandomChoice
 
 open Lean.Order
 
+/-!
+# Generator Typeclass
+
+<TODO: summarize>
+
+## Main Definitions
+
+- `Gen` — <fill in>
+
+## Main Theorems
+
+- <fill in>
+-/
+
+/-- TODO: document -/
 class Gen (g : Type → Type) where
   instInhabited : ∀ α, Inhabited (g α)
   instMonad : Monad g

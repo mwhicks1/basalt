@@ -100,9 +100,9 @@ theorem Tree.genBST_cost :
       ]
 
 instance {lo hi : Nat} : LawfulGenerator (Tree.genBST lo hi) (Tree.isBST lo hi) (fun t => 3 * t.size + 1) where
-  is_correct := Tree.genBST_support
-  is_ast := Tree.genBST_terminates
-  is_cost_bounded := Tree.genBST_cost
+  support_iff := Tree.genBST_support
+  is_pmf := Tree.genBST_terminates
+  is_bounded := Tree.genBST_cost
 
 /- `genBST` can be run in `IO`. -/
 #guard_msgs(drop info) in

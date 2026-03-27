@@ -1,6 +1,28 @@
+/-
+Copyright (c) 2025 Harrison Goldstein. All rights reserved.
+Released under MIT license as described in the file LICENSE.
+Authors: Harrison Goldstein
+-/
 import Basalt.SPMF.Support
 
 open Lean.Order RandomChoice NNReal ENNReal MeasureTheory
+
+/-!
+# SPMF Mass and Termination
+
+<TODO: summarize>
+
+## Main Definitions
+
+- `SPMF.mass` — <fill in>
+- `SPMF.IsPMF` — <fill in>
+
+## Main Theorems
+
+- `IsPMF_of_positive_termination_prob` — <fill in>
+- `IsPMF_of_mass_fixpoint` — <fill in>
+- `ENNReal.eq_one_of_fixed_ineq` — <fill in>
+-/
 
 namespace SPMF
 
@@ -9,6 +31,7 @@ section mass
 /-- The total mass of an SPMF. Always ≤ 1 by definition. -/
 noncomputable def mass (p : SPMF α) : ℝ≥0∞ := ∑' a, p a
 
+/-- TODO: document -/
 theorem mass_eq_zero_of_support_empty {p : SPMF α} (h : p.support = ∅) : p.mass = 0 := by
   unfold mass
   rw [ENNReal.tsum_eq_zero]
@@ -16,14 +39,17 @@ theorem mass_eq_zero_of_support_empty {p : SPMF α} (h : p.support = ∅) : p.ma
   rw [apply_eq_zero_iff]
   exact Set.eq_empty_iff_forall_notMem.mp h a
 
+/-- TODO: document -/
 theorem mass_pick {x y : SPMF α} :
     (pick (fun () => x) (fun () => y)).mass = (1/2 : ℝ≥0∞) * x.mass + (1/2 : ℝ≥0∞) * y.mass := tsum_pick
 
+/-- TODO: document -/
 @[simp]
 theorem mass_bot : Bot.bot (α := SPMF α).mass = 0 := by
   simp only [mass, ENNReal.tsum_eq_zero]
   solve_by_elim
 
+/-- TODO: document -/
 theorem mass_eq_zero_iff {x : SPMF α} : x.mass = 0 ↔ x = Bot.bot := by
   constructor
   · intro h
@@ -33,6 +59,7 @@ theorem mass_eq_zero_iff {x : SPMF α} : x.mass = 0 ↔ x = Bot.bot := by
   · intro h
     simp [h]
 
+/-- TODO: document -/
 theorem mass_pure (a : α) : (Pure.pure a : SPMF α).mass = 1 := by
   unfold mass
   simp only [Pure.pure, pure, DFunLike.coe]
@@ -41,6 +68,7 @@ theorem mass_pure (a : α) : (Pure.pure a : SPMF α).mass = 1 := by
   · intro a' ha'
     simp [ha']
 
+/-- TODO: document -/
 theorem mass_choose (lo hi : Nat) (h : lo ≤ hi) : (choose lo hi h : SPMF Nat).mass = 1 := by
   unfold mass
   apply le_antisymm
@@ -78,6 +106,7 @@ theorem mass_choose (lo hi : Nat) (h : lo ≤ hi) : (choose lo hi h : SPMF Nat).
             (tsum_eq_sum hsupp).symm
     exact le_of_eq eq1
 
+/-- TODO: document -/
 theorem mass_bind_pure {x : SPMF α} {f : α → β} :
     (x >>= fun a => Pure.pure (f a)).mass = x.mass := by
   classical
@@ -94,6 +123,7 @@ theorem mass_bind_pure {x : SPMF α} {f : α → β} :
     · simp_all
     · rfl
 
+/-- TODO: document -/
 theorem mass_map {x : SPMF α} {f : α → β} :
     (f <$> x).mass = x.mass := by
   classical
@@ -110,6 +140,7 @@ theorem mass_map {x : SPMF α} {f : α → β} :
     · simp_all
     · rfl
 
+/-- TODO: document -/
 theorem mass_bind_const {x : SPMF α} {y : SPMF β} :
     (x >>= fun _ => y).mass = x.mass * y.mass := by
   unfold mass
@@ -118,6 +149,7 @@ theorem mass_bind_const {x : SPMF α} {y : SPMF β} :
   simp_rw [ENNReal.tsum_mul_left]
   rw [← ENNReal.tsum_mul_right]
 
+/-- TODO: document -/
 theorem mass_bind_of_const_mass {x : SPMF α} {f : α → SPMF β} {c : ℝ≥0∞}
     (hx : x.mass = 1) (hf : ∀ a, (f a).mass = c) :
     (x >>= f).mass = c := by
@@ -131,6 +163,7 @@ theorem mass_bind_of_const_mass {x : SPMF α} {f : α → SPMF β} {c : ℝ≥0�
     _ = c * 1 := by rw [hx]
     _ = c := by ring
 
+/-- TODO: document -/
 theorem mass_bind {x : SPMF α} {f : α → SPMF β} (hf : ∀ a, (f a).mass = 1) :
     (x >>= f).mass = x.mass := by
   unfold mass at *
@@ -141,6 +174,7 @@ theorem mass_bind {x : SPMF α} {f : α → SPMF β} (hf : ∀ a, (f a).mass = 1
     _ = ∑' a, x a * 1 := by simp_rw [hf]
     _ = ∑' a, x a := by simp
 
+/-- TODO: document -/
 theorem mass_bind_ge_mul {x : SPMF α} {f : α → SPMF β} {c d : ℝ≥0∞}
     (hx : x.mass ≥ c) (hf : ∀ a, (f a).mass ≥ d) : (x >>= f).mass ≥ c * d := by
   have h : (x >>= f).mass ≥ x.mass * d := by
@@ -161,27 +195,33 @@ We conjecture that, this means that the probability of non-termination is vanish
 therefore that the generator almost-surely terminates. -/
 def IsPMF (p : SPMF α) : Prop := p.mass = 1
 
+/-- TODO: document -/
 theorem IsPMF_pick {x y : SPMF α} (hx : IsPMF x) (hy : IsPMF y) : IsPMF (pick (fun () => x) (fun () => y)) := by
   unfold IsPMF mass at *
   rw [tsum_pick, hx, hy]
   simp only [mul_one]
   exact ENNReal.add_halves 1
 
+/-- TODO: document -/
 theorem IsPMF_pure (a : α) : IsPMF (Pure.pure a : SPMF α) := mass_pure a
 
+/-- TODO: document -/
 theorem IsPMF_choose (lo hi : Nat) (h : lo ≤ hi) : IsPMF (choose lo hi h : SPMF Nat) :=
   mass_choose lo hi h
 
+/-- TODO: document -/
 theorem IsPMF_bind_pure {x : SPMF α} {f : α → β} (hx : IsPMF x) :
     IsPMF (x >>= fun a => Pure.pure (f a)) := by
   unfold IsPMF
   rw [mass_bind_pure, hx]
 
+/-- TODO: document -/
 theorem IsPMF_bind {x : SPMF α} {f : α → SPMF β} (hx : IsPMF x) (hf : ∀ a, IsPMF (f a)) :
     IsPMF (x >>= f) := by
   unfold IsPMF
   rw [mass_bind hf, hx]
 
+/-- TODO: document -/
 lemma weighted_avg_mono_ennreal {t p x : ℝ≥0∞}
     (htp : t ≥ p) (hx_le_one : x ≤ 1) (ht_le_one : t ≤ 1) (hp_le_one : p ≤ 1) :
     t + (1 - t) * x ≥ p + (1 - p) * x := by
@@ -214,6 +254,7 @@ lemma weighted_avg_mono_ennreal {t p x : ℝ≥0∞}
   rw [heq_t, heq_p]
   exact h1
 
+/-- TODO: document -/
 theorem IsPMF_of_positive_termination_prob
     {ι : Type*} {α : Type*} [Nonempty ι]
     (g : ι → SPMF α)

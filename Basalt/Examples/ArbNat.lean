@@ -52,9 +52,9 @@ theorem Nat.arbitrary_cost :
     ]
 
 instance : LawfulGenerator Nat.arbitrary ⊤ (fun n => n + 1) where
-  is_correct := by simp [Nat.arbitrary_support]
-  is_ast := Nat.arbitrary_terminates
-  is_cost_bounded := Nat.arbitrary_cost
+  support_iff := by simp [Nat.arbitrary_support]
+  is_pmf := Nat.arbitrary_terminates
+  is_bounded := Nat.arbitrary_cost
 
 #guard_msgs(drop info) in
 #eval (for _ in [0:20] do

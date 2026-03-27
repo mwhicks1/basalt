@@ -88,8 +88,8 @@ theorem List.genSorted_support (xs : List Nat) :
 /-- warning: declaration uses `sorry` -/
 #guard_msgs in
 instance : LawfulGenerator List.genSorted List.sorted List.genSorted.costBound where
-  is_correct := by simp [List.genSorted_support]
-  is_ast := sorry
-  is_cost_bounded := sorry
+  support_iff := by simp [List.genSorted_support]
+  is_pmf := sorry
+  is_bounded := sorry
 
 end SortedList

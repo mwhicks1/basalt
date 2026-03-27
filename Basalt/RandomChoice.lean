@@ -1,3 +1,8 @@
+/-
+Copyright (c) 2025 Harrison Goldstein. All rights reserved.
+Released under MIT license as described in the file LICENSE.
+Authors: Harrison Goldstein
+-/
 open Lean.Order
 
 /-!
@@ -18,8 +23,9 @@ def RandomChoice.pick [Monad m] [RandomChoice m] (x y : Unit → m α) := do
 def RandomChoice.coin [Monad m] [RandomChoice m] (r : Rat) : m Bool := do
   if (← choose 0 r.den (by simp)) < r.num then pure true else pure false
 
-@[partial_fixpoint_monotone]
-theorem RandomChoice.monotone_pick
+
+/-- TODO: document -/
+@[partial_fixpoint_monotone] theorem RandomChoice.monotone_pick
     [∀ α, PartialOrder (m α)]
     [Monad m]
     [MonoBind m]
