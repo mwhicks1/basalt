@@ -84,12 +84,47 @@ theorem List.genSorted_support (xs : List Nat) :
     . apply And.intro h
       simp [List.forall_iff_forall_mem]
 
+theorem List.genSortedGt_terminates (m : Nat) : SPMF.IsPMF (List.genSortedGt m) := by
+  refine (SPMF.IsPMF_of_mass_fixpoint
+    (g := fun (m : Nat) => (List.genSortedGt m : SPMF (List Nat)))
+    (F := fun c => 1 / 2 + 1 / 2 * c)
+    ?bounds ?mass) m
+  case bounds =>
+    intro c hle hge
+    simp_all
+    apply ENNReal.eq_one_of_fixed_ineq hle _ hge
+    . intro hmono hle'
+      rw [ENNReal.toReal_add (by norm_num) (by aesop), ENNReal.toReal_mul] at hmono
+      norm_num at hmono; linarith
+    . aesop
+  case mass =>
+    intro m h
+    conv_lhs => unfold List.genSortedGt
+    simp [SPMF.mass_pick, SPMF.mass_pure]
+    gcongr
+    apply le_trans _ (SPMF.mass_bind_ge_mul ?x ?f)
+    case x => rfl
+    case f =>
+      intro x
+      simp [SPMF.mass_map]
+      apply iInf_le (fun i => SPMF.mass (genSortedGt i)) (m + x)
+    case _ =>
+      rw [Nat.arbitrary_terminates]
+      simp
+
+theorem List.genSorted_terminates : SPMF.IsPMF List.genSorted := by
+  unfold genSorted
+  apply SPMF.IsPMF_bind
+  . exact Nat.arbitrary_terminates
+  . intro m
+    exact List.genSortedGt_terminates m
+
 -- TODO: Complete these sorrys
 /-- warning: declaration uses `sorry` -/
 #guard_msgs in
 instance : LawfulGenerator List.genSorted List.sorted List.genSorted.costBound where
   support_iff := by simp [List.genSorted_support]
-  is_pmf := sorry
+  is_pmf := List.genSorted_terminates
   is_bounded := sorry
 
 end SortedList
