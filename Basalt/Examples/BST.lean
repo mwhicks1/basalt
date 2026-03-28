@@ -52,12 +52,11 @@ theorem Tree.genBST_terminates : SPMF.IsPMF (Tree.genBST lo hi) := by
       ?bounds ?mass) (lo, hi)
   case bounds =>
     intro c hle hge
-    apply ENNReal.eq_one_of_fixed_ineq hle _ hge
-    . intro hmono hle'
-      rw [ENNReal.toReal_add (by norm_num) (by aesop), ENNReal.toReal_mul] at hmono
-      norm_num at hmono
-      nlinarith
-    . aesop
+    apply ENNReal.eq_one_of_fixed_ineq' hle hge
+    intro hmono
+    rw [ENNReal.toReal_add (by norm_num) (by aesop), ENNReal.toReal_mul] at hmono
+    norm_num at hmono
+    nlinarith [sq_nonneg c.toReal]
   case mass =>
     intro ⟨lo, hi⟩ hc_le
     dsimp only
@@ -70,12 +69,12 @@ theorem Tree.genBST_terminates : SPMF.IsPMF (Tree.genBST lo hi) := by
       rw [SPMF.mass_pick, SPMF.mass_pure, mul_one]
       gcongr
       rw [sq]
-      apply le_trans (Eq.le (one_mul _).symm)
-      apply SPMF.mass_bind_ge_mul (SPMF.IsPMF_choose lo hi hlt).symm.le
+      apply SPMF.mass_bind_of_mass_one (SPMF.IsPMF_choose lo hi hlt)
       intro x
       apply SPMF.mass_bind_ge_mul (iInf_le _ (lo, x - 1))
       intro l
-      exact le_trans (iInf_le _ (x + 1, hi)) SPMF.mass_bind_pure.symm.le
+      rw [SPMF.mass_bind_pure]
+      exact iInf_le _ (x + 1, hi)
 
 /-- `genBST` makes a linear number of choices in the size of the tree it generates (no backtracking choices). -/
 theorem Tree.genBST_cost :

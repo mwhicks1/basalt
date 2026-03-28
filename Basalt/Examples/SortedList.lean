@@ -92,25 +92,19 @@ theorem List.genSortedGt_terminates (m : Nat) : SPMF.IsPMF (List.genSortedGt m) 
   case bounds =>
     intro c hle hge
     simp_all
-    apply ENNReal.eq_one_of_fixed_ineq hle _ hge
-    . intro hmono hle'
-      rw [ENNReal.toReal_add (by norm_num) (by aesop), ENNReal.toReal_mul] at hmono
-      norm_num at hmono; linarith
-    . aesop
+    apply ENNReal.eq_one_of_fixed_ineq' hle hge
+    intro hmono
+    rw [ENNReal.toReal_add (by norm_num) (by aesop), ENNReal.toReal_mul] at hmono
+    norm_num at hmono; linarith
   case mass =>
     intro m h
     conv_lhs => unfold List.genSortedGt
     simp [SPMF.mass_pick, SPMF.mass_pure]
     gcongr
-    apply le_trans _ (SPMF.mass_bind_ge_mul ?x ?f)
-    case x => rfl
-    case f =>
-      intro x
-      simp [SPMF.mass_map]
-      apply iInf_le (fun i => SPMF.mass (genSortedGt i)) (m + x)
-    case _ =>
-      rw [Nat.arbitrary_terminates]
-      simp
+    apply SPMF.mass_bind_of_mass_one Nat.arbitrary_terminates
+    intro x
+    simp [SPMF.mass_map]
+    exact iInf_le (fun i => SPMF.mass (genSortedGt i)) (m + x)
 
 theorem List.genSorted_terminates : SPMF.IsPMF List.genSorted := by
   unfold genSorted

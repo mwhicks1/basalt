@@ -185,6 +185,13 @@ theorem mass_bind_ge_mul {x : SPMF α} {f : α → SPMF β} {c d : ℝ≥0∞}
   calc (x >>= f).mass ≥ x.mass * d := h
     _ ≥ c * d := by gcongr
 
+/-- When the left side has mass 1, bind inherits any lower bound of the continuation. -/
+theorem mass_bind_of_mass_one {x : SPMF α} (hx : x.mass = 1)
+    {f : α → SPMF β} {c : ℝ≥0∞}
+    (hf : ∀ a, (f a).mass ≥ c) : (x >>= f).mass ≥ c := by
+  have := mass_bind_ge_mul (c := 1) (d := c) hx.symm.le hf
+  simpa using this
+
 end mass
 
 section is_pmf
@@ -371,3 +378,16 @@ lemma ENNReal.eq_one_of_fixed_ineq {c v : ENNReal}
   have hle' : c.toReal ≤ 1 := (toReal_le_toReal hc_ne one_ne_top).mpr hle
   have hmono := (toReal_le_toReal hv_ne hc_ne).mpr hge
   rw [← ofReal_toReal hc_ne, hf_one hmono hle', ofReal_one]
+
+/-- Variant of `ENNReal.eq_one_of_fixed_ineq` that auto-derives `v ≠ ⊤` from `hge` + `hle`.
+The callback need only prove `1 ≤ c.toReal` from `c.toReal ≥ v.toReal`; the lemma closes
+`c = 1` using `c ≤ 1` internally. -/
+lemma ENNReal.eq_one_of_fixed_ineq' {c v : ENNReal}
+    (hle : c ≤ 1) (hge : c ≥ v)
+    (hf_one : c.toReal ≥ v.toReal → 1 ≤ c.toReal) : c = 1 := by
+  have hc_ne : c ≠ ⊤ := ne_top_of_le_ne_top one_ne_top hle
+  have hv_ne : v ≠ ⊤ := ne_top_of_le_ne_top hc_ne hge
+  have hle' : c.toReal ≤ 1 := (toReal_le_toReal hc_ne one_ne_top).mpr hle
+  have hmono := (toReal_le_toReal hv_ne hc_ne).mpr hge
+  have hge_one := hf_one hmono
+  rw [← ofReal_toReal hc_ne, le_antisymm hle' hge_one, ofReal_one]
