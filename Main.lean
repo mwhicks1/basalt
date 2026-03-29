@@ -6,10 +6,4 @@ Authors: Harrison Goldstein
 import Basalt
 import Basalt.Examples.Basic
 
-/-!
-# Main
-
-Executable entry point for the Basalt library. <TODO: summarize>
--/
-
 def main : IO Unit := pure ()

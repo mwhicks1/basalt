@@ -8,15 +8,8 @@ import Basalt.SPMF.Support
 import Basalt.SPMF.Termination
 
 /-!
-# Sub-Probability Mass Functions (Re-export)
+# Sub-Probability Mass Functions
 
-<TODO: summarize>
-
-## Main Definitions
-
-- `SPMF` — <fill in>
-
-## Main Theorems
-
-- <fill in>
+In order to prove things about potentially diverging, discrete probabilistic programs, we define a
+type of sub-probability mass functions or `SPMF`s.
 -/

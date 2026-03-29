@@ -10,18 +10,17 @@ open Lean.Order
 /-!
 # Generator Typeclass
 
-<TODO: summarize>
+This file defines `Gen`, a typeclass that collects a variety of other typeclass definitions. In
+short, a generator must be a monad, it must have a random choice operator, and it must be able to
+represent potentially non-terminating computations (via `partial_fixpoint`).
 
 ## Main Definitions
 
-- `Gen` — <fill in>
-
-## Main Theorems
-
-- <fill in>
+- `Gen` — A class that collects all of the requirements necessary for a generator monad.
 -/
 
-/-- TODO: document -/
+/-- A type constructor `g` is a `Gen` if it has all of the operations necessary for (potentially
+  diverging) random monadic programming. -/
 class Gen (g : Type → Type) where
   instInhabited : ∀ α, Inhabited (g α)
   instMonad : Monad g

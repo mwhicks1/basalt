@@ -23,9 +23,11 @@ def RandomChoice.pick [Monad m] [RandomChoice m] (x y : Unit → m α) := do
 def RandomChoice.coin [Monad m] [RandomChoice m] (r : Rat) : m Bool := do
   if (← choose 0 r.den (by simp)) < r.num then pure true else pure false
 
+/-- The `pick` combinator is `monotone` if its arguments are.
 
-/-- TODO: document -/
-@[partial_fixpoint_monotone] theorem RandomChoice.monotone_pick
+This is only to be used when defining a `partial_fixpiont`. -/
+@[partial_fixpoint_monotone]
+theorem RandomChoice.monotone_pick
     [∀ α, PartialOrder (m α)]
     [Monad m]
     [MonoBind m]

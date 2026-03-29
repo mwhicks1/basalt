@@ -4,24 +4,20 @@ Released under MIT license as described in the file LICENSE.
 Authors: Harrison Goldstein
 -/
 import Basalt.RandomChoice
-import Basalt.Gen
 
 open RandomChoice
 
 /-!
 # IO Interpretation
 
-<TODO: summarize>
+This file establishes the infrastructure necessary to make a `Gen` instance for `IO`.
 
 ## Main Definitions
 
-- `RandomChoice IO` — <fill in>
-
-## Main Theorems
-
-- <fill in>
+- `RandomChoice IO` — The only definiton needed is `choose`, which is implemented simply via
+  `IO.rand`.
 -/
 
-/-- `IO` interpretation of `RandomChoice` using `IO.rand`. -/
+/-- `IO` is an instance of `RandomChoice` via `IO.rand`. -/
 instance : RandomChoice IO where
   choose lo hi _ := IO.rand lo hi
