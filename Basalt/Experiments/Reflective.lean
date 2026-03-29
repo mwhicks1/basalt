@@ -21,7 +21,7 @@ Palamedes uses).
 -/
 
 /-- A generator can be interpreted as a parser of randomness. -/
-def ParserGen (α : Type) := StateT (List Nat) Option α
+abbrev ParserGen (α : Type) := StateT (List Nat) Option α
 
 instance : Inhabited (ParserGen α) where
   default := fun _ => none
@@ -44,14 +44,12 @@ def parse (g : ParserGen α) : List Nat → Option α := g.run'
 def WellBehaved (g : ParserGen α) : Prop :=
   ∀ input output a, g.run input = some (a, output) → ∃ consumed, input = consumed ++ output
 
-/-- TODO: document -/
 theorem pure_WellBehaved : WellBehaved (pure a) := by
   intros input output a' h
-  simp [StateT.run, pure, StateT.pure] at h
+  simp [StateT.run, pure] at h
   obtain ⟨rfl, rfl⟩ := h
   exists []
 
-/-- TODO: document -/
 theorem bind_WellBehaved
     (hx : WellBehaved x)
     (hf : ∀ a, WellBehaved (f a)) :
@@ -67,7 +65,6 @@ theorem bind_WellBehaved
     exists consumed1 ++ consumed2
     rw [h1, h2, List.append_assoc]
 
-/-- TODO: document -/
 theorem choose_WellBehaved : WellBehaved (choose lo hi h) := by
   intros input output a' heq
   simp [StateT.run, choose] at heq
@@ -80,7 +77,6 @@ theorem choose_WellBehaved : WellBehaved (choose lo hi h) := by
       exists [c]
     · simp [hc] at heq
 
-/-- TODO: document -/
 def Reflector (α : Type) := α → List (List Nat)
 
 /-- A reflector `r` reflects a generator `g` if `g` is well-behaved and `g` produces a value given
@@ -89,7 +85,6 @@ def Reflects (g : ParserGen α) (r : Reflector α) : Prop :=
   WellBehaved g ∧
   ∀ (a : α) (cs₁ cs₂ : List Nat), g.run (cs₁ ++ cs₂) = some (a, cs₂) ↔ cs₁ ∈ r a
 
-/-- TODO: document -/
 theorem pure_reflects [BEq α] [LawfulBEq α] {a : α} :
     Reflects (pure a) (fun a' => if a == a' then [[]] else []) := by
   constructor
@@ -97,7 +92,6 @@ theorem pure_reflects [BEq α] [LawfulBEq α] {a : α} :
   . intros a' cs₁ cs₂
     simp [StateT.run, pure, StateT.pure]
 
-/-- TODO: document -/
 theorem bind_reflects {x : ParserGen α} {f : α → ParserGen β} {rf : α → Reflector β}
     (inv : β → Option α)
     (hinv : ∀ a b cs cs' cs'',
@@ -162,7 +156,6 @@ theorem bind_reflects {x : ParserGen α} {f : α → ParserGen β} {rf : α → 
         rw [h_a]
         exact ((hf a').2 b right cs₂).mpr hright_mem
 
-/-- TODO: document -/
 theorem choose_reflects :
     Reflects (choose lo hi h) (fun a => if lo ≤ a ∧ a ≤ hi then [[a]] else []) := by
   constructor
@@ -173,11 +166,9 @@ theorem choose_reflects :
     . split <;> simp_all
     . simp_all
 
-/-- TODO: document -/
 def reflectPure [BEq α] [LawfulBEq α] : {r : Reflector α // Reflects (pure a) r} :=
   Subtype.mk (fun a' => if a == a' then [[]] else []) pure_reflects
 
-/-- TODO: document -/
 def reflectBind {x : ParserGen α} {f : α → ParserGen β}
     (inv : β → Option α)
     (hinv : ∀ a b cs cs' cs'', x.run cs = some (a, cs') → (f a).run cs' = some (b, cs'') → inv b = some a)
@@ -191,7 +182,6 @@ def reflectBind {x : ParserGen α} {f : α → ParserGen β}
       [cs₁ ++ cs₂]) <| by
     exact bind_reflects inv hinv hx.property (fun a => (hf a).property)
 
-/-- TODO: document -/
 def reflectChoose : {r : Reflector Nat // Reflects (choose lo hi h) r} :=
   Subtype.mk (fun a => if lo ≤ a ∧ a ≤ hi then [[a]] else []) choose_reflects
 
@@ -202,7 +192,6 @@ Here's a simple example. This generator produces 1 or 2, and we should be able t
 to get choices `[0]` or `[1]` respectively.
 -/
 
-/-- TODO: document -/
 def genOneOrTwo [Gen G] : G Nat := do
   let b ← choose 0 1 (by simp)
   if b == 0 then
@@ -210,7 +199,6 @@ def genOneOrTwo [Gen G] : G Nat := do
   else
     pure 2
 
-/-- TODO: document -/
 def reflectOneOrTwo : {r : Reflector Nat // Reflects genOneOrTwo r} := by
   unfold genOneOrTwo
   -- Unlike with normal reflectives, we provide this inverse in a _proof_ not in the generator.
@@ -235,7 +223,6 @@ def reflectOneOrTwo : {r : Reflector Nat // Reflects genOneOrTwo r} := by
     . apply reflectPure
     . apply reflectPure
 
-/-- TODO: document -/
 def genNat [Gen G] : G Nat := do
   if (← choose 0 1 (by simp)) == 0 then
     pure 0
