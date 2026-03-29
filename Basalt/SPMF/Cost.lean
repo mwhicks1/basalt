@@ -11,19 +11,23 @@ open RandomChoice
 /-!
 # Cost-Tracking SPMF
 
-<TODO: summarize>
+This file provides a modified interpretation of a `Gen` that ascribes cost to each choice a
+generator makes. This allows us to prove things like "a list generator makes `O(|xs|)` choices when
+generating a list `xs`."
+
+NOTE: Right now there is more infrastructure here than is strictly needed for the proofs in
+`Examples/`. In particular, we do not need the full power of the coupling relation, and can work
+instead with the simpler definition provided by `IsBounded_iff`.
 
 ## Main Definitions
 
-- `SPMF.Cost` — <fill in>
-- `IsBounded` — <fill in>
-- `SPMF.composeCouplings` — <fill in>
+- `SPMF.Cost` — A cost interpretation for a generator.
+- `IsBounded` — A proposition that says a generator makes a bounded number of choices.
 
 ## Main Theorems
 
-- `IsBounded_iff` — <fill in>
-- `IsBounded_bind` — <fill in>
-- `IsBounded_pick` — <fill in>
+- `IsBounded_iff` — Relates the more complicated definition of boundedness (using couplings) to a
+  simpler statement.
 -/
 
 namespace SPMF
@@ -420,17 +424,6 @@ theorem IsBounded_mono
   simp_all only [IsBounded_iff]
   grind
 
-open Lean.Order in
-/-- TODO: document -/
-theorem admissible_IsBounded (f : α → Nat) :
-    admissible (fun (x : SPMF.Cost α) => IsBounded x f) := by
-  intro c hc ih
-  simp only [IsBounded_iff] at *
-  intro p hp
-  rw [SPMF.mem_support_csup hc] at hp
-  obtain ⟨x, hxc, hxp⟩ := hp
-  exact ih x hxc p hxp
-
 /-- TODO: document -/
 theorem IsBounded_pick
     {fx fy : Unit → SPMF.Cost α}
@@ -448,3 +441,16 @@ theorem IsBounded_pick
   · intro ⟨k, _⟩ _ ⟨a, _⟩ _
     simp only
     split_ifs <;> omega
+
+open Lean.Order in
+/-- `IsBounded` is an admissible relation.
+
+This is intended to be used in the construction of partial_fixpoint, and not meant to be used otherwise. -/
+theorem admissible_IsBounded (f : α → Nat) :
+    admissible (fun (x : SPMF.Cost α) => IsBounded x f) := by
+  intro c hc ih
+  simp only [IsBounded_iff] at *
+  intro p hp
+  rw [SPMF.mem_support_csup hc] at hp
+  obtain ⟨x, hxc, hxp⟩ := hp
+  exact ih x hxc p hxp
