@@ -20,47 +20,38 @@ def SPMF.{u} (α : Type u) : Type u := {μ : α → ℝ≥0∞ // (∑' a, μ a)
 
 namespace SPMF
 
-/-- TODO: document -/
 instance instBot : Bot (SPMF α) where
   bot := ⟨fun _ => 0, by simp⟩
 
-/-- TODO: document -/
 instance instFunLike : FunLike (SPMF α) α ℝ≥0∞ where
   coe p a := p.1 a
   coe_injective' _ _ h := Subtype.ext h
 
-/-- TODO: document -/
 @[ext]
 protected theorem ext {p q : SPMF α} (h : ∀ x, p x = q x) : p = q :=
   DFunLike.ext p q h
 
-/-- TODO: document -/
 @[simp]
 theorem tsum_coe (p : SPMF α) : ∑' a, p a ≤ 1 := p.2
 
-/-- TODO: document -/
 theorem tsum_coe_ne_top (p : SPMF α) : ∑' a, p a ≠ ∞ := by
   have := ENNReal.one_lt_top
   have := p.tsum_coe
   grind only
 
-/-- TODO: document -/
 theorem tsum_coe_indicator_ne_top (p : SPMF α) (s : Set α) : ∑' a, s.indicator p a ≠ ∞ :=
   ne_of_lt (lt_of_le_of_lt
     (ENNReal.tsum_le_tsum (fun _ => Set.indicator_apply_le fun _ => le_rfl))
     (lt_of_le_of_ne le_top p.tsum_coe_ne_top))
 
-/-- TODO: document -/
 theorem coe_le_one (p : SPMF α) (a : α) : p a ≤ 1 := by
   have h₁ := p.tsum_coe
   have h₂ := ENNReal.le_tsum (f := p) a
   grind only
 
-/-- TODO: document -/
 theorem apply_ne_top (p : SPMF α) (a : α) : p a ≠ ∞ :=
   ne_of_lt (lt_of_le_of_lt (p.coe_le_one a) ENNReal.one_lt_top)
 
-/-- TODO: document -/
 theorem apply_lt_top (p : SPMF α) (a : α) : p a < ∞ :=
   lt_of_le_of_ne le_top (p.apply_ne_top a)
 
@@ -74,7 +65,7 @@ instance : Lean.Order.PartialOrder (SPMF α) where
 noncomputable def csupFun {α : Type u} (c : Set (SPMF α)) : α → ℝ≥0∞ :=
   fun a => ⨆ f ∈ c, f a
 
-/-- TODO: document -/
+/-- `csupFun` is a valid SPMF. -/
 theorem csupFun_sum_le_one
   {c : Set (SPMF α)}
   (h_chain : chain c) :
@@ -128,9 +119,9 @@ noncomputable instance : CCPO (SPMF α) where
 
 section operations
 
-open Classical in
 /-- A dirac distribution; all of the mass is on `a`. -/
 noncomputable def pure (a : α) : SPMF α :=
+  open Classical in
   ⟨fun a' => if a' = a then 1 else 0, by simp⟩
 
 /-- The standard Giry monad approach to PMF composition. -/
@@ -224,7 +215,6 @@ end operation_uses
 
 section equations
 
-/-- TODO: document -/
 theorem pure_bind (a : α) (f : α → SPMF β) : bind (pure a) f = f a := by
   ext b
   simp only [bind, pure, DFunLike.coe]
@@ -232,7 +222,6 @@ theorem pure_bind (a : α) (f : α → SPMF β) : bind (pure a) f = f a := by
   · simp
   · intro b' hb; simp [hb]
 
-/-- TODO: document -/
 theorem bind_pure (p : SPMF α) : bind p pure = p := by
   ext b
   simp only [bind, pure, DFunLike.coe]
@@ -241,7 +230,6 @@ theorem bind_pure (p : SPMF α) : bind p pure = p := by
   · intro b' hb
     simp [Ne.symm hb]
 
-/-- TODO: document -/
 theorem bind_assoc (m : SPMF α) (f : α → SPMF β) (g : β → SPMF γ) :
     bind (bind m f) g = bind m (fun x => bind (f x) g) := by
   ext c
@@ -257,7 +245,6 @@ theorem bind_assoc (m : SPMF α) (f : α → SPMF β) (g : β → SPMF γ) :
   rw [mul_assoc]
   rfl
 
-/-- TODO: document -/
 instance instLawfulMonadSPMF : LawfulMonad SPMF where
   bind_pure_comp := by intros; rfl
   bind_map := by intros; rfl
@@ -283,7 +270,6 @@ instance instLawfulMonadSPMF : LawfulMonad SPMF where
     unfold Function.comp
     simp [pure_bind]
 
-/-- TODO: document -/
 theorem bind_pick {α β} (x y : SPMF α) (f : α → SPMF β) :
     (pick (fun () => x) (fun () => y) >>= f) = pick (fun _ => x >>= f) (fun _ => y >>= f) := by
   apply SPMF.ext
@@ -292,14 +278,12 @@ theorem bind_pick {α β} (x y : SPMF α) (f : α → SPMF β) :
   simp only [ENNReal.tsum_add, add_mul, ENNReal.tsum_mul_left, mul_assoc]
   rfl
 
-/-- TODO: document -/
 theorem tsum_pick {x y : SPMF α} :
     ∑' a, (pick (fun () => x) (fun () => y)) a = (1/2 : ℝ≥0∞) * (∑' a, x a) + (1/2 : ℝ≥0∞) * (∑' a, y a) := by
   simp_rw [pick_apply]
   rw [ENNReal.tsum_add]
   congr 1 <;> rw [ENNReal.tsum_mul_left]
 
-/-- TODO: document -/
 @[simp]
 theorem bot_bind (f : α → SPMF β) : (Bot.bot (α := SPMF α) >>= f) = Bot.bot := by
   ext b
