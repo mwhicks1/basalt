@@ -22,16 +22,14 @@ theorem Nat.arbitrary_terminates : SPMF.IsPMF Nat.arbitrary := by
     ?bounds ?mass) ()
   case bounds =>
     intro c hle hge
-    simp_all
-    apply ENNReal.eq_one_of_fixed_ineq hle _ hge
-    . intro hmono hle'
-      rw [ENNReal.toReal_add (by norm_num) (by aesop), ENNReal.toReal_mul] at hmono
-      norm_num at hmono; linarith
-    . aesop
+    apply ENNReal.eq_one_of_fixed_ineq' hle hge
+    intro hmono
+    rw [ENNReal.toReal_add (by norm_num) (by aesop), ENNReal.toReal_mul] at hmono
+    norm_num at hmono; linarith
   case mass =>
     intro () h
     conv_lhs => rw [Nat.arbitrary]
-    simp [SPMF.mass_pick, SPMF.mass_pure, SPMF.mass_map]
+    simp
 
 theorem Nat.arbitrary_cost :
     IsBounded Nat.arbitrary (fun n => n + 1) := by

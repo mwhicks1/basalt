@@ -40,16 +40,14 @@ theorem genAllTwos_terminates : SPMF.IsPMF genAllTwos := by
     ?bounds ?mass) ()
   case bounds =>
     intro c hle hge
-    simp_all
-    apply ENNReal.eq_one_of_fixed_ineq hle _ hge
-    · intro hmono hle'
-      rw [ENNReal.toReal_add (by norm_num) (by aesop), ENNReal.toReal_mul] at hmono
-      norm_num at hmono; linarith
-    · aesop
+    apply ENNReal.eq_one_of_fixed_ineq' hle hge
+    intro hmono
+    rw [ENNReal.toReal_add (by norm_num) (by aesop), ENNReal.toReal_mul] at hmono
+    norm_num at hmono; linarith
   case mass =>
     intro () h
     conv_lhs => rw [genAllTwos]
-    simp [SPMF.mass_pick, SPMF.mass_pure, SPMF.mass_map]
+    simp
 
 theorem genAllTwos_cost : IsBounded genAllTwos AllTwos.cost := by
   open Lean.Order in
@@ -62,13 +60,12 @@ theorem genAllTwos_cost : IsBounded genAllTwos AllTwos.cost := by
     intro genAllTwos_rec ih
     simp [IsBounded_iff, AllTwos.cost] at *
     intro xs c hxs
-    unfold pick at hxs
-    simp only [SPMF.Cost.mem_support_bind_iff, SPMF.Cost.mem_support_choose_iff] at hxs
-    obtain ⟨k, c1, c2, ⟨_, hk1, rfl⟩, hrest, rfl⟩ := hxs
-    split_ifs at hrest with hk
-    · simp_all [SPMF.Cost.mem_support_pure_iff]
-    · simp only [SPMF.Cost.mem_support_bind_iff, SPMF.Cost.mem_support_pure_iff] at hrest
-      grind
+    grind [
+      pick,
+      SPMF.Cost.mem_support_bind_iff,
+      SPMF.Cost.mem_support_choose_iff,
+      SPMF.Cost.mem_support_pure_iff
+    ]
 
 instance : LawfulGenerator genAllTwos AllTwos AllTwos.cost where
   support_iff := genAllTwos_support

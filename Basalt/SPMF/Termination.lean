@@ -33,6 +33,7 @@ theorem mass_eq_zero_of_support_empty {p : SPMF α} (h : p.support = ∅) : p.ma
   rw [apply_eq_zero_iff]
   exact Set.eq_empty_iff_forall_notMem.mp h a
 
+@[simp]
 theorem mass_pick {x y : SPMF α} :
     (pick (fun () => x) (fun () => y)).mass = (1/2 : ℝ≥0∞) * x.mass + (1/2 : ℝ≥0∞) * y.mass := tsum_pick
 
@@ -50,6 +51,7 @@ theorem mass_eq_zero_iff {x : SPMF α} : x.mass = 0 ↔ x = Bot.bot := by
   · intro h
     simp [h]
 
+@[simp]
 theorem mass_pure (a : α) : (Pure.pure a : SPMF α).mass = 1 := by
   unfold mass
   simp only [Pure.pure, pure, DFunLike.coe]
@@ -58,6 +60,7 @@ theorem mass_pure (a : α) : (Pure.pure a : SPMF α).mass = 1 := by
   · intro a' ha'
     simp [ha']
 
+@[simp]
 theorem mass_choose (lo hi : Nat) (h : lo ≤ hi) : (choose lo hi h : SPMF Nat).mass = 1 := by
   unfold mass
   apply le_antisymm
@@ -95,6 +98,7 @@ theorem mass_choose (lo hi : Nat) (h : lo ≤ hi) : (choose lo hi h : SPMF Nat).
             (tsum_eq_sum hsupp).symm
     exact le_of_eq eq1
 
+@[simp]
 theorem mass_bind_pure {x : SPMF α} {f : α → β} :
     (x >>= fun a => Pure.pure (f a)).mass = x.mass := by
   classical
@@ -111,6 +115,7 @@ theorem mass_bind_pure {x : SPMF α} {f : α → β} :
     · simp_all
     · rfl
 
+@[simp]
 theorem mass_map {x : SPMF α} {f : α → β} :
     (f <$> x).mass = x.mass := by
   classical
@@ -134,6 +139,16 @@ theorem mass_bind_const {x : SPMF α} {y : SPMF β} :
   rw [ENNReal.tsum_comm]
   simp_rw [ENNReal.tsum_mul_left]
   rw [← ENNReal.tsum_mul_right]
+
+theorem mass_bind_of_forall_mass_eq {x : SPMF α} {f : α → SPMF β} {c : ℝ≥0∞}
+    (hf : ∀ a, (f a).mass = c) : (x >>= f).mass = x.mass * c := by
+  unfold mass at *
+  simp only [Bind.bind, bind, DFunLike.coe]
+  rw [ENNReal.tsum_comm]
+  calc ∑' a, ∑' b, x a * (f a) b
+    _ = ∑' a, x a * (∑' b, (f a) b) := by simp_rw [ENNReal.tsum_mul_left]
+    _ = ∑' a, x a * c := by simp_rw [hf]
+    _ = (∑' a, x a) * c := by rw [ENNReal.tsum_mul_right]
 
 theorem mass_bind_of_const_mass {x : SPMF α} {f : α → SPMF β} {c : ℝ≥0∞}
     (hx : x.mass = 1) (hf : ∀ a, (f a).mass = c) :
@@ -168,11 +183,15 @@ theorem mass_bind_ge_mul {x : SPMF α} {f : α → SPMF β} {c d : ℝ≥0∞}
   calc (x >>= f).mass ≥ x.mass * d := h
     _ ≥ c * d := by gcongr
 
-theorem mass_bind_of_mass_one {x : SPMF α} (hx : x.mass = 1)
+theorem mass_bind_ge_of_isPMF {x : SPMF α} (hx : x.mass = 1)
     {f : α → SPMF β} {c : ℝ≥0∞}
     (hf : ∀ a, (f a).mass ≥ c) : (x >>= f).mass ≥ c := by
   have := mass_bind_ge_mul (c := 1) (d := c) hx.symm.le hf
   simpa using this
+
+theorem mass_ge_iInf {ι : Type*} (g : ι → SPMF α) (i : ι) :
+    (g i).mass ≥ ⨅ j, (g j).mass :=
+  iInf_le (fun j => (g j).mass) i
 
 end mass
 

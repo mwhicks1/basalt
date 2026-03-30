@@ -50,13 +50,13 @@ theorem genTree_terminates : SPMF.IsPMF genTree := by
     intro i hc_le
     dsimp only
     conv_lhs => rw [genTree]
-    rw [SPMF.mass_pick, SPMF.mass_pure, mul_one]
+    simp only [SPMF.mass_pick, SPMF.mass_pure, mul_one]
     gcongr
     rw [sq]
-    apply SPMF.mass_bind_ge_mul (iInf_le _ ())
+    apply SPMF.mass_bind_ge_mul (SPMF.mass_ge_iInf _ ())
     intro l
-    rw [SPMF.mass_bind_pure]
-    exact iInf_le _ ()
+    simp only [SPMF.mass_bind_pure]
+    exact SPMF.mass_ge_iInf _ ()
 
 theorem genTree_cost : IsBounded genTree Tree.cost := by
   open Lean.Order in

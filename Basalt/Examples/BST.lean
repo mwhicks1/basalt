@@ -63,18 +63,19 @@ theorem Tree.genBST_terminates : SPMF.IsPMF (Tree.genBST lo hi) := by
     by_cases hlt : lo > hi
     · rw [Tree.genBST, dif_pos hlt, SPMF.mass_pure]
       conv_lhs => rw [← ENNReal.add_halves 1]
-      simp [mul_le_of_le_one_right, zero_le, pow_le_one₀, hc_le]
+      gcongr
+      exact mul_le_of_le_one_right (by positivity) (pow_le_one₀ (by positivity) hc_le)
     · push_neg at hlt
       conv_lhs => rw [Tree.genBST, dif_neg (by omega)]
-      rw [SPMF.mass_pick, SPMF.mass_pure, mul_one]
+      simp only [SPMF.mass_pick, SPMF.mass_pure, mul_one]
       gcongr
       rw [sq]
-      apply SPMF.mass_bind_of_mass_one (SPMF.IsPMF_choose lo hi hlt)
+      apply SPMF.mass_bind_ge_of_isPMF (SPMF.IsPMF_choose lo hi hlt)
       intro x
-      apply SPMF.mass_bind_ge_mul (iInf_le _ (lo, x - 1))
+      apply SPMF.mass_bind_ge_mul (SPMF.mass_ge_iInf _ (lo, x - 1))
       intro l
-      rw [SPMF.mass_bind_pure]
-      exact iInf_le _ (x + 1, hi)
+      simp only [SPMF.mass_bind_pure]
+      exact SPMF.mass_ge_iInf _ (x + 1, hi)
 
 /-- `genBST` makes a linear number of choices in the size of the tree it generates (no backtracking choices). -/
 theorem Tree.genBST_cost :
