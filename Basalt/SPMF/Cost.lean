@@ -215,7 +215,7 @@ instance : Preorder (SPMF.Cost α) where
       simp only [SPMF.composeCouplings, DFunLike.coe] at hmem
       have ⟨b, hb⟩ : ∃ b, couplingXY (a, b) * couplingYZ (b, c) / y b ≠ 0 := by
         by_contra hall
-        push_neg at hall
+        push Not at hall
         exact hmem (ENNReal.tsum_eq_zero.mpr hall)
       have hprod : couplingXY (a, b) * couplingYZ (b, c) ≠ 0 := by
         intro h; simp [h] at hb

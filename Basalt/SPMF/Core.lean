@@ -193,7 +193,7 @@ private lemma pick_apply {x y : SPMF α} (a : α) :
       (if (n == 0) = true then x else y : SPMF α) a = 0 := by
     intro n hn
     simp only [Finset.mem_Icc, not_and, not_le] at hn
-    have hn' : ¬(0 ≤ n ∧ n ≤ 1) := by push_neg; intro _; omega
+    have hn' : ¬(0 ≤ n ∧ n ≤ 1) := by push Not; intro _; omega
     have hzero : (choose 0 1 pick._proof_1 : SPMF Nat) n = 0 := by
       simp [RandomChoice.choose, DFunLike.coe]
       omega

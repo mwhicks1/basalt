@@ -46,7 +46,7 @@ theorem support_bind
   constructor
   · intro h
     by_contra hc
-    push_neg at hc
+    push Not at hc
     have hzero : ∀ a, x a * f a b = 0 := fun a => by
       by_cases ha : x a = 0
       · simp [ha]
@@ -106,7 +106,7 @@ theorem support_choose :
   constructor
   · intro ha
     by_contra hc
-    push_neg at hc
+    push Not at hc
     apply ha
     by_cases hlo : lo ≤ a
     · simp [hlo, Nat.not_le.mpr (hc hlo)]
@@ -178,7 +178,7 @@ theorem mem_support_csup {c : SPMF α → Prop} (hc : chain c) {a : α} :
   constructor
   · intro h
     by_contra h'
-    push_neg at h'
+    push Not at h'
     exact h ((iSup₂_le (fun f hf => (h' f hf).le)).antisymm (zero_le _))
   · rintro ⟨f, hcf, haf⟩ h
     exact haf ((le_iSup₂ f hcf).trans h.le |>.antisymm (zero_le _))

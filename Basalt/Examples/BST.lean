@@ -65,7 +65,7 @@ theorem Tree.genBST_terminates : SPMF.IsPMF (Tree.genBST lo hi) := by
       conv_lhs => rw [← ENNReal.add_halves 1]
       gcongr
       exact mul_le_of_le_one_right (by positivity) (pow_le_one₀ (by positivity) hc_le)
-    · push_neg at hlt
+    · push Not at hlt
       conv_lhs => rw [Tree.genBST, dif_neg (by omega)]
       simp only [SPMF.mass_pick, SPMF.mass_pure, mul_one]
       gcongr
