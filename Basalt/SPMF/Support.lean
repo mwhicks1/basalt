@@ -198,9 +198,9 @@ theorem mem_support_csup {c : SPMF α → Prop} (hc : chain c) {a : α} :
   · intro h
     by_contra h'
     push Not at h'
-    exact h ((iSup₂_le (fun f hf => (h' f hf).le)).antisymm (zero_le _))
+    simp_all
   · rintro ⟨f, hcf, haf⟩ h
-    exact haf ((le_iSup₂ f hcf).trans h.le |>.antisymm (zero_le _))
+    simp_all
 
 end support
 
