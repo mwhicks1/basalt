@@ -155,15 +155,16 @@ instance : Inhabited (SPMF α) where
 noncomputable instance : RandomChoice SPMF where
   choose lo hi h := by
     let n : ℕ := hi - lo + 1
-    refine ⟨fun a => if lo ≤ a ∧ a ≤ hi then 1 / n else 0, ?pf⟩
+    refine ⟨fun a => if lo ≤ a.down ∧ a.down ≤ hi then 1 / n else 0, ?pf⟩
     have hn : n ≠ 0 := Nat.add_one_ne_zero _
-    have hsupp : ∀ a, a ∉ Finset.Icc lo hi → (if lo ≤ a ∧ a ≤ hi then (1 : ℝ≥0∞) / n else 0) = 0 := by
+    have hsupp : ∀ (a : Nat), a ∉ Finset.Icc lo hi →
+        (if lo ≤ a ∧ a ≤ hi then (1 : ℝ≥0∞) / n else 0) = 0 := by
       intro a ha
       simp only [Finset.mem_Icc, not_and, not_le] at ha
-      by_cases hlo : lo ≤ a
-      · have := ha hlo; simp [hlo, Nat.not_le.mpr this]
-      · simp [hlo]
-    calc ∑' a, if lo ≤ a ∧ a ≤ hi then (1 : ℝ≥0∞) / n else 0
+      by_cases hlo : lo ≤ a <;> grind
+    calc ∑' a : ULift Nat, if lo ≤ a.down ∧ a.down ≤ hi then (1 : ℝ≥0∞) / n else 0
+      _ = ∑' a : Nat, if lo ≤ a ∧ a ≤ hi then (1 : ℝ≥0∞) / n else 0 :=
+          Equiv.tsum_eq Equiv.ulift (fun a => if lo ≤ a ∧ a ≤ hi then (1 : ℝ≥0∞) / n else 0)
       _ = ∑ a ∈ Finset.Icc lo hi, if lo ≤ a ∧ a ≤ hi then (1 : ℝ≥0∞) / n else 0 :=
           tsum_eq_sum hsupp
       _ = ∑ _a ∈ Finset.Icc lo hi, (1 : ℝ≥0∞) / n :=
@@ -182,32 +183,29 @@ end operations
 
 section operation_uses
 
-private lemma pick_apply {x y : SPMF α} (a : α) :
+private lemma pick_apply {α : Type u} {x y : SPMF α} (a : α) :
     (pick (fun () => x) (fun () => y)) a =
     (1/2 : ℝ≥0∞) * x a + (1/2 : ℝ≥0∞) * y a := by
   simp only [pick, Bind.bind, bind]
-  show ∑' n, (choose 0 1 pick._proof_1 : SPMF Nat) n *
-       (if (n == 0) = true then x else y : SPMF α) a = _
-  have h_supp : ∀ n ∉ Finset.Icc 0 1,
-      (choose 0 1 pick._proof_1 : SPMF Nat) n *
-      (if (n == 0) = true then x else y : SPMF α) a = 0 := by
-    intro n hn
-    simp only [Finset.mem_Icc, not_and, not_le] at hn
-    have hn' : ¬(0 ≤ n ∧ n ≤ 1) := by push Not; intro _; omega
-    have hzero : (choose 0 1 pick._proof_1 : SPMF Nat) n = 0 := by
-      simp [RandomChoice.choose, DFunLike.coe]
+  show ∑' (n : ULift Nat), (choose 0 1 pick._proof_1 : SPMF (ULift Nat)) n *
+       (if (n.down == 0) = true then x else y : SPMF α) a = _
+  have h_supp : ∀ n : ULift Nat, n ∉ ({⟨0⟩, ⟨1⟩} : Finset (ULift Nat)) →
+      (choose 0 1 pick._proof_1 : SPMF (ULift Nat)) n *
+      (if (n.down == 0) = true then x else y : SPMF α) a = 0 := by
+    intro ⟨n⟩ hn
+    simp only [Finset.mem_insert, Finset.mem_singleton] at hn
+    push Not at hn
+    have hn' : ¬(0 ≤ n ∧ n ≤ 1) := by
+      have h0 : n ≠ 0 := fun h => hn.1 (by subst h; rfl)
+      have h1 : n ≠ 1 := fun h => hn.2 (by subst h; rfl)
       omega
-    simp only [hzero, zero_mul]
-  rw [tsum_eq_sum h_supp]
-  have hIcc : Finset.Icc 0 1 = ({0, 1} : Finset Nat) := by decide
-  rw [hIcc, Finset.sum_pair (by simp : (0 : Nat) ≠ 1)]
-  have h0 : (choose 0 1 pick._proof_1 : SPMF Nat) 0 = 1 / 2 := by
-    simp only [RandomChoice.choose, DFunLike.coe]
-    norm_num
-  have h1 : (choose 0 1 pick._proof_1 : SPMF Nat) 1 = 1 / 2 := by
-    simp only [RandomChoice.choose, DFunLike.coe]
-    norm_num
-  simp only [h0, h1, beq_self_eq_true, ite_true, one_ne_zero, beq_iff_eq, ite_false]
+    have hzero : (choose 0 1 pick._proof_1 : SPMF (ULift Nat : Type u)) ⟨n⟩ = 0 := by
+      change (if 0 ≤ n ∧ n ≤ 1 then (1 : ℝ≥0∞) / 2 else 0) = 0
+      exact if_neg hn'
+    simp only
+    exact mul_eq_zero_of_left hzero ((if (n == 0) = true then x else y) a)
+  rw [tsum_eq_sum h_supp, Finset.sum_pair (by decide : (⟨0⟩ : ULift Nat) ≠ ⟨1⟩)]
+  rfl
 
 private lemma bot_apply (a : α) : Bot.bot (α := SPMF α) a = 0 := rfl
 

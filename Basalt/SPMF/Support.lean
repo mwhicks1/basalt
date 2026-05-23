@@ -118,7 +118,7 @@ theorem mem_support_ite_iff {p : Prop} [Decidable p]
 
 @[simp]
 theorem support_choose :
-    (choose lo hi h : SPMF _).support = {a | lo ≤ a ∧ a ≤ hi} := by
+    (choose lo hi h : SPMF (ULift Nat)).support = {a | lo ≤ ULift.down a ∧ ULift.down a ≤ hi} := by
   ext a
   rw [support, Function.mem_support, Set.mem_setOf_eq]
   simp only [RandomChoice.choose, DFunLike.coe]
@@ -127,16 +127,14 @@ theorem support_choose :
     by_contra hc
     push Not at hc
     apply ha
-    by_cases hlo : lo ≤ a
-    · simp [hlo, Nat.not_le.mpr (hc hlo)]
-    · simp [hlo]
+    by_cases hlo : lo ≤ a <;> grind
   · intro ⟨hlo, hhi⟩
     simp only [hlo, hhi, and_self, ↓reduceIte, ne_eq, one_div]
     exact ENNReal.inv_ne_zero.mpr (ENNReal.natCast_ne_top _)
 
 @[simp]
 theorem mem_support_choose_iff :
-    a ∈ (choose lo hi h : SPMF Nat).support ↔ lo ≤ a ∧ a ≤ hi := by
+    a ∈ (choose lo hi h : SPMF (ULift Nat)).support ↔ lo ≤ a.down ∧ a.down ≤ hi := by
   simp [support_choose]
 
 @[simp]
@@ -148,9 +146,9 @@ theorem support_pick
   simp only [Set.mem_setOf_eq, Set.mem_union]
   constructor
   · intro ⟨n, ⟨_, hn1⟩, ha⟩
-    rcases Nat.le_one_iff_eq_zero_or_eq_one.mp hn1 with rfl | rfl
-    · left; simpa using ha
-    · right; simpa using ha
+    rcases Nat.le_one_iff_eq_zero_or_eq_one.mp hn1
+    · left; grind
+    · right; grind
   · intro h
     cases h with
     | inl hx =>

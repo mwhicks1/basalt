@@ -21,7 +21,7 @@ represent potentially non-terminating computations (via `partial_fixpoint`).
 
 /-- A type constructor `g` is a `Gen` if it has all of the operations necessary for (potentially
   diverging) random monadic programming. -/
-class Gen (g : Type → Type) where
+class Gen (g : Type u → Type v) where
   instInhabited : ∀ α, Inhabited (g α)
   instMonad : Monad g
   instRandomChoice : RandomChoice g

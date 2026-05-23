@@ -71,7 +71,7 @@ noncomputable def composeCouplings {α β γ : Type}
     _ ≤ 1 := y.property
 
 /-- A cost-tracking SPMF: pairs each output with the number of random choices made. -/
-abbrev Cost (α : Type) : Type := SPMF (α × Nat)
+abbrev Cost (α : Type u) : Type u := SPMF (α × Nat)
 
 end SPMF
 
@@ -128,8 +128,8 @@ instance instMonoBind : MonoBind SPMF.Cost where
 end CCPO
 
 noncomputable instance instRandomChoice : RandomChoice SPMF.Cost where
-  choose lo hi h :=
-    SPMF.bind (@RandomChoice.choose SPMF _ lo hi h) fun n => SPMF.pure (n, 1)
+  choose lo hi h := by
+    exact SPMF.bind (choose lo hi h : SPMF (ULift Nat)) fun n => SPMF.pure (n, 1)
 
 /-- Charge does nothing but cost `n` ticks. -/
 noncomputable def charge (n : Nat) : SPMF.Cost Unit := SPMF.pure ((), n)
@@ -286,7 +286,8 @@ theorem noCharge_charge : noCharge (charge n) = Pure.pure () := by
   simp [noCharge, charge, Pure.pure, SPMF.pure_bind]
 
 @[simp]
-theorem noCharge_choose : noCharge (choose lo hi h) = SPMF.bind (choose lo hi h : SPMF.Cost Nat) fun (a, _) => SPMF.pure (a, 0) := by
+theorem noCharge_choose :
+    noCharge (choose lo hi h) = SPMF.bind (choose lo hi h : SPMF.Cost (ULift Nat)) fun (a, _) => SPMF.pure (a, 0) := by
   simp [noCharge]
 
 section support
@@ -316,10 +317,10 @@ theorem mem_support_bind_iff
 
 @[simp]
 theorem mem_support_choose_iff
-    {lo hi : Nat} {h : lo ≤ hi} {n c : Nat} :
-    (n, c) ∈ (choose lo hi h : SPMF.Cost Nat).support ↔ lo ≤ n ∧ n ≤ hi ∧ c = 1 := by
-  have : (choose lo hi h : SPMF.Cost Nat) =
-      SPMF.bind (choose lo hi h : SPMF Nat) fun k => (SPMF.pure (k, 1) : SPMF _) := rfl
+    {lo hi : Nat} {h : lo ≤ hi} {n : ULift Nat} {c : Nat} :
+    (n, c) ∈ (choose lo hi h : SPMF.Cost (ULift Nat)).support ↔ lo ≤ n.down ∧ n.down ≤ hi ∧ c = 1 := by
+  have : (choose lo hi h : SPMF.Cost (ULift Nat)) =
+      SPMF.bind (choose lo hi h : SPMF (ULift Nat)) fun k => (SPMF.pure (k, 1) : SPMF _) := rfl
   rw [this]
   simp only [SPMF.mem_support_bind_iff, SPMF.support_choose, Set.mem_setOf_eq,
              SPMF.mem_support_pure_iff, Prod.mk.injEq]
@@ -420,7 +421,9 @@ theorem IsBounded_pick
   · intro k
     split_ifs
     · exact hx
-    · exact hy
+    · solve_by_elim
+    . solve_by_elim
+    . assumption
   · intro ⟨k, _⟩ _ ⟨a, _⟩ _
     simp only
     split_ifs <;> omega
