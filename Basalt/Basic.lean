@@ -6,6 +6,7 @@ Authors: Harrison Goldstein
 import Basalt.RandomChoice
 import Basalt.Gen
 import Basalt.IO
+import Basalt.PlausibleGen
 import Basalt.SPMF
 import Basalt.SPMF.Cost
 import Basalt.Classes

@@ -107,4 +107,9 @@ instance {lo hi : Nat} : LawfulGenerator (Tree.genBST lo hi) (Tree.isBST lo hi) 
 #eval (for _ in [0:20] do
   IO.println <| repr (← Tree.genBST 0 10) : IO Unit)
 
+/- `genBST` can be run in `PlausibleGen`. -/
+#guard_msgs(drop info) in
+#eval (for _ in [0:20] do
+  IO.println <| repr (← Plausible.Gen.run (Tree.genBST (G := Plausible.Gen) 0 10) 10) : IO Unit)
+
 end BST
