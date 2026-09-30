@@ -6,6 +6,7 @@ Authors: Michael Hicks
 import Basalt.Combinators
 import Basalt.Fuzz.Runner
 import BasaltFuzz.BuggyBST
+import BasaltFuzz.Cedar
 import BasaltFuzz.Staged
 
 /-!
@@ -29,6 +30,7 @@ demo (`BasaltFuzz/BuggyBST.lean`): the `-buggy-*` ones have real bugs every back
 and the others must never fail. `chain-*` and `long-*` are the staged microbenchmarks
 (`BasaltFuzz/Staged.lean`), the one place the backends differ by orders of magnitude;
 `long-*` is the one whose difficulty is buffer length, so it is where `--grow` is measured.
+`cedar-*` are the CedarLite experiment (`BasaltFuzz/Cedar.lean`, `CEDAR_EXPERIMENT.md`).
 
 Each entry is a `Property`, so one registry serves every backend; `fun _ =>` is the explicit `G`
 binder it asks for. -/
@@ -46,7 +48,13 @@ def properties : List (String × Property) :=
     ("chain-4",              fun _ => Staged.propChain 4),
     ("long-16",              fun _ => Staged.propLong 16),
     ("long-32",              fun _ => Staged.propLong 32),
-    ("long-64",              fun _ => Staged.propLong 64) ]
+    ("long-64",              fun _ => Staged.propLong 64),
+    ("cedar-eval",           fun _ => CedarLite.prop_eval_total),
+    ("cedar-tpe",            fun _ => CedarLite.prop_tpe_sound),
+    ("cedar-buggy-tpe",      fun _ => CedarLite.prop_tpe_buggy),
+    ("cedar-chain-3",        fun _ => CedarLite.prop_cedar_chain 3),
+    ("cedar-chain-4",        fun _ => CedarLite.prop_cedar_chain 4),
+    ("cedar-chain-5",        fun _ => CedarLite.prop_cedar_chain 5) ]
 
 /-- `dispatch`'s default backend is the first one registered, which is `io` — Basalt's own backends
 are registered by the import. This executable is a fuzzer, so it moves `fuzzBackend` to the front
