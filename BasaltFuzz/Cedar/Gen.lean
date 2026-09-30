@@ -197,11 +197,33 @@ def genPattern [Gen G] : Nat → G Pattern
               let p ← oneOf! [fun _ => pure PatElem.star, fun _ => PatElem.justChar <$> genChar]
               return p :: (← genPattern n)]
 
-/-- Any fragment syntax, well-typed or not, for dead branches, at nesting depth at most `d`. -/
+/-- A list of at most `n` draws of `g`. -/
+def genListUpTo [Gen G] (g : G α) : Nat → G (List α)
+  | 0 => return []
+  | n + 1 => oneOf! [fun _ => return [], fun _ => do return (← g) :: (← genListUpTo g n)]
+
+/-- Every extension function. -/
+def allExtFuns : List ExtFun :=
+  [.decimal, .lessThan, .lessThanOrEqual, .greaterThan, .greaterThanOrEqual, .ip, .isIpv4, .isIpv6,
+   .isLoopback, .isMulticast, .isInRange, .datetime, .duration, .offset, .durationSince, .toDate,
+   .toTime, .toMilliseconds, .toSeconds, .toMinutes, .toHours, .toDays]
+
+/-- Any literal, valid or not: usually a valid entity identifier. -/
+def genAnyPrim [Gen G] : G Prim :=
+  oneOf! [
+    fun _ => (Prim.bool ·) <$> genBool,
+    fun _ => (Prim.int ·) <$> genInt64,
+    fun _ => (Prim.string ·) <$> genString,
+    fun _ => do return .entityUID (← frequency! [
+      (8, fun _ => do genUID (← elements entityTypes (by decide))),
+      (1, fun _ => do return ⟨← genName, ← genString⟩)] (by simp))]
+
+/-- Any expression, well-typed or not, for dead branches: every expression whose nesting depth, list
+lengths, `like` patterns, and `has` chains are at most `d`. -/
 def genAny [Gen G] : Nat → G Spec.Expr
   | 0 =>
     oneOf! [
-      fun _ => (Spec.Expr.lit ·) <$> CedarWide.genPrim,
+      fun _ => (Spec.Expr.lit ·) <$> genAnyPrim,
       fun _ => (Spec.Expr.var ·) <$>
         elements [Var.principal, .action, .resource, .context] (by decide)]
   | d + 1 =>
@@ -211,7 +233,8 @@ def genAny [Gen G] : Nat → G Spec.Expr
       (1, fun _ => do return .and (← genAny d) (← genAny d)),
       (1, fun _ => do return .or (← genAny d) (← genAny d)),
       (1, fun _ => do
-            let op ← elements [UnaryOp.not, .neg, .isEmpty] (by decide)
+            let op ← oneOf! [fun _ => pure UnaryOp.not, fun _ => pure .neg, fun _ => pure .isEmpty,
+              fun _ => UnaryOp.like <$> genPattern d, fun _ => UnaryOp.is <$> genName]
             return .unaryApp op (← genAny d)),
       (1, fun _ => do
             let op ← elements [BinaryOp.eq, .mem, .hasTag, .getTag, .less, .lessEq, .add, .sub, .mul,
@@ -219,10 +242,11 @@ def genAny [Gen G] : Nat → G Spec.Expr
             return .binaryApp op (← genAny d) (← genAny d)),
       (1, fun _ => do return .hasAttr (← genAny d) (← genAttr)),
       (1, fun _ => do return .getAttr (← genAny d) (← genAttr)),
-      (1, fun _ => do return .set [← genAny d]),
-      (1, fun _ => do return .record [(← genAttr, ← genAny d)]),
-      (1, fun _ => do return .call (← elements [ExtFun.ip, .decimal, .isIpv4, .offset] (by decide))
-                         [← genAny d])
+      (1, fun _ => do return .extHasAttr (← genAny d) (← genAttr) (← genListUpTo genAttr d)),
+      (1, fun _ => do return .set (← genListUpTo (genAny d) d)),
+      (1, fun _ => do
+            return .record (← genListUpTo (do let a ← genAttr; let x ← genAny d; return (a, x)) d)),
+      (1, fun _ => do return .call (← elements allExtFuns (by decide)) (← genListUpTo (genAny d) d))
     ] (by simp)
 
 /-! ## The generators
@@ -393,8 +417,15 @@ def ruleRead (ty : CedarType) : G (Option J) :=
 
 def readable (ty : CedarType) : Bool := !(capReads c ty).isEmpty || !(requiredReads c ty).isEmpty
 
-/-- A record literal of at most `n + 1` fields with distinct names, `need` (if given) first, each a
-judgment at a generated type. Its type is `typeOf`'s for a record literal: each field required. -/
+/-- The record literal of these fields, and the typed expression `typeOf` gives it: each field
+required. -/
+def recordOf (all : List (Attr × J)) : Spec.Expr × TypedExpr :=
+  (.record (all.map fun (a, j) => (a, j.e)),
+   .record (all.map fun (a, j) => (a, j.tx))
+     (.record (Map.make (all.map fun (a, j) => (a, Qualified.required j.tx.typeOf)))))
+
+/-- A record literal of at most `fuel` fields with distinct names, each a judgment at a generated
+type, plus `need` (if given) at any position. -/
 def recordLit (need : Option (Attr × CedarType)) : G (Option (Spec.Expr × TypedExpr)) := do
   let field (ty : CedarType) : G (Option J) :=
     match ty with
@@ -412,22 +443,17 @@ def recordLit (need : Option (Attr × CedarType)) : G (Option (Spec.Expr × Type
           match (← field (← pickTy)) with
           | none => return none
           | some j => return (← more (a :: names) n).map ((a, j) :: ·)]
-  let first ← match need with
-    | some (a, ty) => pure ((← field ty).map fun j => [(a, j)])
-    | none => do
-      let a ← genAttr
-      pure ((← field (← pickTy)).map fun j => [(a, j)])
-  match first with
-  | none => return none
-  | some fs =>
-    match (← more (fs.map (·.1)) f.fuel) with
+  match need with
+  | none => return (← more [] f.fuel).map recordOf
+  | some (a, ty) =>
+    match (← field ty) with
     | none => return none
-    | some rest =>
-      let all := fs ++ rest
-      -- exactly `typeOf`'s typed expression for a record literal
-      let rty : RecordType := Map.make (all.map fun (a, j) => (a, Qualified.required j.tx.typeOf))
-      return some (.record (all.map fun (a, j) => (a, j.e)),
-        .record (all.map fun (a, j) => (a, j.tx)) (.record rty))
+    | some j =>
+      match (← more [a] f.fuel) with
+      | none => return none
+      | some rest =>
+        let i ← chooseNat 0 rest.length
+        return some (recordOf (rest.insertIdx i (a, j)))
 
 /-- `{…} has a`. -/
 def ruleRecordHas : G (Option J) := do

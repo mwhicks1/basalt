@@ -189,19 +189,19 @@ def SoundR (c : Capabilities) : Option (Spec.Expr × TypedExpr) → Prop
   | none => True
   | some (r, tr) => ∃ cr, typeOf r c env = .ok (tr, cr)
 
-theorem first_sound (ho : SoundO c o) (h : o.map (fun j => [(a, j)]) = some fs) :
-    ∀ p ∈ fs, Judg c p.2 := by
-  cases o with
-  | none => simp at h
-  | some j => simp at h; subst h; intro p hp; simp at hp; subst hp; exact ho
+theorem recordOf_sound (h : ∀ p ∈ all, Judg c p.2) : SoundR c (some (recordOf all)) :=
+  ⟨∅, typeOf_record (fs := all) h⟩
 
-theorem rec_sound (h₁ : ∀ p ∈ fs, Judg c p.2) (h₂ : SoundF c (some rest)) :
-    SoundR c (some (.record ((fs ++ rest).map fun (a, j) => (a, j.e)),
-      .record ((fs ++ rest).map fun (a, j) => (a, j.tx))
-        (.record (Map.make ((fs ++ rest).map fun (a, j) => (a, Qualified.required j.tx.typeOf)))))) :=
-  ⟨∅, typeOf_record (fs := fs ++ rest) fun p hp => by
-    rcases List.mem_append.mp hp with hp | hp
-    exacts [h₁ p hp, h₂ p hp]⟩
+theorem recordOf_map_sound (h : SoundF c o) : SoundR c (o.map recordOf) := by
+  cases o with
+  | none => trivial
+  | some all => exact recordOf_sound h
+
+theorem recordOf_insert_sound (hj : SoundO c (some j)) (hr : SoundF c (some rest))
+    (hi : 0 ≤ i ∧ i ≤ rest.length) : SoundR c (some (recordOf (rest.insertIdx i (a, j)))) :=
+  recordOf_sound fun p hp => by
+    rcases (List.mem_insertIdx hi.2).mp hp with rfl | hp
+    exacts [hj, hr p hp]
 
 theorem recHas_eq (h : SoundR c (some (r, tr))) :
     typeOf (.hasAttr r a) c env = typeOfHasAttr tr r a c env :=
@@ -344,7 +344,8 @@ theorem recordLit_sound : IsSoundFor (recordLit f c need) (SoundR c) := by
     fun c' t => (hf.atTy c' t).obs]
   all_goals first
     | trivial
-    | exact rec_sound (first_sound (by assumption) (by assumption)) (by assumption)
+    | exact recordOf_map_sound (by assumption)
+    | exact recordOf_insert_sound (by assumption) (by assumption) (by assumption)
 
 theorem ruleRecordHas_sound : IsSoundFor (ruleRecordHas f c) (SoundO c) := by
   rw [IsSoundFor.iff_obs, ruleRecordHas]
