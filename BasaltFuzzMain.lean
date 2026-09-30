@@ -7,6 +7,8 @@ import Basalt.Combinators
 import Basalt.Fuzz.Runner
 import BasaltFuzz.BuggyBST
 import BasaltFuzz.Cedar
+import BasaltFuzz.MiniCedar.GenValid
+import BasaltFuzz.MiniCedar.Props
 import BasaltFuzz.Staged
 
 /-!
@@ -25,17 +27,28 @@ quickly, the counterexample is reported, and the process crashes for libFuzzer t
 def propThreshold [Gen G] : PropM G Unit :=
   forAll (chooseNat 0 255) (· < 200)
 
+/-- One `mc-bug-<rule>` and one `mcv-bug-<rule>` target per planted MiniCedar optimizer rule. -/
+def plantedRuleProperties : List (String × Property) :=
+  MiniCedar.plantedRules.flatMap fun p =>
+    [("mc-bug-" ++ p.rule.name,
+        (fun _ => MiniCedar.prop_optimize_sound p.optimizer MiniCedar.genAnyExpr : Property)),
+     ("mcv-bug-" ++ p.rule.name,
+        (fun _ => MiniCedar.prop_optimize_sound p.optimizer MiniCedar.genValidExpr : Property))]
+
 /-- The property registry, selected by the first non-flag CLI argument. `bst-*` are the worked BST
 demo (`BasaltFuzz/BuggyBST.lean`): the `-buggy-*` ones have real bugs every backend can find,
 and the others must never fail. `chain-*` and `long-*` are the staged microbenchmarks
 (`BasaltFuzz/Staged.lean`), the one place the backends differ by orders of magnitude;
 `long-*` is the one whose difficulty is buffer length, so it is where `--grow` is measured.
-`cedar-*` are the CedarLite experiment (`BasaltFuzz/Cedar.lean`, `CEDAR_EXPERIMENT.md`).
+`cedar-*` are the CedarLite experiment (`BasaltFuzz/Cedar.lean`, `CEDAR_EXPERIMENT.md`). `mc-*` are
+MiniCedar (`BasaltFuzz/MiniCedar/`) under its unconstrained generator: `mc-opt`, `mc-opt-type` and
+`mc-tc` must never fail, and `mc-bug-<rule>` runs the optimizer with one planted rule. `mcv-*` are
+the same targets under the well-typed generator `genValidExpr`.
 
 Each entry is a `Property`, so one registry serves every backend; `fun _ =>` is the explicit `G`
 binder it asks for. -/
 def properties : List (String × Property) :=
-  [ ("threshold",            fun _ => propThreshold),
+  ([ ("threshold",            fun _ => propThreshold),
     ("bst-gen",              fun _ => BuggyBST.prop_genBST_isBST),
     ("bst-insert",           fun _ => BuggyBST.prop_insert_preserves_BST),
     ("bst-buggy-insert",     fun _ => BuggyBST.prop_insertBuggy_preserves_BST),
@@ -54,7 +67,18 @@ def properties : List (String × Property) :=
     ("cedar-buggy-tpe",      fun _ => CedarLite.prop_tpe_buggy),
     ("cedar-chain-3",        fun _ => CedarLite.prop_cedar_chain 3),
     ("cedar-chain-4",        fun _ => CedarLite.prop_cedar_chain 4),
-    ("cedar-chain-5",        fun _ => CedarLite.prop_cedar_chain 5) ]
+    ("cedar-chain-5",        fun _ => CedarLite.prop_cedar_chain 5),
+    ("mc-opt",               fun _ => MiniCedar.prop_optimize_sound MiniCedar.soundRules
+                                        MiniCedar.genAnyExpr),
+    ("mc-opt-type",          fun _ => MiniCedar.prop_optimize_preserves_type MiniCedar.soundRules
+                                        MiniCedar.genAnyExpr),
+    ("mc-tc",                fun _ => MiniCedar.prop_typecheck_sound MiniCedar.genAnyExpr),
+    ("mcv-opt",              fun _ => MiniCedar.prop_optimize_sound MiniCedar.soundRules
+                                        MiniCedar.genValidExpr),
+    ("mcv-opt-type",         fun _ => MiniCedar.prop_optimize_preserves_type MiniCedar.soundRules
+                                        MiniCedar.genValidExpr),
+    ("mcv-tc",               fun _ => MiniCedar.prop_typecheck_sound MiniCedar.genValidExpr) ]
+    : List (String × Property)) ++ plantedRuleProperties
 
 /-- `dispatch`'s default backend is the first one registered, which is `io` — Basalt's own backends
 are registered by the import. This executable is a fuzzer, so it moves `fuzzBackend` to the front

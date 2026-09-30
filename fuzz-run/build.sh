@@ -260,7 +260,8 @@ done < <(grep -o '"[^"]*\.c\.o\.export"' "$LAKE_RSP" | tr -d '"')
 # `-Wl,-dead_strip` on macOS, and nothing in the program references this symbol, so the export flag
 # in link.rsp is the only thing keeping it. (`nm -g` lists dynamic externals; a hidden symbol shows
 # as `private external`, which `grep` then misses.)
-nm -g "$EXE" 2>/dev/null | grep -q 'T _\?LLVMFuzzerCustomMutator$' \
+exported=$(nm -g "$EXE" 2>/dev/null | grep -c 'T _\?LLVMFuzzerCustomMutator$' || true)
+[ "${exported:-0}" -gt 0 ] \
   || die "LLVMFuzzerCustomMutator is not exported: --grow would silently do nothing"
 
 # The committed entry point stays `fuzz-run/basalt-fuzz`, which every caller (CI, compare-*.sh) uses.
