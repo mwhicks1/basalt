@@ -9,6 +9,9 @@ import BasaltFuzz.Cedar.Gen
 
 /-!
 # `CedarGen` is sound: every judgment it generates is exactly `typeOf`'s
+
+By induction on fuel, one lemma per rule: each rule's result is the helper `typeOf` applies to the
+expression it built, given that every sub-result is `typeOf`'s for its subterm.
 -/
 
 open Cedar Cedar.Data Cedar.Spec Cedar.Validation
@@ -38,22 +41,6 @@ theorem any_sound (f : Fam SPMF) : IsSoundFor f.any (fun _ => True) := fun _ _ =
 
 /-! ### `typeOf`, one constructor at a time -/
 
-theorem typeOf_and (ha : typeOf a c env = .ok (ta, ca)) :
-    typeOf (.and a b) c env = typeOfAnd (ta, ca) (typeOf b (c ∪ ca) env) := by
-  simp [typeOf, ha]
-
-theorem typeOf_or (ha : typeOf a c env = .ok (ta, ca)) :
-    typeOf (.or a b) c env = typeOfOr (ta, ca) (typeOf b c env) := by
-  simp [typeOf, ha]
-
-theorem typeOf_ite (hg : typeOf g c env = .ok (tg, cg)) :
-    typeOf (.ite g t e) c env = typeOfIf (tg, cg) (typeOf t (c ∪ cg) env) (typeOf e c env) := by
-  simp [typeOf, hg]
-
-theorem typeOf_unaryApp (hx : typeOf x c env = .ok (tx, cx)) :
-    typeOf (.unaryApp op x) c env = typeOfUnaryApp op tx := by
-  simp [typeOf, hx]
-
 theorem typeOf_binaryApp (ha : typeOf a c env = .ok (ta, ca)) (hb : typeOf b c env = .ok (tb, cb)) :
     typeOf (.binaryApp op a b) c env = typeOfBinaryApp op ta tb a b c env := by
   simp [typeOf, ha, hb]
@@ -64,12 +51,6 @@ theorem typeOf_hasAttr (hx : typeOf x c env = .ok (tx, cx)) :
 
 theorem typeOf_getAttr (hx : typeOf x c env = .ok (tx, cx)) :
     typeOf (.getAttr x a) c env = typeOfGetAttr tx x a c env := by
-  simp [typeOf, hx]
-
-theorem typeOf_extHasAttr (hx : typeOf x c env = .ok (tx, cx)) :
-    typeOf (.extHasAttr x a as) c env =
-      (do let r ← typeOfExtHasAttr tx x (a :: as) c env
-          ok (TypedExpr.extHasAttr tx a as (.bool r.1)) r.2) := by
   simp [typeOf, hx]
 
 theorem mapM_justType {js : List J} (h : ∀ j ∈ js, Judg c j) :
@@ -159,33 +140,266 @@ theorem mem_tagReads (h : q ∈ tagReads c) : pathTx c q.1 = some q.2.1 ∧ path
       · simp at hk
     · simp at hk
 
-/-! ### A singleton guard never looks at the dead side -/
+/-! ### Reads, lists, and record literals -/
 
-theorem typeOfAnd_ff (h : tx.typeOf = .bool .ff) : typeOfAnd (tx, c₁) r = typeOfAnd (tx, c₁) r' := by
-  simp [typeOfAnd, h]
+theorem capRead_eq (h : capReads c t = r :: rs) (hq : q ∈ r :: rs) :
+    typeOf (.getAttr q.1 q.2.2) c env = typeOfGetAttr q.2.1 q.1 q.2.2 c env := by
+  obtain ⟨cx, hx⟩ := pathTx_sound (mem_capReads (h ▸ hq))
+  exact typeOf_getAttr hx
 
-theorem typeOfOr_tt (h : tx.typeOf = .bool .tt) : typeOfOr (tx, c₁) r = typeOfOr (tx, c₁) r' := by
-  simp [typeOfOr, h]
+theorem typeOf_set1 (h : SoundO c (some x)) : typeOf (.set [x.e]) c env = typeOfSet [x.tx] :=
+  typeOf_set (js := [x]) (fun j hj => by simp at hj; subst hj; exact h)
 
-theorem typeOfIf_tt (h : tx.typeOf = .bool .tt) : typeOfIf (tx, c₁) r₂ r₃ = typeOfIf (tx, c₁) r₂ r₃' := by
-  simp [typeOfIf, h]
+theorem typeOf_call_str :
+    typeOf (.call fn [.lit (.string s)]) c env =
+      typeOfCall fn [.lit (.string s) .string] [.lit (.string s)] :=
+  typeOf_call (js := [⟨.lit (.string s), .lit (.string s) .string, ∅⟩])
+    (fun j hj => by simp at hj; subst hj; simp [Judg, typeOf, typeOfLit, ok])
 
-theorem typeOfIf_ff (h : tx.typeOf = .bool .ff) : typeOfIf (tx, c₁) r₂ r₃ = typeOfIf (tx, c₁) r₂' r₃ := by
-  simp [typeOfIf, h]
+theorem tagRead_eq (h : tagReads c = r :: rs) (hq : q ∈ r :: rs) :
+    typeOf (.binaryApp .getTag q.1 q.2.2.1) c env =
+      typeOfBinaryApp .getTag q.2.1 q.2.2.2 q.1 q.2.2.1 c env := by
+  obtain ⟨h₁, h₂⟩ := mem_tagReads (h ▸ hq)
+  obtain ⟨_, hx⟩ := pathTx_sound h₁
+  obtain ⟨_, ht⟩ := pathTx_sound h₂
+  exact typeOf_binaryApp hx ht
 
-theorem ty_eq_of_beq {j : J} (h : (j.ty == t) = true) : j.tx.typeOf = t := by
-  simpa [J.ty] using h
+/-- Every judgment in the list is `typeOf`'s. -/
+def SoundL (c : Capabilities) : Option (List J) → Prop
+  | none => True
+  | some js => ∀ j ∈ js, Judg c j
 
-theorem ruleAnd_sound (f : Fam SPMF) (hf : FamSound f) : IsSoundFor (ruleAnd f c) (SoundO c) := by
+theorem SoundL.cons (hx : SoundO c (some x)) (hr : SoundL c r) : SoundL c (r.map (x :: ·)) := by
+  cases r with
+  | none => trivial
+  | some js => rintro j (_ | ⟨_, hj⟩); exacts [hx, hr j hj]
+
+/-- Every field's judgment is `typeOf`'s. -/
+def SoundF (c : Capabilities) : Option (List (Attr × J)) → Prop
+  | none => True
+  | some fs => ∀ p ∈ fs, Judg c p.2
+
+theorem SoundF.cons (hx : SoundO c (some x)) (hr : SoundF c r) : SoundF c (r.map ((a, x) :: ·)) := by
+  cases r with
+  | none => trivial
+  | some fs => rintro p (_ | ⟨_, hp⟩); exacts [hx, hr p hp]
+
+/-- A typed record literal `typeOf` gives exactly this typed expression. -/
+def SoundR (c : Capabilities) : Option (Spec.Expr × TypedExpr) → Prop
+  | none => True
+  | some (r, tr) => ∃ cr, typeOf r c env = .ok (tr, cr)
+
+theorem first_sound (ho : SoundO c o) (h : o.map (fun j => [(a, j)]) = some fs) :
+    ∀ p ∈ fs, Judg c p.2 := by
+  cases o with
+  | none => simp at h
+  | some j => simp at h; subst h; intro p hp; simp at hp; subst hp; exact ho
+
+theorem rec_sound (h₁ : ∀ p ∈ fs, Judg c p.2) (h₂ : SoundF c (some rest)) :
+    SoundR c (some (.record ((fs ++ rest).map fun (a, j) => (a, j.e)),
+      .record ((fs ++ rest).map fun (a, j) => (a, j.tx))
+        (.record (Map.make ((fs ++ rest).map fun (a, j) => (a, Qualified.required j.tx.typeOf)))))) :=
+  ⟨∅, typeOf_record (fs := fs ++ rest) fun p hp => by
+    rcases List.mem_append.mp hp with hp | hp
+    exacts [h₁ p hp, h₂ p hp]⟩
+
+theorem recHas_eq (h : SoundR c (some (r, tr))) :
+    typeOf (.hasAttr r a) c env = typeOfHasAttr tr r a c env :=
+  let ⟨_, h⟩ := h; typeOf_hasAttr h
+
+theorem recGet_eq (h : SoundR c (some (r, tr))) :
+    typeOf (.getAttr r a) c env = typeOfGetAttr tr r a c env :=
+  let ⟨_, h⟩ := h; typeOf_getAttr h
+
+theorem triv_sound (g : SPMF α) : IsSoundFor g (fun _ => True) := fun _ _ => trivial
+
+/-- Closes a rule's leaf: the judgment `ofR e r`, `r` the helper `typeOf` applies to `e`. -/
+macro "judg" : tactic => `(tactic| first
+  | trivial
+  | assumption
+  | (simp [SoundL, SoundO]; done)
+  | (apply ofR_sound; simp_all [SoundO, Judg, J.res, J.ty, typeOf]; done)
+  | (apply ofR_sound; simp_all [SoundO, Judg, J.res, J.ty, typeOf, typeOfAnd, typeOfOr, typeOfIf]; done)
+  | (apply ofR_sound; apply capRead_eq (by assumption) (by assumption))
+  | (apply ofR_sound; apply typeOf_set1; assumption)
+  | (apply ofR_sound; exact typeOf_call_str)
+  | (apply ofR_sound; apply tagRead_eq (by assumption) (by assumption))
+  | (apply SoundL.cons <;> assumption)
+  | (apply SoundF.cons <;> assumption)
+  | (apply ofR_sound; apply recHas_eq; assumption)
+  | (apply ofR_sound; apply recGet_eq; assumption)
+  | (apply ofR_sound; apply typeOf_call; assumption)
+  | (apply ofR_sound; apply typeOf_set; assumption)
+  | (simp_all [SoundO, Judg, typeOf, ok]; done)
+  | (simp; done))
+
+theorem leaf_sound (c : Capabilities) : (t : CedarType) → IsSoundFor (leaf c t) (SoundO c)
+  | .set elt => by
+    have ih := leaf_sound c elt
+    rw [IsSoundFor.iff_obs, leaf]
+    walk [ih.obs]
+    all_goals judg
+  | .bool _ | .int | .string | .entity _ | .record _ | .ext _ => by
+    rw [IsSoundFor.iff_obs, leaf]
+    walk [(triv_sound CedarTyped.genInt64).obs, (triv_sound CedarTyped.genString).obs]
+    all_goals judg
+
+section rules
+variable (f : Fam SPMF) (hf : FamSound f)
+include hf
+
+theorem ruleAnd_sound : IsSoundFor (ruleAnd f c) (SoundO c) := by
   rw [IsSoundFor.iff_obs, ruleAnd]
   walk [(any_sound f).obs, fun c' => (hf.bool c').obs]
+  all_goals judg
+
+theorem ruleOr_sound : IsSoundFor (ruleOr f c) (SoundO c) := by
+  rw [IsSoundFor.iff_obs, ruleOr]
+  walk [(any_sound f).obs, fun c' => (hf.bool c').obs]
+  all_goals judg
+
+theorem ruleIte_sound (hb : ∀ c', IsSoundFor (branch c') (SoundO c')) :
+    IsSoundFor (ruleIte f c branch) (SoundO c) := by
+  rw [IsSoundFor.iff_obs, ruleIte]
+  walk [(any_sound f).obs, fun c' => (hf.bool c').obs, fun c' => (hb c').obs]
+  all_goals judg
+
+theorem binary_sound : IsSoundFor (binary f c op t₁ t₂) (SoundO c) := by
+  rw [IsSoundFor.iff_obs, binary]
+  walk [fun c' t => (hf.atTy c' t).obs]
+  all_goals judg
+
+theorem unary_sound : IsSoundFor (unary f c op t) (SoundO c) := by
+  rw [IsSoundFor.iff_obs]
+  cases t <;> unfold unary <;> walk [fun c' t => (hf.atTy c' t).obs, fun c' => (hf.bool c').obs]
+  all_goals judg
+
+theorem ruleHas_sound : IsSoundFor (ruleHas f c) (SoundO c) := by
+  rw [IsSoundFor.iff_obs, ruleHas]
+  walk [fun c' t => (hf.atTy c' t).obs, (triv_sound CedarWide.genAttr).obs]
+  all_goals judg
+
+theorem ruleRead_sound : IsSoundFor (ruleRead f c t) (SoundO c) := by
+  rw [IsSoundFor.iff_obs, ruleRead]
+  walk [fun c' t => (hf.atTy c' t).obs]
+  all_goals judg
+
+theorem call_args_sound : (tys : List CedarType) → IsSoundFor (call.args f c tys) (SoundL c)
+  | [] => by rw [IsSoundFor.iff_obs, call.args]; walk; all_goals judg
+  | ty :: tys => by
+    have ih := call_args_sound (c := c) tys
+    rw [IsSoundFor.iff_obs, call.args]
+    walk [fun c' t => (hf.atTy c' t).obs, ih.obs]
+    all_goals judg
+
+theorem call_sound : IsSoundFor (call f c fn tys) (SoundO c) := by
+  rw [IsSoundFor.iff_obs, call]
+  walk [(call_args_sound f hf tys).obs]
+  all_goals judg
+
+theorem ruleSet_elems_sound : (n : Nat) → IsSoundFor (ruleSet.elems f c elt n) (SoundL c)
+  | 0 => by rw [IsSoundFor.iff_obs, ruleSet.elems]; walk; all_goals judg
+  | n + 1 => by
+    have ih := ruleSet_elems_sound (c := c) (elt := elt) n
+    rw [IsSoundFor.iff_obs, ruleSet.elems]
+    walk [fun c' t => (hf.atTy c' t).obs, ih.obs]
+    all_goals judg
+
+theorem ruleSet_sound : IsSoundFor (ruleSet f c elt) (SoundO c) := by
+  rw [IsSoundFor.iff_obs, ruleSet]
+  walk [fun n => (ruleSet_elems_sound f hf n).obs]
+  all_goals judg
+
+theorem ruleHasTag_sound : IsSoundFor (ruleHasTag f c) (SoundO c) := by
+  rw [IsSoundFor.iff_obs, ruleHasTag]
+  walk [fun op t₁ t₂ => (binary_sound f hf (c := c) (op := op) (t₁ := t₁) (t₂ := t₂)).obs]
+  all_goals judg
+
+theorem ruleExtHas_sound : IsSoundFor (ruleExtHas f c) (SoundO c) := by
+  rw [IsSoundFor.iff_obs, ruleExtHas]
+  walk [fun c' t => (hf.atTy c' t).obs, fun b n => (triv_sound (genChain b n)).obs]
+  all_goals judg
+
+omit hf in
+theorem more_sound (field : CedarType → SPMF (Option J)) (pickTy : SPMF CedarType)
+    (hfield : ∀ ty, IsSoundFor (field ty) (SoundO c)) :
+    (names : List Attr) → (n : Nat) → IsSoundFor (recordLit.more field pickTy names n) (SoundF c)
+  | _, 0 => by rw [IsSoundFor.iff_obs, recordLit.more]; walk; all_goals simp [SoundF]
+  | names, n + 1 => by
+    have ih := fun names => more_sound field pickTy hfield names n
+    rw [IsSoundFor.iff_obs, recordLit.more]
+    walk [fun ty => (hfield ty).obs, fun names => (ih names).obs, (triv_sound pickTy).obs,
+      (triv_sound CedarWide.genAttr).obs]
+    all_goals first | judg | simp [SoundF]
+
+theorem recordLit_sound : IsSoundFor (recordLit f c need) (SoundR c) := by
+  rw [IsSoundFor.iff_obs]; unfold recordLit
+  extract_lets field pickTy
+  have hfield : ∀ ty, IsSoundFor (field ty) (SoundO c) := by
+    intro ty; simp only [field]; split
+    · exact hf.bool c
+    · exact hf.atTy c ty
+  walk [fun ty => (hfield ty).obs, fun names n => (more_sound field pickTy hfield names n).obs,
+    (triv_sound pickTy).obs, (triv_sound CedarWide.genAttr).obs, fun c' => (hf.bool c').obs,
+    fun c' t => (hf.atTy c' t).obs]
   all_goals first
     | trivial
-    | (rename_i a ha hff _ _
-       apply ofR_sound
-       rw [typeOf_and ha]; exact typeOfAnd_ff (ty_eq_of_beq hff))
-    | (rename_i a ha _ b hb
-       apply ofR_sound
-       rw [typeOf_and ha, hb]; rfl)
+    | exact rec_sound (first_sound (by assumption) (by assumption)) (by assumption)
+
+theorem ruleRecordHas_sound : IsSoundFor (ruleRecordHas f c) (SoundO c) := by
+  rw [IsSoundFor.iff_obs, ruleRecordHas]
+  walk [fun need => (recordLit_sound f hf (c := c) (need := need)).obs,
+    (triv_sound CedarWide.genAttr).obs]
+  all_goals judg
+
+theorem ruleRecordGet_sound : IsSoundFor (ruleRecordGet f c ty) (SoundO c) := by
+  rw [IsSoundFor.iff_obs, ruleRecordGet]
+  walk [fun need => (recordLit_sound f hf (c := c) (need := need)).obs,
+    (triv_sound CedarWide.genAttr).obs]
+  all_goals judg
+
+theorem stepBool_sound : IsSoundFor (stepBool f c) (SoundO c) := by
+  rw [IsSoundFor.iff_obs]; unfold stepBool pick
+  split <;> simp only [List.append_nil, List.cons_append, List.nil_append]
+  all_goals walk [(ruleAnd_sound f hf).obs, (ruleOr_sound f hf).obs,
+    (ruleIte_sound f hf (fun c' => hf.bool c')).obs, (ruleHas_sound f hf).obs,
+    (ruleHasTag_sound f hf).obs, (ruleExtHas_sound f hf).obs, (ruleRecordHas_sound f hf).obs,
+    fun ty => (ruleRecordGet_sound f hf (ty := ty)).obs, fun ty => (ruleRead_sound f hf (t := ty)).obs,
+    fun op t => (unary_sound f hf (op := op) (t := t)).obs,
+    fun op t₁ t₂ => (binary_sound f hf (op := op) (t₁ := t₁) (t₂ := t₂)).obs,
+    fun fn tys => (call_sound f hf (fn := fn) (tys := tys)).obs,
+    fun c' => (hf.bool c').obs, (triv_sound CedarTyped.genBool).obs,
+    (triv_sound genName).obs, fun n => (triv_sound (genPattern n)).obs, (triv_sound genPrim).obs]
+  all_goals judg
+
+theorem stepAt_sound : IsSoundFor (stepAt f c ty) (SoundO c) := by
+  rw [IsSoundFor.iff_obs]; unfold stepAt pick construct
+  split <;> (try split) <;> (try split) <;> simp only [List.append_nil, List.cons_append, List.nil_append]
+  all_goals walk [fun ty => (leaf_sound c ty).obs,
+    fun ty => (ruleIte_sound f hf (branch := fun c' => f.atTy c' ty) (fun c' => hf.atTy c' ty)).obs,
+    fun ty => (ruleRecordGet_sound f hf (ty := ty)).obs, fun ty => (ruleRead_sound f hf (t := ty)).obs,
+    fun elt => (ruleSet_sound f hf (elt := elt)).obs,
+    fun op t => (unary_sound f hf (op := op) (t := t)).obs,
+    fun op t₁ t₂ => (binary_sound f hf (op := op) (t₁ := t₁) (t₂ := t₂)).obs,
+    fun fn tys => (call_sound f hf (fn := fn) (tys := tys)).obs]
+  all_goals judg
+
+end rules
+
+theorem fam_sound : (d : Nat) → FamSound (fam (G := SPMF) d)
+  | 0 => {
+      bool := fun c => by
+        rw [fam, IsSoundFor.iff_obs]
+        walk [(triv_sound CedarTyped.genBool).obs]
+        all_goals judg
+      atTy := fun c ty => leaf_sound c ty }
+  | d + 1 => {
+      bool := fun c => stepBool_sound (fam d) (fam_sound d)
+      atTy := fun c ty => stepAt_sound (fam d) (fam_sound d) }
+
+/-- **Soundness.** Every judgment `CedarGen` generates, at any fuel, is exactly the one Cedar's
+typechecker derives for its expression, under no capabilities. -/
+theorem genS_sound (d : Nat) : IsSoundFor (genS (G := SPMF) d) (SoundO []) :=
+  (fam_sound d).bool []
 
 end CedarGen

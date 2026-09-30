@@ -22,7 +22,7 @@ not.
 |---|---|---|---|
 | `Typed.lean` (`CedarTyped`) | literals, variables, `if`/`&&`/`||`, `!`/`-`/`is`, `==`/`<`/`<=`/`+`/`-`/`*`, `has`/`.`, over a small schema | each candidate finished by the real `typeOf` | **sound and complete** (`BasaltExamples/Cedar/Typed.lean`) |
 | `Wide.lean` (`CedarWide`) | adds entity/action literals, `in` over hierarchies, tags, sets and set operators, record literals, `like`, multi-attribute `has`, extension functions, over a richer schema | each candidate finished by the real `typeOf`; a failed sub-judgment falls back to a leaf | none |
-| `Gen.lean` (`CedarGen`) | `CedarWide`'s fragment and schema | **correct by construction**: no `typeOf` call; each rule combines its sub-results with the typechecker's own per-rule helper (`typeOfAnd`, `typeOfIf`, `typeOfBinaryApp`, `typeOfHasAttr`, `typeOfExtHasAttr`, …), and is offered only where it applies | in progress |
+| `Gen.lean` (`CedarGen`) | `CedarWide`'s fragment and schema | **correct by construction**: no `typeOf` call; each rule combines its sub-results with the typechecker's own per-rule helper (`typeOfAnd`, `typeOfIf`, `typeOfBinaryApp`, `typeOfHasAttr`, `typeOfExtHasAttr`, …), and is offered only where it applies | **sound** (`BasaltExamples/Cedar/Gen.lean`) |
 
 `CedarTyped`'s completeness is stated over the fragment `Frag`, for every capability set in scope:
 every fragment expression `typeOf` accepts is generated at some fuel, with exactly its judgment.
