@@ -301,4 +301,202 @@ theorem genAny_complete (h : AnyE e n) : e ∈ (genAny (G := SPMF) n).support :=
     walk [self 0 |>.obs, self _ |>.obs, genAttr_complete.obs, genName_complete.obs]
     branch ⟨fn, by cases fn <;> decide, xs, genListUpTo_complete (self n) n xs hl ih, rfl⟩
 
+/-! ## Each rule reaches every judgment its helper gives -/
+
+section rules
+variable (f : Fam SPMF)
+
+/-- The generator's own support, as a fact a walk can use. -/
+theorem supp_complete (g : SPMF α) : IsCompleteFor g (· ∈ g.support) := fun _ h => h
+
+theorem ruleAnd_ff (ha : some a ∈ (f.bool c).support) (hff : a.ty = .bool .ff)
+    (hb : b ∈ f.any.support) :
+    ofR (.and a.e b) (typeOfAnd (a.tx, a.out) dead) ∈ (ruleAnd f c).support := by
+  rw [SPMF.mem_support_iff_may, ruleAnd]
+  walk [(supp_complete (f.bool c)).obs, (supp_complete f.any).obs]
+  refine ⟨some a, ha, ?_⟩; dsimp only
+  rw [if_pos (by simp [hff])]
+  exact ⟨b, hb, rfl⟩
+
+theorem ruleAnd_both (ha : some a ∈ (f.bool c).support) (hff : a.ty ≠ .bool .ff)
+    (hb : some b ∈ (f.bool (c ∪ a.out)).support) :
+    ofR (.and a.e b.e) (typeOfAnd (a.tx, a.out) b.res) ∈ (ruleAnd f c).support := by
+  rw [SPMF.mem_support_iff_may, ruleAnd]
+  walk [(supp_complete (f.bool c)).obs, (supp_complete (f.bool (c ∪ a.out))).obs]
+  refine ⟨some a, ha, ?_⟩; dsimp only
+  rw [if_neg (by simpa using hff)]
+  exact ⟨some b, hb, rfl⟩
+
+theorem ruleOr_tt (ha : some a ∈ (f.bool c).support) (htt : a.ty = .bool .tt)
+    (hb : b ∈ f.any.support) :
+    ofR (.or a.e b) (typeOfOr (a.tx, a.out) dead) ∈ (ruleOr f c).support := by
+  rw [SPMF.mem_support_iff_may, ruleOr]
+  walk [(supp_complete (f.bool c)).obs, (supp_complete f.any).obs]
+  refine ⟨some a, ha, ?_⟩; dsimp only
+  rw [if_pos (by simp [htt])]
+  exact ⟨b, hb, rfl⟩
+
+theorem ruleOr_both (ha : some a ∈ (f.bool c).support) (htt : a.ty ≠ .bool .tt)
+    (hb : some b ∈ (f.bool c).support) :
+    ofR (.or a.e b.e) (typeOfOr (a.tx, a.out) b.res) ∈ (ruleOr f c).support := by
+  rw [SPMF.mem_support_iff_may, ruleOr]
+  walk [(supp_complete (f.bool c)).obs]
+  refine ⟨some a, ha, ?_⟩; dsimp only
+  rw [if_neg (by simpa using htt)]
+  exact ⟨some b, hb, rfl⟩
+
+theorem ruleIte_tt (hg : some g ∈ (f.bool c).support) (htt : g.ty = .bool .tt)
+    (ht : some t ∈ (branch (c ∪ g.out)).support) (he : e ∈ f.any.support) :
+    ofR (.ite g.e t.e e) (typeOfIf (g.tx, g.out) t.res dead) ∈ (ruleIte f c branch).support := by
+  rw [SPMF.mem_support_iff_may, ruleIte]
+  walk [(supp_complete (f.bool c)).obs, (supp_complete f.any).obs,
+    fun c' => (supp_complete (branch c')).obs]
+  refine ⟨some g, hg, ?_⟩; dsimp only
+  rw [if_pos (by simp [htt])]
+  exact ⟨some t, ht, e, he, rfl⟩
+
+theorem ruleIte_ff (hg : some g ∈ (f.bool c).support) (hff : g.ty = .bool .ff)
+    (he : some e ∈ (branch c).support) (ht : t ∈ f.any.support) :
+    ofR (.ite g.e t e.e) (typeOfIf (g.tx, g.out) dead e.res) ∈ (ruleIte f c branch).support := by
+  rw [SPMF.mem_support_iff_may, ruleIte]
+  walk [(supp_complete (f.bool c)).obs, (supp_complete f.any).obs,
+    fun c' => (supp_complete (branch c')).obs]
+  refine ⟨some g, hg, ?_⟩; dsimp only
+  rw [if_neg (by simp [hff]), if_pos (by simp [hff])]
+  exact ⟨some e, he, t, ht, rfl⟩
+
+theorem ruleIte_any (hg : some g ∈ (f.bool c).support) (htt : g.ty ≠ .bool .tt)
+    (hff : g.ty ≠ .bool .ff) (ht : some t ∈ (branch (c ∪ g.out)).support)
+    (he : some e ∈ (branch c).support) :
+    ofR (.ite g.e t.e e.e) (typeOfIf (g.tx, g.out) t.res e.res) ∈ (ruleIte f c branch).support := by
+  rw [SPMF.mem_support_iff_may, ruleIte]
+  walk [(supp_complete (f.bool c)).obs, (supp_complete f.any).obs,
+    fun c' => (supp_complete (branch c')).obs]
+  refine ⟨some g, hg, ?_⟩; dsimp only
+  rw [if_neg (by simpa using htt), if_neg (by simpa using hff)]
+  exact ⟨some t, ht, some e, he, rfl⟩
+
+theorem binary_complete (ha : some a ∈ (f.atTy c t₁).support) (hb : some b ∈ (f.atTy c t₂).support) :
+    ofR (.binaryApp op a.e b.e) (typeOfBinaryApp op a.tx b.tx a.e b.e c env) ∈
+      (binary f c op t₁ t₂).support := by
+  rw [SPMF.mem_support_iff_may, binary]
+  walk [fun c' t => (supp_complete (f.atTy c' t)).obs]
+  exact ⟨some a, ha, some b, hb, rfl⟩
+
+theorem unary_bool (hx : some x ∈ (f.bool c).support) :
+    ofR (.unaryApp op x.e) (typeOfUnaryApp op x.tx) ∈ (unary f c op (.bool bt)).support := by
+  rw [SPMF.mem_support_iff_may, unary]
+  walk [fun c' => (supp_complete (f.bool c')).obs]
+  exact ⟨some x, hx, rfl⟩
+
+theorem unary_value (hne : ∀ b, ty ≠ .bool b) (hx : some x ∈ (f.atTy c ty).support) :
+    ofR (.unaryApp op x.e) (typeOfUnaryApp op x.tx) ∈ (unary f c op ty).support := by
+  rw [SPMF.mem_support_iff_may]
+  unfold unary
+  split
+  · rename_i b; exact absurd rfl (hne b)
+  · walk [fun c' t => (supp_complete (f.atTy c' t)).obs]
+    exact ⟨some x, hx, rfl⟩
+
+theorem ruleHas_complete (hbt : bt ∈ baseTypes c) (hx : some x ∈ (f.atTy c bt).support) :
+    ofR (.hasAttr x.e a) (typeOfHasAttr x.tx x.e a c env) ∈ (ruleHas f c).support := by
+  rw [SPMF.mem_support_iff_may, ruleHas]
+  walk [fun c' t => (supp_complete (f.atTy c' t)).obs, genAttr_complete.obs]
+  exact ⟨bt, hbt, some x, hx, a, rfl⟩
+
+theorem ruleRead_cap (hq : q ∈ capReads c ty) :
+    ofR (.getAttr q.1 q.2.2) (typeOfGetAttr q.2.1 q.1 q.2.2 c env) ∈ (ruleRead f c ty).support := by
+  rw [SPMF.mem_support_iff_may, ruleRead]
+  walk [fun c' t => (supp_complete (f.atTy c' t)).obs]
+  all_goals rename_i h1 h2
+  all_goals first | (rw [h1] at hq; cases hq; done) | branch ⟨q, h1 ▸ hq, rfl⟩
+
+theorem ruleRead_req (hr : r ∈ requiredReads c ty) (hx : some x ∈ (f.atTy c r.1).support) :
+    ofR (.getAttr x.e r.2) (typeOfGetAttr x.tx x.e r.2 c env) ∈ (ruleRead f c ty).support := by
+  rw [SPMF.mem_support_iff_may, ruleRead]
+  walk [fun c' t => (supp_complete (f.atTy c' t)).obs]
+  all_goals rename_i h1 h2
+  all_goals first | (rw [h2] at hr; cases hr; done) | branch ⟨r, h2 ▸ hr, some x, hx, rfl⟩
+
+theorem call_args_complete : (tys : List CedarType) → (xs : List J) →
+    List.Forall₂ (fun x ty => some x ∈ (f.atTy c ty).support) xs tys →
+    some xs ∈ (call.args f c tys).support
+  | [], [], _ => by rw [SPMF.mem_support_iff_may, call.args]; walk
+  | ty :: tys, x :: xs, .cons hx hxs => by
+    have ih := call_args_complete tys xs hxs
+    rw [SPMF.mem_support_iff_may, call.args]
+    walk [fun c' t => (supp_complete (f.atTy c' t)).obs, (supp_complete (call.args f c tys)).obs]
+    exact ⟨some x, hx, some xs, ih, rfl⟩
+
+theorem call_complete (h : List.Forall₂ (fun x ty => some x ∈ (f.atTy c ty).support) xs tys) :
+    ofR (.call fn (xs.map J.e)) (typeOfCall fn (xs.map J.tx) (xs.map J.e)) ∈
+      (call f c fn tys).support := by
+  rw [SPMF.mem_support_iff_may, call]
+  walk [fun tys => (supp_complete (call.args f c tys)).obs]
+  exact ⟨some xs, call_args_complete f tys xs h, rfl⟩
+
+theorem ruleSet_elems_complete : (n : Nat) → (xs : List J) → xs.length = n →
+    (∀ x ∈ xs, some x ∈ (f.atTy c elt).support) → some xs ∈ (ruleSet.elems f c elt n).support
+  | 0, [], _, _ => by rw [SPMF.mem_support_iff_may, ruleSet.elems]; walk
+  | n + 1, x :: xs, hl, hx => by
+    have ih := ruleSet_elems_complete n xs (by simpa using hl) (fun y hy => hx y (by simp [hy]))
+    rw [SPMF.mem_support_iff_may, ruleSet.elems]
+    walk [fun c' t => (supp_complete (f.atTy c' t)).obs,
+      (supp_complete (ruleSet.elems f c elt n)).obs]
+    exact ⟨some x, hx x (by simp), some xs, ih, rfl⟩
+
+theorem ruleSet_complete {xs : List J} (h₁ : 1 ≤ xs.length) (h₂ : xs.length ≤ f.fuel + 1)
+    (hx : ∀ x ∈ xs, some x ∈ (f.atTy c elt).support) :
+    ofR (.set (xs.map J.e)) (typeOfSet (xs.map J.tx)) ∈ (ruleSet f c elt).support := by
+  rw [SPMF.mem_support_iff_may, ruleSet]
+  walk [fun n => (supp_complete (ruleSet.elems f c elt n)).obs]
+  exact ⟨xs.length, ⟨h₁, h₂⟩, some xs, ruleSet_elems_complete f _ xs rfl hx, rfl⟩
+
+end rules
+
+/-! ### Multi-attribute `has` chains -/
+
+/-- The chains `genChain cur` draws: after the first attribute, each is an entity- or record-typed
+attribute of the type reached so far, or absent (after which anything goes). -/
+def ChainOK : Option CedarType → List Attr → Prop
+  | _, [] => False
+  | _, [_] => True
+  | none, _ :: rest => ChainOK none rest
+  | some bt, a :: rest =>
+    match (attrTy bt a).map Qualified.getType with
+    | none => ChainOK none rest
+    | some t@(.entity _) | some t@(.record _) => ChainOK (some t) rest
+    | some _ => False
+
+theorem genChain_complete : (n : Nat) → (cur : Option CedarType) → (l : List Attr) →
+    l.length = n + 1 → ChainOK cur l → l ∈ (genChain (G := SPMF) cur n).support
+  | 0, cur, [a], _, _ => by
+    rw [SPMF.mem_support_iff_may, genChain]; walk [genAttr_complete.obs]
+    exact ⟨a, rfl⟩
+  | n + 1, none, a :: rest, hl, hc => by
+    have ih := genChain_complete n none rest (by simpa using hl) (by cases rest <;> simp_all [ChainOK])
+    rw [SPMF.mem_support_iff_may, genChain]
+    walk [genAttr_complete.obs, fun c m => (supp_complete (genChain (G := SPMF) c m)).obs]
+    exact ⟨a, rest, ih, rfl⟩
+  | n + 1, some bt, a :: rest, hl, hc => by
+    have hl' : rest.length = n + 1 := by simpa using hl
+    rw [genChain, SPMF.mem_support_bind_iff]
+    refine ⟨a, genAttr_complete a trivial, ?_⟩
+    obtain ⟨r, rs, rfl⟩ : ∃ r rs, rest = r :: rs := by
+      cases rest with
+      | nil => simp at hl'
+      | cons r rs => exact ⟨r, rs, rfl⟩
+    simp only [ChainOK] at hc
+    dsimp only
+    have go : ∀ cur, ChainOK cur (r :: rs) → ∀ hd, hd :: r :: rs ∈
+        (do let t ← genChain (G := SPMF) cur n; pure (hd :: t)).support := fun cur hc hd => by
+      rw [SPMF.mem_support_iff_may]
+      walk [fun c m => (supp_complete (genChain (G := SPMF) c m)).obs]
+      exact ⟨r :: rs, genChain_complete n cur _ hl' hc, rfl⟩
+    cases hm : (attrTy bt a).map Qualified.getType with
+    | none => simp only [hm] at hc; exact go none hc a
+    | some t =>
+      simp only [hm] at hc
+      cases t <;> first | exact absurd hc id | exact go _ hc a
+
 end CedarGen
