@@ -171,6 +171,8 @@ behind several nested guards is reachable only by coverage guidance. `fuzz-run/c
 - `BasaltFuzz/` — the generators, properties, and buggy operations the `basalt-fuzz` executable
   fuzzes. Unlike the rest of the repo it is linked into a native executable, so it must stay
   Mathlib-free; `fuzz-run/README.md` says why and records what is instrumented for coverage.
+- `BasaltFuzz/Cedar/`, `BasaltExamples/Cedar/` — generators for the real Cedar policy language's typing
+  judgment and their proofs, and a coverage experiment; `CEDAR.md` is the whole story.
 - `BasaltFuzzMain.lean` — the root of the opt-in `basalt-fuzz` executable: the property registry.
   Not a default build target, since only `fuzz-run/build.sh` links it.
 - `fuzz-run/` — the `basalt-fuzz` build script, its backend benchmark, and `README.md`, which owns

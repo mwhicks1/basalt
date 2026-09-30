@@ -151,6 +151,10 @@ Examples and tests elaborate their proofs and `#guard_msgs` pins during `lake bu
   drift from the proved `genBST` is caught by `BasaltTest/Fuzz.lean`. Anything added to the
   Mathlib-free link closure must stay Mathlib-free: import the narrowest module, not an umbrella.
 
+- **Cedar** — generators for the real Cedar language's typing judgment (`BasaltFuzz/Cedar/`), their
+  proofs (`BasaltExamples/Cedar/`), the Cedar dependency's one-commit integration branch, and the
+  fuzz-vs-random coverage experiment (`fuzz-run/cedar-experiment.sh`) — [CEDAR.md](CEDAR.md).
+
 ## Gotchas (symptom → cause → pointer)
 
 - **A `partial_fixpoint` definition fails to elaborate**, complaining about monotonicity rather
@@ -192,6 +196,11 @@ Examples and tests elaborate their proofs and `#guard_msgs` pins during `lake bu
   `oneOf! [...]`** — `oneOf!`/`frequency!` elaborate to `oneOfWith`/`frequencyWith`, which only
   display as the source form. Rewrite with `oneOfWith_eq`/`frequencyWith_eq` first, or use `simp`,
   which applies them ([Basalt/Combinators.lean](Basalt/Combinators.lean)).
+
+- **A recursive generator fails with "(kernel) deep recursion detected" at its `def` line** — a
+  tuple-pattern bind (`let (a, b) ← g`) inside a `frequency!`/`oneOf!` branch of a `partial_fixpoint`.
+  Bind the pair and project with `.1`/`.2`; see the fence above the generators in
+  [BasaltFuzz/Cedar/Typed.lean](BasaltFuzz/Cedar/Typed.lean).
 
 - **`ring`/`linarith` fail on an `ℝ≥0∞` goal** — they don't exist there; transfer with
   `ennreal_to_real` ([Basalt/Tactic/ENNReal.lean](Basalt/Tactic/ENNReal.lean)) and finish over `ℝ`.

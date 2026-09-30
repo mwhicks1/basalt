@@ -68,6 +68,28 @@ def go (T : PropM FuzzGen Unit) (argv : Array String := #[]) (grow : Bool := fal
   -- there silently never appears (the tally lives in `runOneIO`, the statistics in an `atexit`).
   goImpl (fun bytes => runOneIO counters T bytes) argv grow
 
+/-- Run the property once at `IO`, ignoring libFuzzer's buffer, with the byte codes `runOneIO` uses.
+A failure is reported the same way; its `input bytes` are meaningless, since the choices came from
+the PRNG. -/
+def runOneRandom (counters : IO.Ref (Nat × Nat)) (T : PropM IO Unit) (_ : ByteArray) : IO UInt8 := do
+  match (← runProp T) with
+  | Except.ok () => counters.modify (fun (runs, discards) => (runs + 1, discards)); pure 0
+  | Except.error .discard => counters.modify (fun (r, d) => (r, d + 1)); pure 2
+  | Except.error (.fail msg) =>
+    counters.modify (fun (runs, discards) => (runs + 1, discards))
+    let (runs, discards) ← counters.get
+    reportFailure msg #[("runs", s!"{runs} ({discards} discarded)")]
+    pure 1
+
+/-- A *random* campaign run inside libFuzzer's loop: every input is drawn at `IO` and libFuzzer's
+buffer is ignored, so nothing guides the search, but libFuzzer still counts the coverage each run
+reaches. This is the control arm of a coverage comparison: the same binary, instrumentation, and
+counters as `go`, with only the source of the choices changed. -/
+def goRandom (T : PropM IO Unit) (argv : Array String := #[]) : IO Unit := do
+  IO.println s!"[basalt] starting random campaign under libFuzzer ({argv.toList})"
+  let counters ← IO.mkRef (0, 0)
+  goImpl (runOneRandom counters T) argv false
+
 /-- Replay one saved input file against a property (no fuzzer): reproduces the outcome
 deterministically and prints it. This is how a saved artifact (`crash-…`) is consumed.
 
@@ -111,5 +133,13 @@ def fuzzBackend : Backend where
   name := "fuzz"
   campaign T argv := let (grow, rest) := splitFlags argv; go (T FuzzGen) rest grow
   replay? := some (fun T path => replay (T FuzzGen) path)
+
+/-- Random `IO` choices, run and coverage-counted by libFuzzer (`goRandom`): the baseline that
+`fuzz`'s coverage is compared against. -/
+@[basalt_backend]
+def ioUnderFuzzBackend : Backend where
+  name := "io-libfuzzer"
+  campaign T argv := let (_, rest) := splitFlags argv; goRandom (T IO) rest
+  replay? := none
 
 end Basalt.Fuzz

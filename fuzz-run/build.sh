@@ -17,7 +17,9 @@
 # This is NOT part of `lake build`. Usage:  fuzz-run/build.sh   then   ./fuzz-run/basalt-fuzz <prop>
 set -euo pipefail
 cd "$(dirname "$0")/.."
-ROOT=$(pwd)
+# `-P` resolves symlinks so ROOT matches the physical paths Lake writes into the link response file
+# (e.g. a `/home` → `/local/home` symlink would otherwise misclassify every object in the scope check).
+ROOT=$(pwd -P)
 
 # shellcheck source=/dev/null   # optional and git-ignored; nothing to follow
 if [ -f fuzz-run/env.sh ]; then . fuzz-run/env.sh; fi
@@ -246,6 +248,10 @@ instrumented() { [ "$(nm -u "$1" 2>/dev/null | grep -c __sanitizer_cov_8bit_coun
 first_party=0
 while IFS= read -r o; do
   case $o in
+    # Cedar is a dependency but is the code under test (CEDAR.md): its library carries the coverage
+    # flags in its own lakefile, and without them libFuzzer sees none of Cedar.
+    "$ROOT/.lake/packages/Cedar/"*)
+      instrumented "$o" || die "${o##*/.lake/build/ir/} is not instrumented: Cedar is code under test" ;;
     "$ROOT/.lake/packages/"*)
       ! instrumented "$o" || die "${o##*/.lake/build/ir/} is instrumented: coverage over a dependency's PRNG is noise" ;;
     *)
@@ -260,7 +266,9 @@ done < <(grep -o '"[^"]*\.c\.o\.export"' "$LAKE_RSP" | tr -d '"')
 # `-Wl,-dead_strip` on macOS, and nothing in the program references this symbol, so the export flag
 # in link.rsp is the only thing keeping it. (`nm -g` lists dynamic externals; a hidden symbol shows
 # as `private external`, which `grep` then misses.)
-nm -g "$EXE" 2>/dev/null | grep -q 'T _\?LLVMFuzzerCustomMutator$' \
+# `grep -c` (not `-q`): under `set -o pipefail`, `grep -q` exits on the first match and closes the
+# pipe, so `nm` on a large binary gets SIGPIPE and the pipeline reports failure despite a match.
+[ "$(nm -g "$EXE" 2>/dev/null | grep -c 'T _\?LLVMFuzzerCustomMutator$' || true)" -gt 0 ] \
   || die "LLVMFuzzerCustomMutator is not exported: --grow would silently do nothing"
 
 # The committed entry point stays `fuzz-run/basalt-fuzz`, which every caller (CI, compare-*.sh) uses.

@@ -6,6 +6,7 @@ Authors: Michael Hicks
 import Basalt.Combinators
 import Basalt.Fuzz.Runner
 import BasaltFuzz.BuggyBST
+import BasaltFuzz.Cedar.Gen
 import BasaltFuzz.Staged
 
 /-!
@@ -24,6 +25,23 @@ quickly, the counterexample is reported, and the process crashes for libFuzzer t
 def propThreshold [Gen G] : PropM G Unit :=
   forAll (chooseNat 0 255) (· < 200)
 
+/-- The Cedar experiments' properties (`BasaltFuzz/Cedar/`, `CEDAR.md`). Every one draws its Cedar
+expression first. A separate list because a list literal this long elaborates without its expected
+type and then fails on the `Property` binder. -/
+def cedarProperties : List (String × Property) :=
+  [ -- the narrow fragment, generator proved sound and complete (`Cedar/Typed.lean`)
+    ("typed-S-exact",        fun _ => CedarTyped.prop_genS_exact),
+    ("typed-C-exact",        fun _ => CedarTyped.prop_genC_exact),
+    ("typed-soundness",      fun _ => CedarTyped.prop_soundness),
+    -- the wide fragment, candidates finished by `typeOf` (`Cedar/Wide.lean`)
+    ("wide-env",             fun _ => CedarWide.prop_env_wf),
+    ("wide-inputs",          fun _ => CedarWide.prop_inputs_ok),
+    ("wide-soundness",       fun _ => CedarWide.prop_soundness),
+    ("wide-traced",          fun _ => CedarWide.prop_soundness_traced),
+    -- the wide fragment, correct by construction (`Cedar/Gen.lean`)
+    ("gen-cbc",              fun _ => CedarGen.prop_correct_by_construction),
+    ("gen-traced",           fun _ => CedarGen.prop_soundness_traced) ]
+
 /-- The property registry, selected by the first non-flag CLI argument. `bst-*` are the worked BST
 demo (`BasaltFuzz/BuggyBST.lean`): the `-buggy-*` ones have real bugs every backend can find,
 and the others must never fail. `chain-*` and `long-*` are the staged microbenchmarks
@@ -33,7 +51,7 @@ and the others must never fail. `chain-*` and `long-*` are the staged microbench
 Each entry is a `Property`, so one registry serves every backend; `fun _ =>` is the explicit `G`
 binder it asks for. -/
 def properties : List (String × Property) :=
-  [ ("threshold",            fun _ => propThreshold),
+  ([ ("threshold",            fun _ => propThreshold),
     ("bst-gen",              fun _ => BuggyBST.prop_genBST_isBST),
     ("bst-insert",           fun _ => BuggyBST.prop_insert_preserves_BST),
     ("bst-buggy-insert",     fun _ => BuggyBST.prop_insertBuggy_preserves_BST),
@@ -46,7 +64,8 @@ def properties : List (String × Property) :=
     ("chain-4",              fun _ => Staged.propChain 4),
     ("long-16",              fun _ => Staged.propLong 16),
     ("long-32",              fun _ => Staged.propLong 32),
-    ("long-64",              fun _ => Staged.propLong 64) ]
+    ("long-64",              fun _ => Staged.propLong 64) ] : List (String × Property))
+    ++ cedarProperties
 
 /-- `dispatch`'s default backend is the first one registered, which is `io` — Basalt's own backends
 are registered by the import. This executable is a fuzzer, so it moves `fuzzBackend` to the front

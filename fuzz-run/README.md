@@ -218,6 +218,7 @@ guided fuzzer or under a plain random sampler; `--backend=` picks the interpreta
 | `fuzz` (default) | `Fuzz.FuzzGen` | libFuzzer's mutated byte buffer, guided by coverage |
 | `io` | `IO` | SplitMix (`ioGen`) |
 | `plausible` | `Plausible.Gen` | Plausible's `StdGen` |
+| `io-libfuzzer` | `IO` | SplitMix, but run inside libFuzzer's loop so libFuzzer still counts coverage: the control arm of a coverage comparison (`CEDAR.md`) |
 
 All three come from one registry of `Basalt.PBT.Property` and share `Basalt.PBT`'s failure contract,
 so their campaigns are directly comparable. `fuzzBackend` is a `@[basalt_backend]`, so `dispatch`

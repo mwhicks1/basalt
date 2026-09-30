@@ -158,6 +158,48 @@ size_t LLVMFuzzerCustomMutator(uint8_t *Data, size_t Size, size_t MaxSize, unsig
   return LLVMFuzzerMutate(Data, Size, MaxSize);
 }
 
+/* Cumulative edge coverage, for comparing backends (`fuzz-run/compare-coverage.sh`). libFuzzer resets
+   the SanitizerCoverage counters before every run and reports only a campaign-wide edge count, which
+   also counts Basalt's own plumbing, and that differs between backends. So when `BASALT_COV_OUT`
+   names a file, each run's counters are scanned and `g_cov_first[i]` records the 1-based index of the
+   first run that hit edge `i`; at exit every edge of the PC table is written as `<offset> <first>`
+   (`0` = never hit), where offset is from the executable base so `nm` can attribute it to a function.
+   The first-hit index is what gives coverage as a function of tests run. The counters and the PC
+   table are the linker-concatenated `__sancov_*` sections, in the same object order. */
+extern uint8_t __start___sancov_cntrs[] __attribute__((weak));
+extern uint8_t __stop___sancov_cntrs[] __attribute__((weak));
+extern const uintptr_t __start___sancov_pcs[] __attribute__((weak));
+extern const uintptr_t __stop___sancov_pcs[] __attribute__((weak));
+extern const char __executable_start[] __attribute__((weak));
+static uint32_t *g_cov_first;
+static size_t g_cov_n;
+static uint32_t g_cov_runs;
+
+static void basalt_cov_accumulate(void) {
+  g_cov_runs++;
+  for (size_t i = 0; i < g_cov_n; i++)
+    if (__start___sancov_cntrs[i] && !g_cov_first[i]) g_cov_first[i] = g_cov_runs;
+}
+
+static void basalt_cov_dump(void) {
+  const char *path = getenv("BASALT_COV_OUT");
+  if (!g_cov_first || !path) return;
+  FILE *f = fopen(path, "w");
+  if (!f) return;
+  for (size_t i = 0; i < g_cov_n; i++)
+    fprintf(f, "%lx %u\n", (unsigned long)(__start___sancov_pcs[2 * i] - (uintptr_t)__executable_start),
+            (unsigned)g_cov_first[i]);
+  fclose(f);
+}
+
+static void basalt_cov_init(void) {
+  if (!getenv("BASALT_COV_OUT") || !__start___sancov_cntrs) return;
+  g_cov_n = (size_t)(__stop___sancov_cntrs - __start___sancov_cntrs);
+  if ((size_t)(__stop___sancov_pcs - __start___sancov_pcs) != 2 * g_cov_n) return;
+  g_cov_first = calloc(g_cov_n, sizeof *g_cov_first);
+  if (g_cov_first) atexit(basalt_cov_dump);
+}
+
 /* Libfuzzer harness -- called by libFuzzer loop during testing.
    Failure model follows bolero (lib/bolero-libfuzzer): the Lean closure prints the counterexample,
    returns code 1, and we abort(). libFuzzer's signal handler then saves the crashing input as an
@@ -185,8 +227,10 @@ int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
 
   /* If there was a deficit, save the offending buffer. Will be checked by the custom mutator. */
   if (g_last_run_deficit) basalt_fuzz_record_short(Data, Size);
+  if (g_cov_first) basalt_cov_accumulate();
 
   if (code == 1) {
+    basalt_cov_dump();                                /* abort() skips this atexit handler too  */
     basalt_fuzz_report_stats();                       /* abort() skips the atexit handler      */
     fflush(NULL);                                     /* the Lean side flushed its own handles */
     abort();                                          /* property failed → libFuzzer saves it */
@@ -201,6 +245,7 @@ LEAN_EXPORT lean_object *basalt_fuzz_go(lean_object *run, lean_object *argv, uin
   g_run = run;
   g_grow = grow;
   atexit(basalt_fuzz_report_stats);   /* the `-runs`-exhausted path exits here, not through Lean */
+  basalt_cov_init();
 
   /* `av` and its strings are deliberately never freed: the driver may rewrite both `argc` and `av`
      as it consumes its own flags, so the pointers we would free are not the ones we allocated. */

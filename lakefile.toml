@@ -64,3 +64,17 @@ rev = "v4.34.0"
 name = "splitmix"
 git = "https://github.com/hgoldstein95/splitmix"
 rev = "splitmix-0.1.0"
+
+# Real Cedar, as an ordinary git dependency: Lake clones and builds it inside this workspace's `.lake`.
+# Cedar is Batteries-only (no Mathlib), so its evaluator and validator link into `basalt-fuzz` without
+# breaking that executable's Mathlib-free link closure (fuzz-run/README.md), and its sources compile
+# unchanged under this package's toolchain (Lake builds a dependency from source with the root's).
+#
+# The revision is Cedar plus one commit (`basalt-integration`, see CEDAR.md): six `List` lemmas renamed,
+# because Mathlib declares the same names and no file could import both; and SanitizerCoverage flags on
+# the Cedar library, because Lake gives the root package no way to set a dependency's compiler flags.
+[[require]]
+name = "Cedar"
+git = "/local/home/mwhicks/src/cedar-spec"
+rev = "basalt-integration"
+subDir = "cedar-lean"
