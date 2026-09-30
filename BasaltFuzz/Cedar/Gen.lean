@@ -12,8 +12,7 @@ Generates Cedar expressions with the type and output capabilities Cedar's typech
 over `CedarWide`'s schema, *without calling `typeOf`*. Each typing rule is a generator branch that
 combines its sub-results with the typechecker's own per-rule helper (`typeOfAnd`, `typeOfIf`,
 `typeOfBinaryApp`, `typeOfHasAttr`, `typeOfExtHasAttr`, …) exactly as `typeOf` combines them, and a
-rule is offered only where it applies, so no choice is ever rejected. The helpers consult only their
-arguments' *types*, so a sub-result is handed to one as a stand-in `TypedExpr` of its type (`car`).
+rule is offered only where it applies, so no choice is ever rejected.
 
 Capabilities are tracked exactly as `typeOf` computes them. A read justified by a capability is
 offered only through a *path* — a variable or literal followed by attribute reads — every optional
@@ -36,23 +35,24 @@ open CedarWide (env userT groupT photoT albumT actionT view read ctxTy addrTy en
 
 /-! ## Judgments -/
 
-/-- A generated judgment: the expression, its type, and its output capabilities. -/
+/-- A generated judgment: the expression, the typed expression `typeOf` gives it, and its output
+capabilities. Every sub-result is exactly `typeOf`'s for that subterm, so the helper combining them
+computes exactly what `typeOf` computes for the whole. -/
 structure J where
   e : Spec.Expr
-  ty : CedarType
+  tx : TypedExpr
   out : Capabilities
 
-/-- A stand-in `TypedExpr` of type `ty`, for a helper that consults only its argument's type. -/
-def car (ty : CedarType) : TypedExpr := .lit (.bool true) ty
+def J.ty (j : J) : CedarType := j.tx.typeOf
 
 /-- A sub-result as the `ResultType` a helper takes. -/
-def J.res (j : J) : ResultType := .ok (car j.ty, j.out)
+def J.res (j : J) : ResultType := .ok (j.tx, j.out)
 
 /-- A helper's result as a judgment for `e`. `none` only if the helper rejected, which the rules
 below never let happen. -/
 def ofR (e : Spec.Expr) (r : ResultType) : Option J :=
   match r with
-  | .ok (tx, c) => some ⟨e, tx.typeOf, c⟩
+  | .ok (tx, c) => some ⟨e, tx, c⟩
   | .error _ => none
 
 /-- A placeholder for a dead branch's result, which the helper receiving it ignores. -/
@@ -79,56 +79,49 @@ def attrTy (bt : CedarType) (a : Attr) : Option QualifiedType :=
 
 /-! ## Paths -/
 
-/-- The type of a path — a variable or literal followed by attribute reads — computed from the schema
-as `typeOf` computes it (`typeOfVar`, `typeOfLit`, `getAttrInRecord`). `none` for anything else. -/
-def pathType : Spec.Expr → Option CedarType
+/-- The typed expression of a path — a variable or literal followed by attribute reads — under `c`,
+computed with the helpers `typeOf` uses for these constructors (`typeOfVar`, `typeOfLit`,
+`typeOfGetAttr`). `none` if it is not a path or does not typecheck under `c`, which for a path means
+an optional step is not justified by a capability in `c`. -/
+def pathTx (c : Capabilities) : Spec.Expr → Option TypedExpr
   | .var v => match typeOfVar v env with
-    | .ok (tx, _) => some tx.typeOf
+    | .ok (tx, _) => some tx
     | .error _ => none
   | .lit p => match typeOfLit p env with
-    | .ok (tx, _) => some tx.typeOf
+    | .ok (tx, _) => some tx
     | .error _ => none
   | .getAttr p a => do
-    let bt ← pathType p
-    let q ← attrTy bt a
-    return q.getType
+    let tp ← pathTx c p
+    match typeOfGetAttr tp p a c env with
+    | .ok (tx, _) => some tx
+    | .error _ => none
   | _ => none
 
-/-- Does a path typecheck under `c`: is every optional step justified by a capability in `c`? -/
-def pathOK (c : Capabilities) : Spec.Expr → Bool
-  | .var _ => true
-  | .lit _ => true
-  | .getAttr p a =>
-    pathOK c p &&
-      match (pathType p).bind (attrTy · a) with
-      | some (.required _) => true
-      | some (.optional _) => (p, Key.attr a) ∈ c
-      | none => false
-  | _ => false
-
-/-- Reads the capabilities justify at type `ty`: `(base, base type, attribute)`, the base a path. -/
-def capReads (c : Capabilities) (ty : CedarType) : List (Spec.Expr × CedarType × Attr) :=
+/-- Reads the capabilities justify at type `ty`: `(base, its typed expression, attribute)`, the base a
+path that typechecks under `c`. -/
+def capReads (c : Capabilities) (ty : CedarType) : List (Spec.Expr × TypedExpr × Attr) :=
   c.filterMap fun
     | (x, .attr a) =>
-      if pathOK c x then
-        match pathType x with
-        | some bt => match attrTy bt a with
-          | some q => if q.getType == ty then some (x, bt, a) else none
-          | none => none
+      match pathTx c x with
+      | some tx => match attrTy tx.typeOf a with
+        | some q => if q.getType == ty then some (x, tx, a) else none
         | none => none
-      else none
+      | none => none
     | _ => none
 
-/-- Tag reads the capabilities justify: `(base, base type, tag)`, base and tag both paths. -/
-def tagReads (c : Capabilities) : List (Spec.Expr × CedarType × Spec.Expr) :=
+/-- Tag reads the capabilities justify: `(base, typed base, tag, typed tag)`, base and tag both paths
+that typecheck under `c`, the tag a string and the base's tags strings. -/
+def tagReads (c : Capabilities) : List (Spec.Expr × TypedExpr × Spec.Expr × TypedExpr) :=
   c.filterMap fun
     | (x, .tag t) =>
-      if pathOK c x && pathOK c t && pathType t == some .string then
-        match pathType x with
-        | some (.entity ety) => if env.ets.tags? ety == some (some .string) then
-            some (x, .entity ety, t) else none
+      match pathTx c x, pathTx c t with
+      | some tx, some tt =>
+        match tx.typeOf with
+        | .entity ety =>
+          if tt.typeOf == .string && env.ets.tags? ety == some (some .string) then
+            some (x, tx, t, tt) else none
         | _ => none
-      else none
+      | _, _ => none
     | _ => none
 
 /-- Can the generator build a value of this type under `c`? Every value type can, except a schema
@@ -271,18 +264,20 @@ def leaf (ty : CedarType) : G (Option J) :=
     | none => return ofR (.lit p) (typeOfLit p env)
   | .set elt => do
     match (← leaf elt) with
-    | some x => return ofR (.set [x.e]) (typeOfSet [car x.ty])
+    | some x => return ofR (.set [x.e]) (typeOfSet [x.tx])
     | none => return none
   | .record rty =>
     if rty == ctxTy then return ofR (.var .context) (typeOfVar .context env)
     else match capReads c ty with
       | r :: rs => do
         let q ← elements (r :: rs) (by simp)
-        return ofR (.getAttr q.1 q.2.2) (typeOfGetAttr (car q.2.1) q.1 q.2.2 c env)
+        return ofR (.getAttr q.1 q.2.2) (typeOfGetAttr q.2.1 q.1 q.2.2 c env)
       | [] => return none
   | .ext xt => do
-    let arg := Spec.Expr.lit (.string (← genExtArg xt))
-    return ofR (.call (ctorOf xt) [arg]) (typeOfCall (ctorOf xt) [car .string] [arg])
+    let p := Prim.string (← genExtArg xt)
+    match typeOfLit p env with
+    | .ok (targ, _) => return ofR (.call (ctorOf xt) [.lit p]) (typeOfCall (ctorOf xt) [targ] [.lit p])
+    | .error _ => return none
   | _ => return none
 
 /-- `a && b`: an `ff` left operand leaves `b` untyped; otherwise `b` is generated under `c ∪ out(a)`,
@@ -292,11 +287,11 @@ def ruleAnd : G (Option J) := do
   | none => return none
   | some a =>
     if a.ty == .bool .ff then
-      return ofR (.and a.e (← f.any)) (typeOfAnd (car a.ty, a.out) dead)
+      return ofR (.and a.e (← f.any)) (typeOfAnd (a.tx, a.out) dead)
     else
       match (← f.bool (c ∪ a.out)) with
       | none => return none
-      | some b => return ofR (.and a.e b.e) (typeOfAnd (car a.ty, a.out) b.res)
+      | some b => return ofR (.and a.e b.e) (typeOfAnd (a.tx, a.out) b.res)
 
 /-- `a || b`: a `tt` left operand leaves `b` untyped; `b` is generated under `c` alone. -/
 def ruleOr : G (Option J) := do
@@ -304,11 +299,11 @@ def ruleOr : G (Option J) := do
   | none => return none
   | some a =>
     if a.ty == .bool .tt then
-      return ofR (.or a.e (← f.any)) (typeOfOr (car a.ty, a.out) dead)
+      return ofR (.or a.e (← f.any)) (typeOfOr (a.tx, a.out) dead)
     else
       match (← f.bool c) with
       | none => return none
-      | some b => return ofR (.or a.e b.e) (typeOfOr (car a.ty, a.out) b.res)
+      | some b => return ofR (.or a.e b.e) (typeOfOr (a.tx, a.out) b.res)
 
 /-- `if g then t else e`, a branch generated by `branch`; the guard's capabilities reach the *then*
 branch only, and a singleton guard leaves the other branch untyped. -/
@@ -316,7 +311,7 @@ def ruleIte (branch : Capabilities → G (Option J)) : G (Option J) := do
   match (← f.bool c) with
   | none => return none
   | some g =>
-    let r₁ := (car g.ty, g.out)
+    let r₁ := (g.tx, g.out)
     if g.ty == .bool .tt then
       match (← branch (c ∪ g.out)) with
       | none => return none
@@ -341,7 +336,7 @@ def binary (op : BinaryOp) (ty₁ ty₂ : CedarType) : G (Option J) := do
     match (← f.atTy c ty₂) with
     | none => return none
     | some b => return ofR (.binaryApp op a.e b.e)
-                  (typeOfBinaryApp op (car a.ty) (car b.ty) a.e b.e c env)
+                  (typeOfBinaryApp op a.tx b.tx a.e b.e c env)
 
 /-- A unary application at operand type `ty`, typed by `typeOfUnaryApp`. -/
 def unary (op : UnaryOp) (ty : CedarType) : G (Option J) := do
@@ -350,7 +345,7 @@ def unary (op : UnaryOp) (ty : CedarType) : G (Option J) := do
     | _ => f.atTy c ty
   match x? with
   | none => return none
-  | some x => return ofR (.unaryApp op x.e) (typeOfUnaryApp op (car x.ty))
+  | some x => return ofR (.unaryApp op x.e) (typeOfUnaryApp op x.tx)
 
 /-- An extension-function call on arguments at `tys`, typed by `typeOfCall`. -/
 def call (fn : ExtFun) (tys : List CedarType) : G (Option J) := do
@@ -362,7 +357,7 @@ def call (fn : ExtFun) (tys : List CedarType) : G (Option J) := do
       | some x => return (← args rest).map (x :: ·)
   match (← args tys) with
   | none => return none
-  | some xs => return ofR (.call fn (xs.map (·.e))) (typeOfCall fn (xs.map (car ·.ty)) (xs.map (·.e)))
+  | some xs => return ofR (.call fn (xs.map (·.e))) (typeOfCall fn (xs.map (·.tx)) (xs.map (·.e)))
 
 /-- `x has a`, for a generated base of an inhabited base type: the source of attribute capabilities. -/
 def ruleHas : G (Option J) := do
@@ -371,7 +366,7 @@ def ruleHas : G (Option J) := do
   | none => return none
   | some x =>
     let a ← genAttr
-    return ofR (.hasAttr x.e a) (typeOfHasAttr (car x.ty) x.e a c env)
+    return ofR (.hasAttr x.e a) (typeOfHasAttr x.tx x.e a c env)
 
 /-- `x hasTag t`: the source of tag capabilities. -/
 def ruleHasTag : G (Option J) := do
@@ -381,14 +376,14 @@ def ruleHasTag : G (Option J) := do
 /-- A read at `ty`: from a capability (through a path), or a required attribute of a generated base.
 Offered only when one exists (`readable`). -/
 def ruleRead (ty : CedarType) : G (Option J) :=
-  let capRead (cs : List (Spec.Expr × CedarType × Attr)) (h : cs ≠ []) : G (Option J) := do
+  let capRead (cs : List (Spec.Expr × TypedExpr × Attr)) (h : cs ≠ []) : G (Option J) := do
     let q ← elements cs h
-    return ofR (.getAttr q.1 q.2.2) (typeOfGetAttr (car q.2.1) q.1 q.2.2 c env)
+    return ofR (.getAttr q.1 q.2.2) (typeOfGetAttr q.2.1 q.1 q.2.2 c env)
   let reqRead (rs : List (CedarType × Attr)) (h : rs ≠ []) : G (Option J) := do
     let q ← elements rs h
     match (← f.atTy c q.1) with
     | none => return none
-    | some x => return ofR (.getAttr x.e q.2) (typeOfGetAttr (car x.ty) x.e q.2 c env)
+    | some x => return ofR (.getAttr x.e q.2) (typeOfGetAttr x.tx x.e q.2 c env)
   match capReads c ty, requiredReads c ty with
   | [], [] => return none
   | r :: rs, [] => capRead (r :: rs) (by simp)
@@ -400,7 +395,7 @@ def readable (ty : CedarType) : Bool := !(capReads c ty).isEmpty || !(requiredRe
 
 /-- A record literal of at most `n + 1` fields with distinct names, `need` (if given) first, each a
 judgment at a generated type. Its type is `typeOf`'s for a record literal: each field required. -/
-def recordLit (need : Option (Attr × CedarType)) : G (Option (Spec.Expr × CedarType)) := do
+def recordLit (need : Option (Attr × CedarType)) : G (Option (Spec.Expr × TypedExpr)) := do
   let field (ty : CedarType) : G (Option J) :=
     match ty with
     | .bool _ => f.bool c
@@ -429,23 +424,25 @@ def recordLit (need : Option (Attr × CedarType)) : G (Option (Spec.Expr × Ceda
     | none => return none
     | some rest =>
       let all := fs ++ rest
-      let rty : RecordType := Map.make (all.map fun (a, j) => (a, Qualified.required j.ty))
-      return some (.record (all.map fun (a, j) => (a, j.e)), .record rty)
+      -- exactly `typeOf`'s typed expression for a record literal
+      let rty : RecordType := Map.make (all.map fun (a, j) => (a, Qualified.required j.tx.typeOf))
+      return some (.record (all.map fun (a, j) => (a, j.e)),
+        .record (all.map fun (a, j) => (a, j.tx)) (.record rty))
 
 /-- `{…} has a`. -/
 def ruleRecordHas : G (Option J) := do
   match (← recordLit f c none) with
   | none => return none
-  | some (r, rty) =>
+  | some (r, tr) =>
     let a ← genAttr
-    return ofR (.hasAttr r a) (typeOfHasAttr (car rty) r a c env)
+    return ofR (.hasAttr r a) (typeOfHasAttr tr r a c env)
 
 /-- `{…, a: v, …}.a`, reading a field built at the wanted type. -/
 def ruleRecordGet (ty : CedarType) : G (Option J) := do
   let a ← genAttr
   match (← recordLit f c (some (a, ty))) with
   | none => return none
-  | some (r, rty) => return ofR (.getAttr r a) (typeOfGetAttr (car rty) r a c env)
+  | some (r, tr) => return ofR (.getAttr r a) (typeOfGetAttr tr r a c env)
 
 /-- An attribute chain for the multi-attribute `has` from a base of type `cur`: `n + 1` attributes.
 Every attribute but the last must be an entity- or record-typed attribute of the type reached so far,
@@ -474,8 +471,8 @@ def ruleExtHas : G (Option J) := do
     match (← genChain (some bt) n) with
     | [] => return none
     | a :: as =>
-      match typeOfExtHasAttr (car x.ty) x.e (a :: as) c env with
-      | .ok (bty, c') => return some ⟨.extHasAttr x.e a as, .bool bty, c'⟩
+      match typeOfExtHasAttr x.tx x.e (a :: as) c env with
+      | .ok (bty, c') => return some ⟨.extHasAttr x.e a as, .extHasAttr x.tx a as (.bool bty), c'⟩
       | .error _ => return none
 
 /-- A set literal of `1..fuel+1` elements at `elt`. -/
@@ -489,7 +486,7 @@ def ruleSet (elt : CedarType) : G (Option J) := do
   let n ← chooseNat 1 (f.fuel + 1)
   match (← elems n) with
   | none => return none
-  | some xs => return ofR (.set (xs.map (·.e))) (typeOfSet (xs.map (car ·.ty)))
+  | some xs => return ofR (.set (xs.map (·.e))) (typeOfSet (xs.map (·.tx)))
 
 /-- Boolean rules. Every one applies in every scope; the read rule is offered only when some read of
 a boolean exists. -/
@@ -520,15 +517,17 @@ def stepBool : G (Option J) :=
             match (← f.bool c) with
             | none => return none
             | some b => return ofR (.binaryApp .eq a.e b.e)
-                          (typeOfBinaryApp .eq (car a.ty) (car b.ty) a.e b.e c env)),
+                          (typeOfBinaryApp .eq a.tx b.tx a.e b.e c env)),
     (1, fun _ => do
           binary f c .eq (← elements entityTys (by simp [entityTys, entityTypes]))
             (← elements entityTys (by simp [entityTys, entityTypes]))),
     (1, fun _ => do
-          let p₁ := Spec.Expr.lit (← genPrim)
-          let p₂ := Spec.Expr.lit (← genPrim)
-          let ty (p : Spec.Expr) : CedarType := (pathType p).getD .int
-          return ofR (.binaryApp .eq p₁ p₂) (typeOfBinaryApp .eq (car (ty p₁)) (car (ty p₂)) p₁ p₂ c env)),
+          let p₁ ← genPrim
+          let p₂ ← genPrim
+          match typeOfLit p₁ env, typeOfLit p₂ env with
+          | .ok (t₁, _), .ok (t₂, _) =>
+            return ofR (.binaryApp .eq (.lit p₁) (.lit p₂)) (typeOfBinaryApp .eq t₁ t₂ (.lit p₁) (.lit p₂) c env)
+          | _, _ => return none),
     (3, fun _ => do
           let t₂ ← elements entityTys (by simp [entityTys, entityTypes])
           binary f c .mem (← elements entityTys (by simp [entityTys, entityTypes]))
@@ -563,8 +562,8 @@ def construct (ty : CedarType) : List (Nat × (Unit → G (Option J))) :=
     | [] => []
     | r :: rs => [(2, fun _ => do
         let q ← elements (r :: rs) (by simp)
-        return ofR (.binaryApp .getTag q.1 q.2.2)
-          (typeOfBinaryApp .getTag (car q.2.1) (car .string) q.1 q.2.2 c env))]
+        return ofR (.binaryApp .getTag q.1 q.2.2.1)
+          (typeOfBinaryApp .getTag q.2.1 q.2.2.2 q.1 q.2.2.1 c env))]
   | .set elt => [(3, fun _ => ruleSet f c elt)]
   | .ext .datetime => [
       (1, fun _ => call f c .offset [.ext .datetime, .ext .duration]),
