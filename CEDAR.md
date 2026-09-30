@@ -109,6 +109,19 @@ input it keeps was chosen for new coverage. The margin is ~50 edges (<1%). Repro
   or minimal fuel, so grown inputs decode to repeats (half as many distinct expressions). What does
   help is the other half of what `--grow` switches on: dropping libFuzzer's input-length ramp
   (`fuzz-noramp`).
+- **Cedar's typechecker is not monotone in capabilities.** Adding a capability can make a well-typed
+  expression ill-typed, so a guard can break a policy that typechecks on its own:
+
+  ```
+  e       = (if context.cReq then (principal has opt && !(context has cOpt)) else principal has opt)
+              && principal.opt == ""                          -- typechecks
+  guarded = context has cOpt && e                             -- rejected: attrNotFound "opt"
+  ```
+
+  Under the capability `(context, cOpt)` the *then* branch is statically `false` and outputs no
+  capabilities, so the `if`'s output capabilities, `(c₁ ∪ c₂) ∩ c₃`, lose `principal has opt`.
+  `guarded` is safe at runtime; the typechecker is only more conservative. It is why `CedarGen` offers
+  a capability-justified read only through a path, checked under the capabilities at the read.
 - **Fuzz repeats inputs.** Only about a quarter to a half of its tests produce a new expression; most
   byte mutations do not change the decoded term. Random repeats less.
 - **What bounds coverage is the property, not the search.** Most of Cedar's code is outside what an
