@@ -1382,7 +1382,39 @@ theorem reach_call (ih : ∀ x ∈ xs, ∀ {tx out}, typeOf x c env = .ok (tx, o
     ih j.e (List.mem_map_of_mem hjm) (hj j hjm)
   have hre := ofR_ok (e := .call fn (js.map J.e)) hcall
   cases fn <;> simp only [typeOfCall] at hcall
-  case decimal | ip | datetime | duration => all_goals sorry
+  case decimal | ip | datetime | duration =>
+    all_goals
+      simp only [bind, Except.bind] at hcall
+      split at hcall
+      · simp at hcall
+      · rename_i p hc
+        simp only [ok, Except.ok.injEq] at hcall
+        unfold typeOfConstructor at hc
+        split at hc
+        · rename_i s heq
+          split at hc
+          · rename_i hmk
+            obtain ⟨j, rfl⟩ : ∃ j, js = [j] := by
+              cases js with
+              | nil => simp at heq
+              | cons j js => cases js with
+                | nil => exact ⟨j, rfl⟩
+                | cons => simp at heq
+            simp only [List.map_cons, List.map_nil, List.cons.injEq, and_true] at heq
+            have hjj := hj j (by simp)
+            simp only [Judg, heq, typeOf, typeOfLit, ok, Function.comp, Except.ok.injEq,
+              Prod.mk.injEq] at hjj
+            obtain ⟨htx, -⟩ := hjj
+            simp only [ok, Except.ok.injEq] at hc; subst hc
+            simp only [Prod.mk.injEq] at hcall
+            obtain ⟨rfl, rfl⟩ := hcall
+            simp only [List.map_cons, List.map_nil, heq, ← htx] at hre ⊢
+            refine reach_val (by simp [TypedExpr.typeOf, valueTypes])
+              (inhabited_of_ne (by simp [TypedExpr.typeOf])) ?_
+            simp only [TypedExpr.typeOf]
+            exact fam_leaf (hre ▸ leaf_ext (xt := _) (by simp [ValidArg, hmk]))
+          · simp [err] at hc
+        · simp [err] at hc
   all_goals split at hcall <;> (try contradiction) <;> (try (simp [err] at hcall; done))
   all_goals rename_i heq
   all_goals simp only [ok, Function.comp, Except.ok.injEq, Prod.mk.injEq] at hcall
