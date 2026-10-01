@@ -1267,6 +1267,52 @@ theorem reach_extHas (hne : atts ≠ []) (hl : atts.length ≤ n + 1)
       rw [fam_succ_bool]; step_bool
       all_goals branch hm
 
+/-! ### Lists of judgments, from typing -/
+
+theorem mapM_typeOf_inv : (xs : List Spec.Expr) → (txs : List TypedExpr) →
+    (xs.mapM fun x => justType (typeOf x c env)) = .ok txs →
+    ∃ js : List J, js.map J.e = xs ∧ js.map J.tx = txs ∧ ∀ j ∈ js, Judg c j
+  | [], txs, h => by
+    simp [pure, Except.pure] at h; subst h; exact ⟨[], rfl, rfl, by simp⟩
+  | x :: xs, txs, h => by
+    simp only [List.mapM_cons] at h
+    cases hx : typeOf x c env with
+    | error e => simp [hx, justType, Except.map, bind, Except.bind] at h
+    | ok p =>
+      obtain ⟨tx, cx⟩ := p
+      cases hr : xs.mapM (fun x => justType (typeOf x c env)) with
+      | error e => rw [hr] at h; simp [hx, justType, Except.map, bind, Except.bind] at h
+      | ok tys =>
+        rw [hr] at h; simp [hx, justType, Except.map, bind, Except.bind, pure, Except.pure] at h
+        subst h
+        obtain ⟨js, h₁, h₂, h₃⟩ := mapM_typeOf_inv xs tys hr
+        refine ⟨⟨x, tx, cx⟩ :: js, by simp [h₁], by simp [h₂], ?_⟩
+        rintro j (_ | ⟨_, hj⟩)
+        exacts [hx, h₃ j hj]
+
+theorem set_inv (h : typeOf (.set xs) c env = .ok (tx, out)) :
+    ∃ js : List J, js.map J.e = xs ∧ (∀ j ∈ js, Judg c j) ∧ typeOfSet (js.map J.tx) = .ok (tx, out) := by
+  simp only [typeOf] at h
+  rw [List.mapM₁_eq_mapM (fun x => justType (typeOf x c env))] at h
+  cases hm : xs.mapM (fun x => justType (typeOf x c env)) with
+  | error e => simp [hm, bind, Except.bind] at h
+  | ok txs =>
+    simp only [hm, bind, Except.bind] at h
+    obtain ⟨js, h₁, h₂, h₃⟩ := mapM_typeOf_inv xs txs hm
+    exact ⟨js, h₁, h₃, h₂ ▸ h⟩
+
+theorem call_inv (h : typeOf (.call fn xs) c env = .ok (tx, out)) :
+    ∃ js : List J, js.map J.e = xs ∧ (∀ j ∈ js, Judg c j) ∧
+      typeOfCall fn (js.map J.tx) (js.map J.e) = .ok (tx, out) := by
+  simp only [typeOf] at h
+  rw [List.mapM₁_eq_mapM (fun x => justType (typeOf x c env))] at h
+  cases hm : xs.mapM (fun x => justType (typeOf x c env)) with
+  | error e => simp [hm, bind, Except.bind] at h
+  | ok txs =>
+    simp only [hm, bind, Except.bind] at h
+    obtain ⟨js, h₁, h₂, h₃⟩ := mapM_typeOf_inv xs txs hm
+    exact ⟨js, h₁, h₃, by rw [h₁, h₂]; exact h⟩
+
 /-- **Completeness**, for every capability set: every fragment expression `typeOf` accepts is
 generated, with exactly `typeOf`'s judgment, at its fuel. -/
 theorem reach (hs : Scope c e n) :
