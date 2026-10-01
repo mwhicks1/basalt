@@ -5,7 +5,7 @@
    "type": "git",
    "subDir": "cedar-lean",
    "scope": "",
-   "rev": "a1f21d086fc9fb40c5f41d5d97b2e1598e6ecc37",
+   "rev": "0188ebe8df0807aded901d71cb97b55065005565",
    "name": "Cedar",
    "manifestFile": "lake-manifest.json",
    "inputRev": "basalt-integration",

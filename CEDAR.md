@@ -38,10 +38,11 @@ checks it on every test, together with the judgment's agreement with `typeOf`.
 ## The Cedar dependency
 
 Cedar is an ordinary git dependency (`lakefile.toml`), built inside this workspace's `.lake`. It pins
-Cedar plus one commit, `basalt-integration`, for two things that cannot be done from this side:
+Cedar plus two commits, `basalt-integration`, for two things that cannot be done from this side:
 
-- **Six `List` lemmas renamed** (`_cedar` suffix). Mathlib declares the same names, so without this no
-  file could import both Cedar and Basalt's proof machinery.
+- **Six `List` lemmas moved into `Cedar.List`.** Cedar copied them from Mathlib under the same names,
+  so without this no file could import both Cedar and Basalt's proof machinery. Cedar's own call sites
+  are unchanged, since inside the `Cedar` namespace `List.<name>` resolves to `Cedar.List.<name>`.
 - **SanitizerCoverage flags on the `Cedar` library.** Lake gives the root package no way to set a
   dependency's compiler flags; without them libFuzzer sees none of Cedar's code (measured: 3.7× fewer
   Cedar edges).
