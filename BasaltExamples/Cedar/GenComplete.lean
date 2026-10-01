@@ -989,6 +989,109 @@ theorem base_of_U (hu : TyU c t) (hb : (∃ ety, t = .entity ety) ∨ (∃ rty, 
     · simp [baseTypes]
     · simp [baseTypes, hi]
 
+/-! ### The schema's attributes -/
+
+theorem find?_make_mem {L : List (Attr × QualifiedType)} (h : (Map.make L).find? a = some q) :
+    q ∈ L.map Prod.snd := by
+  rw [Map.make_find?_eq_list_find?] at h
+  obtain ⟨p, hp, rfl⟩ := Option.map_eq_some_iff.mp h
+  exact List.mem_map.mpr ⟨p, List.mem_of_find?_eq_some hp, rfl⟩
+
+theorem attrs?_mem (h : env.ets.attrs? ety = some rty) :
+    rty ∈ [Map.empty, groupAttrs, photoAttrs, userAttrs] := by
+  rw [ets_eq] at h
+  simp only [EntitySchema.attrs?, Map.find?, Map.toList, List.find?] at h
+  cases h1 : albumT == ety <;> cases h2 : groupT == ety <;> cases h3 : photoT == ety <;>
+    cases h4 : userT == ety <;> simp_all [EntitySchemaEntry.attrs]
+
+/-- Every attribute of a base type has a type the generator builds, a boolean one `anyBool`. -/
+theorem attr_cases (hb : bt ∈ valueTypes) (h : attrTy bt a = some q) :
+    q.getType ∈ valueTypes ∨ q.getType = .bool .anyBool := by
+  have key : ∀ L : List (Attr × QualifiedType),
+      (∀ q ∈ L.map Prod.snd, q.getType ∈ valueTypes ∨ q.getType = .bool .anyBool) →
+      (Map.make L).find? a = some q → q.getType ∈ valueTypes ∨ q.getType = .bool .anyBool :=
+    fun L hL h => hL q (find?_make_mem h)
+  have hm : ∀ rty ∈ [Map.empty, groupAttrs, photoAttrs, userAttrs, ctxTy, addrTy],
+      rty.find? a = some q → q.getType ∈ valueTypes ∨ q.getType = .bool .anyBool := by
+    intro rty hr hf
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at hr
+    rcases hr with rfl | rfl | rfl | rfl | rfl | rfl
+    · simp [Map.empty, Map.find?, Map.toList] at hf
+    all_goals refine key _ ?_ hf
+    all_goals simp [Qualified.getType, valueTypes, setElts, entityTys, CedarWide.entityTypes]
+  unfold attrTy at h
+  split at h
+  · rename_i rty
+    refine hm rty ?_ h
+    simp [valueTypes, setElts, entityTys, CedarWide.entityTypes] at hb
+    rcases hb with rfl | rfl <;> simp
+  · obtain ⟨rty, hr, hf⟩ := Option.bind_eq_some_iff.mp h
+    exact hm rty (by have := attrs?_mem hr; simp at this ⊢; tauto) hf
+  · simp at h
+
+/-! ### Reads -/
+
+theorem getAttr_ty (h : typeOfGetAttr tx x a c env = .ok (t, c')) :
+    ∃ q, attrTy tx.typeOf a = some q ∧ t.typeOf = q.getType ∧ c' = ∅ := by
+  unfold typeOfGetAttr at h
+  split at h
+  · rename_i rty hrty
+    simp only [getAttrInRecord] at h
+    split at h <;> (try split at h) <;> simp [ok, err, bind, Except.bind] at h <;>
+      (obtain ⟨rfl, rfl⟩ := h
+       first
+         | exact ⟨.required _, by simp only [attrTy, hrty]; assumption, rfl, rfl⟩
+         | exact ⟨.optional _, by simp only [attrTy, hrty]; assumption, rfl, rfl⟩)
+  · rename_i ety hety
+    split at h
+    · rename_i rty hrty
+      simp only [getAttrInRecord] at h
+      split at h <;> (try split at h) <;> simp [ok, err, bind, Except.bind] at h <;>
+        (obtain ⟨rfl, rfl⟩ := h
+         first
+           | exact ⟨.required _, by simp only [attrTy, hety, hrty, Option.bind_some]; assumption, rfl, rfl⟩
+           | exact ⟨.optional _, by simp only [attrTy, hety, hrty, Option.bind_some]; assumption, rfl, rfl⟩)
+    · simp [err] at h
+  · simp [err] at h
+
+theorem mem_requiredReads (hbt : bt ∈ baseTypes c) (h : attrTy bt a = some (.required t))
+    (hm : ∃ q, (a, q) ∈ CedarWide.attrsOf bt) : (bt, a) ∈ requiredReads c t := by
+  simp only [requiredReads, List.mem_flatMap, List.mem_filterMap]
+  obtain ⟨q, hq⟩ := hm
+  exact ⟨bt, hbt, (a, q), hq, by simp [h]⟩
+
+theorem attrsOf_of (h : attrTy bt a = some q) : (a, q) ∈ CedarWide.attrsOf bt := by
+  unfold attrTy at h
+  split at h
+  · exact Map.find?_mem_toList h
+  · obtain ⟨rty, hr, hf⟩ := Option.bind_eq_some_iff.mp h
+    simp only [CedarWide.attrsOf, hr, Option.map_some, Option.getD_some]
+    exact Map.find?_mem_toList hf
+  · simp at h
+
+theorem mem_capReads' (hc : (x, Key.attr a) ∈ c) (hp : pathTx c x = some tx)
+    (h : attrTy tx.typeOf a = some q) : (x, tx, a) ∈ capReads c q.getType := by
+  simp only [capReads, List.mem_filterMap]
+  exact ⟨(x, .attr a), hc, by simp [hp, h]⟩
+
+theorem pathTx_complete (hp : IsPath x) : typeOf x c env = .ok (tx, cx) → pathTx c x = some tx := by
+  induction hp generalizing tx cx with
+  | var v => intro h; simp only [typeOf] at h; simp [pathTx, h]
+  | lit p => intro h; simp only [typeOf] at h; simp [pathTx, h]
+  | @getAttr x a _ ih =>
+    intro h
+    obtain ⟨-, t₁, c₁, h₁, -⟩ := Cedar.Thm.type_of_getAttr_inversion h
+    rw [typeOf_getAttr h₁] at h
+    simp [pathTx, ih h₁, h]
+
+theorem readable_of_req (h : r ∈ requiredReads c t) : readable c t = true := by
+  have : requiredReads c t ≠ [] := List.ne_nil_of_mem h
+  simp [readable, this]
+
+theorem readable_of_cap (h : r ∈ capReads c t) : readable c t = true := by
+  have : capReads c t ≠ [] := List.ne_nil_of_mem h
+  simp [readable, this]
+
 /-- **Completeness**, for every capability set: every fragment expression `typeOf` accepts is
 generated, with exactly `typeOf`'s judgment, at its fuel. -/
 theorem reach (hs : Scope c e n) :
