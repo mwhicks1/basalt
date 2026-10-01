@@ -1148,6 +1148,90 @@ theorem mem_tagReads' (hc : (x, Key.tag t) ∈ c) (hx : pathTx c x = some tx) (h
   simp only [tagReads, List.mem_filterMap]
   exact ⟨(x, .tag t), hc, by simp [hx, ht, he, hs, htags]⟩
 
+/-! ### Multi-attribute `has` chains, from typing -/
+
+theorem chainOK_none : (l : List Attr) → l ≠ [] → ChainOK none l
+  | [_], _ => trivial
+  | _ :: b :: l, _ => chainOK_none (b :: l) (by simp)
+
+theorem hasAttr_ff (hb : tx.typeOf ∈ valueTypes)
+    (h : typeOfHasAttr tx x a c env = .ok (th, ci)) :
+    th.typeOf = .bool .ff ↔ attrTy tx.typeOf a = none := by
+  unfold typeOfHasAttr at h
+  split at h
+  · rename_i rty hrty
+    simp only [hasAttrInRecord] at h
+    split at h <;> (try split at h) <;> simp [ok, bind, Except.bind] at h <;>
+      (obtain ⟨rfl, -⟩ := h; simp_all [attrTy, TypedExpr.typeOf])
+  · rename_i ety hety
+    split at h
+    · rename_i rty hrty
+      simp only [hasAttrInRecord] at h
+      split at h <;> (try split at h) <;> simp [ok, bind, Except.bind] at h <;>
+        (obtain ⟨rfl, -⟩ := h; simp_all [attrTy, TypedExpr.typeOf])
+    · rename_i hrty
+      split at h <;> simp [ok, err] at h
+      obtain ⟨rfl, -⟩ := h; simp_all [attrTy, TypedExpr.typeOf]
+  · simp [err] at h
+
+theorem hasAttr_err (hne : ∀ ety, ty.typeOf ≠ .entity ety) (hnr : ∀ rty, ty.typeOf ≠ .record rty) :
+    ∃ e, typeOfHasAttr ty x a c env = .error e := by
+  unfold typeOfHasAttr
+  split
+  · rename_i rty h; exact absurd h (hnr rty)
+  · rename_i ety h; exact absurd h (hne ety)
+  · exact ⟨_, rfl⟩
+
+theorem extHas_err (hne : ∀ ety, ty.typeOf ≠ .entity ety) (hnr : ∀ rty, ty.typeOf ≠ .record rty) :
+    ∃ e, typeOfExtHasAttr ty x (a :: atts) c env = .error e := by
+  obtain ⟨e, he⟩ := hasAttr_err (x := x) (a := a) (c := c) hne hnr
+  cases atts <;> simp [typeOfExtHasAttr, he, bind, Except.bind]
+
+theorem chainOK_of : (atts : List Attr) → (tx : TypedExpr) → (x : Spec.Expr) → (c : Capabilities) →
+    (a : Attr) → tx.typeOf ∈ valueTypes →
+    typeOfExtHasAttr tx x (a :: atts) c env = .ok r → ChainOK (some tx.typeOf) (a :: atts)
+  | [], _, _, _, _, _, _ => trivial
+  | b :: atts, tx, x, c, a, hv, h => by
+    simp only [typeOfExtHasAttr] at h
+    cases hh : typeOfHasAttr tx x a c env with
+    | error e => simp [hh, bind, Except.bind] at h
+    | ok p =>
+      obtain ⟨th, ci⟩ := p
+      have hff := hasAttr_ff hv hh
+      simp only [ChainOK]
+      cases hq : attrTy tx.typeOf a with
+      | none => exact chainOK_none _ (by simp)
+      | some q =>
+        have hnf : th.typeOf ≠ .bool .ff := fun h => by rw [hff.mp h] at hq; cases hq
+        simp only [Option.map_some]
+        simp only [hh, bind, Except.bind] at h
+        cases hg : typeOfGetAttr tx x a (c ∪ ci) env with
+        | error e =>
+          simp only [hg] at h; (try split at h) <;> first | exact absurd ‹_› hnf | simp at h
+        | ok p =>
+          obtain ⟨tn, cn⟩ := p
+          obtain ⟨q', hq', hty, -⟩ := getAttr_ty hg
+          rw [hq] at hq'; cases hq'
+          cases hr : typeOfExtHasAttr tn (.getAttr x a) (b :: atts) (c ∪ ci) env with
+          | error e =>
+            simp only [hg, hr] at h; (try split at h) <;> first | exact absurd ‹_› hnf | simp at h
+          | ok p =>
+            have hvn := attr_cases hv hq
+            rw [← hty] at hvn ⊢
+            rcases hvn with hvn | hvn
+            · by_cases he : ∃ ety, tn.typeOf = .entity ety
+              · obtain ⟨ety, he⟩ := he
+                have := chainOK_of atts tn _ _ b hvn hr; rw [he] at this ⊢; exact this
+              · by_cases hrr : ∃ rty, tn.typeOf = .record rty
+                · obtain ⟨rty, hrr⟩ := hrr
+                  have := chainOK_of atts tn _ _ b hvn hr; rw [hrr] at this ⊢; exact this
+                · obtain ⟨e, he'⟩ := extHas_err (x := .getAttr x a) (a := b) (atts := atts)
+                    (c := c ∪ ci) (fun ety h => he ⟨ety, h⟩) (fun rty h => hrr ⟨rty, h⟩)
+                  rw [he'] at hr; cases hr
+            · obtain ⟨e, he'⟩ := extHas_err (ty := tn) (x := .getAttr x a) (a := b) (atts := atts)
+                (c := c ∪ ci) (by intro _ h; rw [hvn] at h; cases h) (by intro _ h; rw [hvn] at h; cases h)
+              rw [he'] at hr; cases hr
+
 /-- **Completeness**, for every capability set: every fragment expression `typeOf` accepts is
 generated, with exactly `typeOf`'s judgment, at its fuel. -/
 theorem reach (hs : Scope c e n) :
