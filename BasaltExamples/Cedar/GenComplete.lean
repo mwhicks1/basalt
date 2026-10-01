@@ -1355,6 +1355,49 @@ theorem reach_set (hne : xs ≠ []) (hl : xs.length ≤ n + 1)
   rw [fam_succ_atTy]; step_at
   all_goals branch hre
 
+/-! ### Extension calls -/
+
+theorem forall₂_of : (js : List J) → (tys : List CedarType) →
+    (js.map J.tx).map TypedExpr.typeOf = tys → (∀ j ∈ js, ReachF f c j) → (∀ t ∈ tys, t ∈ valueTypes) →
+    List.Forall₂ (fun j ty => some j ∈ (f.atTy c ty).support) js tys
+  | [], [], _, _, _ => .nil
+  | j :: js, ty :: tys, h, hr, hv => by
+    simp only [List.map_cons, List.cons.injEq] at h
+    refine .cons ?_ (forall₂_of js tys h.2 (fun j hj => hr j (by simp [hj]))
+      (fun t ht => hv t (by simp [ht])))
+    have := (hr j (by simp)).value (by show j.tx.typeOf ∈ _; rw [h.1]; exact hv ty (by simp))
+    rw [show j.ty = ty from h.1] at this; exact this
+  | [], _ :: _, h, _, _ => by simp at h
+  | _ :: _, [], h, _, _ => by simp at h
+
+set_option maxHeartbeats 8000000 in
+theorem reach_call (ih : ∀ x ∈ xs, ∀ {tx out}, typeOf x c env = .ok (tx, out) →
+      ReachF (fam (G := SPMF) n) c ⟨x, tx, out⟩) :
+    typeOf (.call fn xs) c env = .ok (tx, out) →
+    ReachF (fam (G := SPMF) (n + 1)) c ⟨.call fn xs, tx, out⟩ := by
+  intro h
+  obtain ⟨js, hjs, hj, hcall⟩ := call_inv h
+  subst hjs
+  have hr : ∀ j ∈ js, ReachF (fam (G := SPMF) n) c j := fun j hjm =>
+    ih j.e (List.mem_map_of_mem hjm) (hj j hjm)
+  have hre := ofR_ok (e := .call fn (js.map J.e)) hcall
+  cases fn <;> simp only [typeOfCall] at hcall
+  case decimal | ip | datetime | duration => all_goals sorry
+  all_goals split at hcall <;> (try contradiction) <;> (try (simp [err] at hcall; done))
+  all_goals rename_i heq
+  all_goals simp only [ok, Function.comp, Except.ok.injEq, Prod.mk.injEq] at hcall
+  all_goals obtain ⟨rfl, rfl⟩ := hcall
+  all_goals
+    have hf := forall₂_of (f := fam (G := SPMF) n) (c := c) _ _ heq hr (by simp [valueTypes])
+    have hm := hre ▸ call_complete (fam n) hf
+    first
+      | (refine reach_bool rfl ?_; rw [fam_succ_bool]; step_bool
+         all_goals first | branch hm | branch ⟨_, by simp, hm⟩)
+      | (refine reach_val (by simp [TypedExpr.typeOf, valueTypes])
+           (inhabited_of_ne (by simp [TypedExpr.typeOf])) ?_
+         simp only [TypedExpr.typeOf]; rw [fam_succ_atTy]; step_at
+         all_goals first | branch hm | branch ⟨_, by simp, hm⟩)
+
 /-- **Completeness**, for every capability set: every fragment expression `typeOf` accepts is
 generated, with exactly `typeOf`'s judgment, at its fuel. -/
 theorem reach (hs : Scope c e n) :
