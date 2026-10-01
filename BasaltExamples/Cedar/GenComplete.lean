@@ -1456,6 +1456,10 @@ theorem setElts_value (h : t ∈ setElts) : t ∈ valueTypes := by
   simp only [valueTypes, List.mem_append]
   tauto
 
+theorem setElts_ne_addr (h : t ∈ setElts) : t ≠ .record addrTy := by
+  simp [setElts, entityTys] at h
+  rcases h with rfl | rfl | ⟨_, _, rfl⟩ <;> simp
+
 theorem set_entity (h : CedarType.set (.entity e) ∈ valueTypes) : CedarType.entity e ∈ entityTys := by
   have := set_value h; simp [setElts] at this; exact this
 
@@ -1508,9 +1512,83 @@ theorem reach_binary (hop : op ≠ .getTag)
   have hre := ofR_ok (e := .binaryApp op a b) h'
   have ra := iha h₁; have rb := ihb h₂
   cases op
-  case eq => sorry
+  case eq =>
+    have h'' := h'
+    simp only [typeOfBinaryApp] at h''
+    by_cases hl : ∃ p₁ p₂, a = .lit p₁ ∧ b = .lit p₂
+    · obtain ⟨p₁, p₂, rfl, rfl⟩ := hl
+      have hl1 : typeOfLit p₁ env = .ok (ta, ca) := by simpa [typeOf] using h₁
+      have hl2 : typeOfLit p₂ env = .ok (tb, cb) := by simpa [typeOf] using h₂
+      have hty : ∃ bt, ty = .bool bt := by
+        simp only [typeOfEq] at h''
+        split at h'' <;> simp [ok, Function.comp] at h'' <;> exact ⟨_, h''.1.symm⟩
+      obtain ⟨bt, rfl⟩ := hty
+      refine reach_bool rfl ?_
+      rw [fam_succ_bool]; step_bool
+      all_goals (nth_or 17; exact ⟨p₁, genPrim_complete p₁ (validPrim_of hl1), p₂,
+        genPrim_complete p₂ (validPrim_of hl2), by rw [hl1, hl2]; exact hre⟩)
+    · rw [typeOfEq_nonlit hl] at h''
+      split at h''
+      · rename_i t hlub
+        simp only [ok, Function.comp, Except.ok.injEq, Prod.mk.injEq, TypedExpr.binaryApp.injEq,
+          true_and] at h''
+        obtain ⟨rfl, rfl⟩ := h''
+        refine reach_bool rfl ?_
+        rw [fam_succ_bool]; step_bool
+        all_goals rcases lub_U ra.tyU rb.tyU hlub with ⟨⟨b₁, hb₁⟩, ⟨b₂, hb₂⟩, -⟩ | ⟨hv, h₁', h₂'⟩
+        all_goals first
+          | (nth_or 15; exact ⟨some _, ra.bool hb₁, some _, rb.bool hb₂, hre⟩)
+          | (have hi : inhabited c t = true := by
+               rcases ra.tyU with ⟨_, hb⟩ | ⟨_, hi⟩
+               · rw [h₁'] at hb; rw [hb] at hv; exact absurd hv bool_not_value
+               · rw [h₁'] at hi; exact hi
+             have ma := ra.value (by rw [h₁']; exact hv); rw [h₁'] at ma
+             have mb := rb.value (by rw [h₂']; exact hv); rw [h₂'] at mb
+             nth_or 14
+             exact ⟨t, List.mem_cons_of_mem _ (List.mem_filter.mpr ⟨hv, hi⟩),
+               hre ▸ binary_complete (fam n) ma mb⟩)
+      · split at h''
+        · rename_i e₁ e₂ _ hta htb
+          simp only [ok, Function.comp, Except.ok.injEq, Prod.mk.injEq, TypedExpr.binaryApp.injEq,
+            true_and] at h''
+          obtain ⟨rfl, rfl⟩ := h''
+          have va := ra.not_bool _ (by intro b hb; simp only [J.ty] at hb; rw [hta] at hb; cases hb)
+          have vb := rb.not_bool _ (by intro b hb; simp only [J.ty] at hb; rw [htb] at hb; cases hb)
+          have ma := va.2.2; have mb := vb.2.2
+          simp only [J.ty] at ma mb va vb
+          rw [hta] at ma va; rw [htb] at mb vb
+          refine reach_bool rfl ?_
+          rw [fam_succ_bool]; step_bool
+          all_goals (nth_or 16; exact ⟨_, entity_mem_tys va.1, _, entity_mem_tys vb.1,
+            hre ▸ binary_complete (fam n) ma mb⟩)
+        · simp [err] at h''
   case getTag => exact absurd rfl hop
-  case contains => sorry
+  case contains =>
+    have h'' := h'
+    unfold typeOfBinaryApp at h''
+    split at h'' <;> (try contradiction) <;> (try (simp [err] at h''; done))
+    rename_i ty₃ _ hta
+    have va := ra.not_bool _ (by intro b hb; simp only [J.ty] at hb; rw [hta] at hb; cases hb)
+    have ma := va.2.2
+    simp only [J.ty] at ma va; rw [hta] at ma va
+    have h3 := set_value va.1
+    simp only [bind, Except.bind] at h''
+    split at h''
+    · simp at h''
+    · rename_i p hl
+      obtain ⟨hp1, -, t, hlub⟩ := ifLub_ok (r := p.1) (c' := p.2) hl
+      simp only [ok, Except.ok.injEq, Prod.mk.injEq, TypedExpr.binaryApp.injEq, true_and] at h''
+      obtain ⟨rfl, rfl⟩ := h''
+      rcases lub_U (c₃ := c) rb.tyU (Or.inr ⟨setElts_value h3, inhabited_of_ne (setElts_ne_addr h3)⟩)
+        hlub with ⟨_, ⟨b', hb'⟩, _⟩ | ⟨hv, htb, hty⟩
+      · rw [hb'] at h3; simp [setElts, entityTys] at h3
+      · subst hty
+        have mb := rb.value (by rw [htb]; exact hv)
+        rw [htb] at mb
+        have hm := hre ▸ binary_complete (fam n) ma mb
+        refine reach_bool (b := .anyBool) (by simp [TypedExpr.typeOf, hp1]) ?_
+        rw [fam_succ_bool]; step_bool
+        all_goals (nth_or 19; exact ⟨_, h3, hm⟩)
   all_goals have h'' := h'
   all_goals unfold typeOfBinaryApp at h''
   all_goals split at h'' <;> (try contradiction) <;> (try (simp [err] at h''; done))
