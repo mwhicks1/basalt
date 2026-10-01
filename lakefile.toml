@@ -76,6 +76,6 @@ rev = "splitmix-0.1.0"
 # set a dependency's compiler flags.
 [[require]]
 name = "Cedar"
-git = "/local/home/mwhicks/src/cedar-spec"
+git = "https://github.com/mwhicks1/cedar-spec.git"
 rev = "basalt-integration"
 subDir = "cedar-lean"

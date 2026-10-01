@@ -1,7 +1,7 @@
 {"version": "1.2.0",
  "packagesDir": ".lake/packages",
  "packages":
- [{"url": "/local/home/mwhicks/src/cedar-spec",
+ [{"url": "https://github.com/mwhicks1/cedar-spec.git",
    "type": "git",
    "subDir": "cedar-lean",
    "scope": "",
