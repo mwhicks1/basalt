@@ -689,6 +689,20 @@ theorem stepBool_and (f : Fam SPMF) (hx : x ∈ (ruleAnd f c).support) : x ∈ (
   unfold stepBool
   exact mem_pick (w := 4) (g := fun _ => ruleAnd f c) (by simp) (by decide) hx
 
+theorem stepBool_or (f : Fam SPMF) (hx : x ∈ (ruleOr f c).support) : x ∈ (stepBool f c).support := by
+  unfold stepBool
+  exact mem_pick (w := 2) (g := fun _ => ruleOr f c) (by simp) (by decide) hx
+
+theorem stepBool_ite (f : Fam SPMF) (hx : x ∈ (ruleIte f c fun c' => f.bool c').support) :
+    x ∈ (stepBool f c).support := by
+  unfold stepBool
+  exact mem_pick (w := 2) (g := fun _ => ruleIte f c fun c' => f.bool c') (by simp) (by decide) hx
+
+theorem stepAt_ite (f : Fam SPMF) (hx : x ∈ (ruleIte f c fun c' => f.atTy c' ty).support) :
+    x ∈ (stepAt f c ty).support := by
+  unfold stepAt
+  exact mem_pick (w := 2) (g := fun _ => ruleIte f c fun c' => f.atTy c' ty) (by simp) (by decide) hx
+
 theorem fam_any : (fam (G := SPMF) n).any = genAny n := by cases n <;> rfl
 
 theorem fam_bool_lit (b : Bool) :
@@ -711,6 +725,25 @@ theorem fam_leaf (hx : x ∈ (leaf (G := SPMF) c ty).support) :
     show _ ∈ (stepAt (fam (G := SPMF) n) c ty).support
     unfold stepAt
     exact mem_pick (w := 3) (g := fun _ => leaf c ty) (by simp) (by decide) hx
+
+/-! ## Least upper bounds over the value types -/
+
+theorem lub_ctx_addr : (CedarType.record ctxTy ⊔ .record addrTy) = none := by decide
+theorem lub_addr_ctx : (CedarType.record addrTy ⊔ .record ctxTy) = none := by decide
+
+/-- Two value types have a least upper bound only when they are equal. A finite check. -/
+theorem lub_value (h₂ : t₂ ∈ valueTypes) (h₃ : t₃ ∈ valueTypes) (h : (t₂ ⊔ t₃) = some t) :
+    t₂ = t ∧ t₃ = t := by
+  simp only [valueTypes, setElts, entityTys, CedarWide.entityTypes, List.map, List.cons_append,
+    List.nil_append, List.mem_cons, List.not_mem_nil, or_false] at h₂ h₃
+  rcases h₂ with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+    rfl | rfl | rfl | rfl | rfl | rfl <;>
+  rcases h₃ with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+    rfl | rfl | rfl | rfl | rfl | rfl
+  all_goals first
+    | (rw [Cedar.Thm.lub_refl] at h; simp at h; exact ⟨h, h⟩)
+    | (simp [lub_ctx_addr, lub_addr_ctx] at h; done)
+    | (simp [lub?, userT, groupT, photoT, albumT, actionT] at h; done)
 
 /-! ## The fragment -/
 
@@ -883,6 +916,27 @@ theorem reach (hs : Scope c e n) :
       rw [h₂] at h'
       rw [← ofR_ok h']
       exact ruleAnd_both (fam n) hm₁ (by simpa [J.ty, hb₁] using hff) hm₂
+  | @or c a n b _ hab _ iha ihb =>
+    intro tx out h
+    obtain ⟨t₁, b₁, c₁, h₁, hb₁, hrest⟩ := Cedar.Thm.type_of_or_inversion h
+    have hm₁ := (iha h₁).bool (b := b₁) hb₁
+    have h' := h; rw [typeOf_or' h₁] at h'
+    split at hrest
+    · obtain ⟨rfl, rfl⟩ := hrest
+      rename_i htt; subst htt
+      refine reach_bool hb₁ ?_
+      rw [fam_succ_bool]; apply stepBool_or
+      have hd : typeOfOr (tx, c₁) dead = .ok (tx, ∅) := by simp [typeOfOr, hb₁, ok]
+      rw [← ofR_ok hd]
+      exact ruleOr_tt (fam n) hm₁ hb₁ (fam_any ▸ genAny_complete hab)
+    · rename_i htt
+      obtain ⟨bty, t₂, b₂, c₂, rfl, h₂, hb₂, -⟩ := hrest
+      have hm₂ := (ihb t₁ c₁ h₁ (by rw [hb₁]; simpa using htt) h₂).bool hb₂
+      refine reach_bool (b := bty) rfl ?_
+      rw [fam_succ_bool]; apply stepBool_or
+      rw [h₂] at h'
+      rw [← ofR_ok h']
+      exact ruleOr_both (fam n) hm₁ (by simpa [J.ty, hb₁] using htt) hm₂
   | _ => sorry
 
 end CedarGen
