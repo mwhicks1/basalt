@@ -964,6 +964,31 @@ theorem entity_mem_tys (h : CedarType.entity ety ∈ valueTypes) : CedarType.ent
 theorem set_value (h : CedarType.set ty ∈ valueTypes) : ty ∈ setElts := by
   simp [valueTypes, setElts, entityTys] at h ⊢; exact h
 
+theorem typeOfHasAttr_bool (h : typeOfHasAttr ty x a c env = .ok (tx, c')) :
+    ∃ b, tx.typeOf = .bool b := by
+  unfold typeOfHasAttr at h
+  split at h
+  · simp only [hasAttrInRecord] at h
+    split at h <;> (try split at h) <;> simp [ok, bind, Except.bind] at h <;>
+      (obtain ⟨rfl, -⟩ := h; exact ⟨_, rfl⟩)
+  · split at h
+    · simp only [hasAttrInRecord] at h
+      split at h <;> (try split at h) <;> simp [ok, bind, Except.bind] at h <;>
+        (obtain ⟨rfl, -⟩ := h; exact ⟨_, rfl⟩)
+    · split at h <;> simp [ok, err] at h; obtain ⟨rfl, -⟩ := h; exact ⟨_, rfl⟩
+  · simp [err] at h
+
+theorem base_of_U (hu : TyU c t) (hb : (∃ ety, t = .entity ety) ∨ (∃ rty, t = .record rty)) :
+    t ∈ baseTypes c := by
+  rcases hu with ⟨b, rfl⟩ | ⟨hv, hi⟩
+  · rcases hb with ⟨_, h⟩ | ⟨_, h⟩ <;> cases h
+  rcases hb with ⟨ety, rfl⟩ | ⟨rty, rfl⟩
+  · simp only [baseTypes, List.mem_append]; exact Or.inl (Or.inl (entity_mem_tys hv))
+  · simp [valueTypes, setElts, entityTys, CedarWide.entityTypes] at hv
+    rcases hv with rfl | rfl
+    · simp [baseTypes]
+    · simp [baseTypes, hi]
+
 /-- **Completeness**, for every capability set: every fragment expression `typeOf` accepts is
 generated, with exactly `typeOf`'s judgment, at its fuel. -/
 theorem reach (hs : Scope c e n) :
