@@ -91,6 +91,72 @@ theorem reach_hasRec (hl : fs.length ≤ n) (hnd : (fs.map Prod.fst).Nodup)
   rw [fam_succ_bool]; step_bool
   all_goals (nth_or 7; exact hm)
 
+theorem insertIdx_mid {α} : (l₁ l₂ : List α) → (x : α) → (l₁ ++ l₂).insertIdx l₁.length x = l₁ ++ x :: l₂
+  | [], l₂, x => by simp
+  | y :: l₁, l₂, x => by simp [List.insertIdx_succ_cons, insertIdx_mid l₁ l₂ x]
+
+theorem find?_make_some {L : List (Attr × QualifiedType)} (h : (Map.make L).find? a = some q) :
+    (a, q) ∈ L := by
+  rw [Map.make_find?_eq_list_find?] at h
+  obtain ⟨p, hp, rfl⟩ := Option.map_eq_some_iff.mp h
+  have hm := List.mem_of_find?_eq_some hp
+  have ha := List.find?_some hp
+  simp at ha; subst ha; exact hm
+
+theorem reach_getRec (hl : fs.length ≤ n + 1) (hnd : (fs.map Prod.fst).Nodup)
+    (ih : ∀ p ∈ fs, ∀ {tx out}, typeOf p.2 c env = .ok (tx, out) →
+      ReachF (fam (G := SPMF) n) c ⟨p.2, tx, out⟩)
+    (hok : TyOK c (.getAttr (.record fs) a)) :
+    typeOf (.getAttr (.record fs) a) c env = .ok (tx, out) →
+    ReachF (fam (G := SPMF) (n + 1)) c ⟨.getAttr (.record fs) a, tx, out⟩ := by
+  intro h
+  have hu := hok _ _ h
+  obtain ⟨-, tr, cr, h₁, -, -⟩ := Cedar.Thm.type_of_getAttr_inversion h
+  obtain ⟨js, hjs, hj, hrec⟩ := record_inv h₁
+  have h' := h; rw [typeOf_getAttr h₁] at h'
+  obtain ⟨q, hq, hty, -⟩ := getAttr_ty h'
+  have htr : tr = (recordOf js).2 := by rw [hrec]
+  subst htr
+  have hq' : (Map.make (js.map fun p => (p.1, Qualified.required p.2.tx.typeOf))).find? a = some q :=
+    hq
+  have hmem := find?_make_some hq'
+  obtain ⟨⟨a', j⟩, hp, hpq⟩ := List.mem_map.mp hmem
+  simp only [Prod.mk.injEq] at hpq
+  obtain ⟨rfl, rfl⟩ := hpq
+  obtain ⟨l₁, l₂, hsplit⟩ := List.append_of_mem hp
+  have hnd' : ((a', j) :: (l₁ ++ l₂)).map Prod.fst |>.Nodup := by
+    have := names_eq hjs ▸ hnd
+    rw [hsplit, List.map_append, List.map_cons] at this
+    simpa using List.nodup_middle.mp this
+  have hr := fields_reach hjs hj ih
+  have hrj := hr (a', j) hp
+  have hrest : ∀ p ∈ l₁ ++ l₂, ReachF (fam (G := SPMF) n) c p.2 := fun p hp' =>
+    hr p (by rw [hsplit]; simp at hp' ⊢; tauto)
+  have hlen : (l₁ ++ l₂).length ≤ (fam (G := SPMF) n).fuel := by
+    rw [fam_fuel]; have := congrArg List.length hjs; rw [hsplit] at this; simp at this hl ⊢; omega
+  simp only [List.map_cons, List.nodup_cons] at hnd'
+  have hre := ofR_ok (e := .getAttr (.record fs) a') h'
+  have hjs' : (l₁ ++ l₂).insertIdx l₁.length (a', j) = js := by rw [insertIdx_mid, hsplit]
+  simp only [Qualified.getType] at hty
+  rcases hu with ⟨bt, hbt⟩ | ⟨hv, hi⟩
+  · have hm := ruleRecordGet_complete (fam n) (ty := .bool .anyBool) (j := j) (a := a') (i := l₁.length)
+      (Or.inl ⟨⟨_, rfl⟩, hrj.bool (b := bt) (by show j.tx.typeOf = _; rw [← hty]; exact hbt)⟩) hlen hnd'.2 hnd'.1 hrest
+      (by simp)
+    dsimp only at hm; rw [hjs', hrec] at hm
+    rw [hre] at hm
+    refine reach_bool hbt ?_
+    rw [fam_succ_bool]; step_bool
+    all_goals (nth_or 8; exact hm)
+  · have hm := ruleRecordGet_complete (fam n) (ty := tx.typeOf) (j := j) (a := a') (i := l₁.length)
+      (Or.inr ⟨fun b hb => by rw [hb] at hv; exact bool_not_value hv,
+        by have := hrj.value (by rw [J.ty, ← hty]; exact hv); rw [J.ty, ← hty] at this; exact this⟩)
+      hlen hnd'.2 hnd'.1 hrest (by simp)
+    dsimp only at hm; rw [hjs', hrec] at hm
+    rw [hre] at hm
+    refine reach_val hv hi ?_
+    rw [fam_succ_atTy]; unfold stepAt
+    exact mem_pick (w := 1) (g := fun _ => ruleRecordGet (fam n) c tx.typeOf) (by simp) (by decide) hm
+
 /-- **Completeness**, for every capability set: every fragment expression `typeOf` accepts is
 generated, with exactly `typeOf`'s judgment, at its fuel. -/
 theorem reach (hs : Scope c e n) :
