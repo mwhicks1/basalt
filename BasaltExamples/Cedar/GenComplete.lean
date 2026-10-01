@@ -1232,6 +1232,41 @@ theorem chainOK_of : (atts : List Attr) → (tx : TypedExpr) → (x : Spec.Expr)
                 (c := c ∪ ci) (by intro _ h; rw [hvn] at h; cases h) (by intro _ h; rw [hvn] at h; cases h)
               rw [he'] at hr; cases hr
 
+theorem extHas_base (h : typeOfExtHasAttr tx x (a :: atts) c env = .ok r) :
+    (∃ ety, tx.typeOf = .entity ety) ∨ (∃ rty, tx.typeOf = .record rty) := by
+  by_contra hn
+  push_neg at hn
+  obtain ⟨e, he⟩ := extHas_err (x := x) (a := a) (atts := atts) (c := c) hn.1 hn.2
+  rw [he] at h; cases h
+
+theorem reach_extHas (hne : atts ≠ []) (hl : atts.length ≤ n + 1)
+    (ihx : ∀ {tx out}, typeOf x c env = .ok (tx, out) → ReachF (fam (G := SPMF) n) c ⟨x, tx, out⟩) :
+    typeOf (.extHasAttr x a atts) c env = .ok (tx, out) →
+    ReachF (fam (G := SPMF) (n + 1)) c ⟨.extHasAttr x a atts, tx, out⟩ := by
+  intro h
+  simp only [typeOf] at h
+  cases h₁ : typeOf x c env with
+  | error e => simp [h₁, bind, Except.bind] at h
+  | ok p =>
+    obtain ⟨t₁, c₁⟩ := p
+    cases he : typeOfExtHasAttr t₁ x (a :: atts) c env with
+    | error e => simp [h₁, he, bind, Except.bind] at h
+    | ok q =>
+      obtain ⟨bty, c'⟩ := q
+      simp [h₁, he, bind, Except.bind, ok] at h; obtain ⟨rfl, rfl⟩ := h
+      have r := ihx h₁
+      have hbase := extHas_base he
+      have hv₁ : t₁.typeOf ∈ valueTypes := by
+        rcases r.tyU with ⟨_, hh⟩ | ⟨hh, _⟩
+        · have hh' : t₁.typeOf = .bool _ := hh
+          rcases hbase with ⟨_, h⟩ | ⟨_, h⟩ <;> rw [hh'] at h <;> cases h
+        · exact hh
+      have hm := ruleExtHas_complete (fam n) (x := ⟨x, t₁, c₁⟩) (base_of_U r.tyU hbase) (r.value hv₁)
+        (by cases atts <;> simp_all) (by rw [fam_fuel]; exact hl) (chainOK_of atts t₁ x c a hv₁ he) he
+      refine reach_bool rfl ?_
+      rw [fam_succ_bool]; step_bool
+      all_goals branch hm
+
 /-- **Completeness**, for every capability set: every fragment expression `typeOf` accepts is
 generated, with exactly `typeOf`'s judgment, at its fuel. -/
 theorem reach (hs : Scope c e n) :
