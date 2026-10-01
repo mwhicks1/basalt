@@ -677,6 +677,14 @@ theorem leaf_ctx : ofR (.var .context) (typeOfVar .context env) ∈
   walk
   all_goals simp
 
+theorem ruleHasTag_complete (he : ety ∈ CedarWide.entityTypes)
+    (ha : some a ∈ (f.atTy c (.entity ety)).support) (hb : some b ∈ (f.atTy c .string).support) :
+    ofR (.binaryApp .hasTag a.e b.e) (typeOfBinaryApp .hasTag a.tx b.tx a.e b.e c env) ∈
+      (ruleHasTag f c).support := by
+  rw [SPMF.mem_support_iff_may, ruleHasTag]
+  walk [fun op t₁ t₂ => (supp_complete (binary f c op t₁ t₂)).obs]
+  exact ⟨ety, he, binary_complete f ha hb⟩
+
 end rules2
 
 /-! ## The fuel levels -/
@@ -940,6 +948,14 @@ macro "step_bool" : tactic => `(tactic| (
     fun c' => (supp_complete (Fam.bool _ c')).obs, CedarTyped.genBool.complete.obs,
     genName_complete.obs, fun n => (supp_complete (genPattern (G := SPMF) n)).obs,
     (supp_complete (genPrim (G := SPMF))).obs]))
+
+open Lean in
+/-- Picks the `n`th disjunct (from 0) of a right-nested disjunction. -/
+macro "nth_or " n:num : tactic => do
+  let mut t ← `(tactic| first | apply Or.inl | skip)
+  for _ in [0:n.getNat] do
+    t ← `(tactic| (apply Or.inr; $t))
+  return t
 
 /-- Reduces membership in `stepAt f c ty` to a disjunction over its branches, each rule opaque. -/
 macro "step_at" : tactic => `(tactic| (
@@ -1429,6 +1445,129 @@ theorem reach_call (ih : ∀ x ∈ xs, ∀ {tx out}, typeOf x c env = .ok (tx, o
            (inhabited_of_ne (by simp [TypedExpr.typeOf])) ?_
          simp only [TypedExpr.typeOf]; rw [fam_succ_atTy]; step_at
          all_goals first | branch hm | branch ⟨_, by simp, hm⟩)
+
+/-! ### Binary operators -/
+
+theorem ety_mem (h : CedarType.entity e ∈ entityTys) : e ∈ CedarWide.entityTypes := by
+  simp [entityTys] at h; exact h
+
+theorem setElts_value (h : t ∈ setElts) : t ∈ valueTypes := by
+  simp only [setElts, List.mem_append] at h
+  simp only [valueTypes, List.mem_append]
+  tauto
+
+theorem set_entity (h : CedarType.set (.entity e) ∈ valueTypes) : CedarType.entity e ∈ entityTys := by
+  have := set_value h; simp [setElts] at this; exact this
+
+theorem hasTag_bool (h : typeOfHasTag ety x t c env = .ok (r, c')) : ∃ b, r = .bool b := by
+  unfold typeOfHasTag at h
+  split at h
+  · simp [ok] at h; exact ⟨_, h.1.symm⟩
+  · split at h <;> simp [ok] at h <;> exact ⟨_, h.1.symm⟩
+  · split at h <;> simp [ok, err] at h; exact ⟨_, h.1.symm⟩
+
+theorem ifLub_ok (h : ifLubThenBool t₁ t₂ = .ok (r, c')) :
+    r = .bool .anyBool ∧ c' = ∅ ∧ ∃ t, (t₁ ⊔ t₂) = some t := by
+  unfold ifLubThenBool at h
+  split at h
+  · simp only [ok, Except.ok.injEq, Prod.mk.injEq] at h
+    obtain ⟨rfl, rfl⟩ := h; exact ⟨rfl, rfl, _, by assumption⟩
+  · simp [err] at h
+
+theorem typeOfEq_nonlit (h : ¬ ∃ p₁ p₂, x₁ = .lit p₁ ∧ x₂ = .lit p₂) :
+    typeOfEq t₁ t₂ x₁ x₂ =
+      match t₁.typeOf ⊔ t₂.typeOf with
+      | .some _ => ok (.binaryApp .eq t₁ t₂ (.bool .anyBool))
+      | .none =>
+        match t₁.typeOf, t₂.typeOf with
+        | .entity _, .entity _ => ok (.binaryApp .eq t₁ t₂ (.bool .ff))
+        | _, _ => err (.lubErr t₁.typeOf t₂.typeOf) := by
+  unfold typeOfEq
+  split
+  · rename_i p₁ p₂; exact absurd ⟨p₁, p₂, rfl, rfl⟩ h
+  · rfl
+
+theorem validPrim_of (h : typeOfLit p env = .ok r) : ValidPrim p := by
+  cases p with
+  | entityUID uid =>
+    simp only [typeOfLit] at h
+    split at h
+    · exact validUID_of (by assumption)
+    · simp [err] at h
+  | _ => trivial
+
+set_option maxHeartbeats 8000000 in
+theorem reach_binary (hop : op ≠ .getTag)
+    (iha : ∀ {tx out}, typeOf a c env = .ok (tx, out) → ReachF (fam (G := SPMF) n) c ⟨a, tx, out⟩)
+    (ihb : ∀ {tx out}, typeOf b c env = .ok (tx, out) → ReachF (fam (G := SPMF) n) c ⟨b, tx, out⟩) :
+    typeOf (.binaryApp op a b) c env = .ok (tx, out) →
+    ReachF (fam (G := SPMF) (n + 1)) c ⟨.binaryApp op a b, tx, out⟩ := by
+  intro h
+  obtain ⟨ta, ca, tb, cb, h₁, h₂, ty, rfl⟩ := Cedar.Thm.type_of_binaryApp_inversion h
+  have h' := h; rw [typeOf_binaryApp h₁ h₂] at h'
+  have hre := ofR_ok (e := .binaryApp op a b) h'
+  have ra := iha h₁; have rb := ihb h₂
+  cases op
+  case eq => sorry
+  case getTag => exact absurd rfl hop
+  case contains => sorry
+  all_goals have h'' := h'
+  all_goals unfold typeOfBinaryApp at h''
+  all_goals split at h'' <;> (try contradiction) <;> (try (simp [err] at h''; done))
+  all_goals rename_i hta htb
+  all_goals
+    have va := ra.not_bool _ (by intro b hb; simp only [J.ty] at hb; rw [hta] at hb; cases hb)
+    have vb := rb.not_bool _ (by intro b hb; simp only [J.ty] at hb; rw [htb] at hb; cases hb)
+    have ma := va.2.2; have mb := vb.2.2
+    simp only [J.ty] at ma mb va vb
+    rw [hta] at ma va; rw [htb] at mb vb
+  case h_2 | h_3 | h_6 | h_7 | h_8 | h_9 | h_10 | h_11 =>
+    all_goals
+      simp only [ok, Except.ok.injEq, Prod.mk.injEq, TypedExpr.binaryApp.injEq, true_and] at h''
+      obtain ⟨rfl, rfl⟩ := h''
+      have hm := hre ▸ binary_complete (fam n) ma mb
+      refine reach_bool rfl ?_
+      rw [fam_succ_bool]; step_bool
+      all_goals first
+        | (nth_or 13; exact ⟨_, by simp, _, by simp, hm⟩)
+        | (nth_or 18; exact ⟨_, entity_mem_tys vb.1, _, entity_mem_tys va.1, _, by simp, hm⟩)
+        | (nth_or 18; exact ⟨_, set_entity vb.1, _, entity_mem_tys va.1, _, by simp, hm⟩)
+  case h_12 | h_13 | h_14 =>
+    all_goals
+      simp only [ok, Except.ok.injEq, Prod.mk.injEq, TypedExpr.binaryApp.injEq, true_and] at h''
+      obtain ⟨rfl, rfl⟩ := h''
+      have hm := hre ▸ binary_complete (fam n) ma mb
+      refine reach_val (by simp [TypedExpr.typeOf, valueTypes])
+        (inhabited_of_ne (by simp [TypedExpr.typeOf])) ?_
+      simp only [TypedExpr.typeOf]; rw [fam_succ_atTy]; step_at
+      all_goals branch ⟨_, by simp, hm⟩
+  case h_4 =>
+    simp only [bind, Except.bind] at h''
+    split at h''
+    · simp at h''
+    · rename_i p hht
+      obtain ⟨bt, hbt⟩ := hasTag_bool (r := p.1) (c' := p.2) hht
+      simp only [ok, Except.ok.injEq, Prod.mk.injEq, TypedExpr.binaryApp.injEq, true_and] at h''
+      obtain ⟨rfl, rfl⟩ := h''
+      have hm := hre ▸ ruleHasTag_complete (fam n) (ety_mem (entity_mem_tys va.1)) ma mb
+      refine reach_bool hbt ?_
+      rw [fam_succ_bool]; step_bool
+      all_goals (nth_or 5; exact hm)
+  case h_16 | h_17 =>
+    all_goals
+      simp only [bind, Except.bind] at h''
+      split at h''
+      · simp at h''
+      · rename_i p hl
+        obtain ⟨hp1, -, t, hlub⟩ := ifLub_ok (r := p.1) (c' := p.2) hl
+        simp only [ok, Except.ok.injEq, Prod.mk.injEq, TypedExpr.binaryApp.injEq, true_and] at h''
+        obtain ⟨rfl, rfl⟩ := h''
+        obtain ⟨h3, h4⟩ := lub_value (setElts_value (set_value va.1)) (setElts_value (set_value vb.1)) hlub
+        subst h3; subst h4
+        have hm := hre ▸ binary_complete (fam n) ma mb
+        refine reach_bool (b := .anyBool) (by simp [TypedExpr.typeOf, hp1]) ?_
+        rw [fam_succ_bool]; step_bool
+        all_goals (nth_or 20; exact ⟨_, set_value va.1, _, by simp, hm⟩)
 
 /-- **Completeness**, for every capability set: every fragment expression `typeOf` accepts is
 generated, with exactly `typeOf`'s judgment, at its fuel. -/
