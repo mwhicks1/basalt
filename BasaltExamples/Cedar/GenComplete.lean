@@ -1116,6 +1116,38 @@ theorem path_value (hp : IsPath x) :
     · rw [hty]; exact hv
     · rw [hty, hv] at hb; rcases hb with ⟨_, h⟩ | ⟨_, h⟩ <;> cases h
 
+/-! ### Tags -/
+
+theorem tags?_string (h : env.ets.tags? ety = some (some ty)) : ty = .string := by
+  rw [ets_eq] at h
+  simp only [EntitySchema.tags?, Map.find?, Map.toList, List.find?] at h
+  cases h1 : albumT == ety <;> cases h2 : groupT == ety <;> cases h3 : photoT == ety <;>
+    cases h4 : userT == ety <;> simp_all [EntitySchemaEntry.tags?]
+
+theorem getTag_inv (h : typeOfBinaryApp .getTag tx tt x t c env = .ok (r, c')) :
+    ∃ ety, tx.typeOf = .entity ety ∧ tt.typeOf = .string ∧ env.ets.tags? ety = some (some .string) ∧
+      (x, Key.tag t) ∈ c ∧ r.typeOf = .string := by
+  unfold typeOfBinaryApp at h
+  split at h <;> (try contradiction) <;> try (simp [err] at h; done)
+  rename_i ety _ h₁ h₂
+  simp only [typeOfGetTag] at h
+  split at h
+  · simp [err] at h
+  · rename_i ty hty
+    split at h
+    · simp [ok, bind, Except.bind] at h
+      obtain ⟨rfl, -⟩ := h
+      have := tags?_string hty; subst this
+      exact ⟨ety, h₁, h₂, hty, by assumption, rfl⟩
+    · simp [err] at h
+  · simp [err] at h
+
+theorem mem_tagReads' (hc : (x, Key.tag t) ∈ c) (hx : pathTx c x = some tx) (ht : pathTx c t = some tt)
+    (he : tx.typeOf = .entity ety) (hs : tt.typeOf = .string)
+    (htags : env.ets.tags? ety = some (some .string)) : (x, tx, t, tt) ∈ tagReads c := by
+  simp only [tagReads, List.mem_filterMap]
+  exact ⟨(x, .tag t), hc, by simp [hx, ht, he, hs, htags]⟩
+
 /-- **Completeness**, for every capability set: every fragment expression `typeOf` accepts is
 generated, with exactly `typeOf`'s judgment, at its fuel. -/
 theorem reach (hs : Scope c e n) :
