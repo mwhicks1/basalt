@@ -678,4 +678,211 @@ theorem leaf_ctx : ofR (.var .context) (typeOfVar .context env) ∈
 
 end rules2
 
+/-! ## The fuel levels -/
+
+theorem mem_pick {first : Nat × (Unit → SPMF α)} {rest : List (Nat × (Unit → SPMF α))} {h}
+    (hm : (w, g) ∈ first :: rest) (hw : 0 < w) (hx : x ∈ (g ()).support) :
+    x ∈ (pick first rest h).support := by
+  rw [pick, SPMF.support_frequency]; exact ⟨w, g, hm, hw, hx⟩
+
+theorem stepBool_and (f : Fam SPMF) (hx : x ∈ (ruleAnd f c).support) : x ∈ (stepBool f c).support := by
+  unfold stepBool
+  exact mem_pick (w := 4) (g := fun _ => ruleAnd f c) (by simp) (by decide) hx
+
+theorem fam_any : (fam (G := SPMF) n).any = genAny n := by cases n <;> rfl
+
+theorem fam_bool_lit (b : Bool) :
+    ofR (.lit (.bool b)) (typeOfLit (.bool b) env) ∈ ((fam (G := SPMF) n).bool c).support := by
+  cases n with
+  | zero =>
+    show _ ∈ (do let p := Prim.bool (← genBool); return ofR (.lit p) (typeOfLit p env) : SPMF _).support
+    rw [SPMF.mem_support_iff_may]; walk [CedarTyped.genBool.complete.obs]; exact ⟨b, rfl⟩
+  | succ n =>
+    show _ ∈ (stepBool (fam (G := SPMF) n) c).support
+    unfold stepBool
+    refine mem_pick (List.mem_cons_self ..) (by decide) ?_
+    rw [SPMF.mem_support_iff_may]; walk [CedarTyped.genBool.complete.obs]; exact ⟨b, rfl⟩
+
+theorem fam_leaf (hx : x ∈ (leaf (G := SPMF) c ty).support) :
+    x ∈ ((fam (G := SPMF) n).atTy c ty).support := by
+  cases n with
+  | zero => exact hx
+  | succ n =>
+    show _ ∈ (stepAt (fam (G := SPMF) n) c ty).support
+    unfold stepAt
+    exact mem_pick (w := 3) (g := fun _ => leaf c ty) (by simp) (by decide) hx
+
+/-! ## The fragment -/
+
+/-- A variable or literal followed by attribute reads. -/
+inductive IsPath : Spec.Expr → Prop where
+  | var (v : Var) : IsPath (.var v)
+  | lit (p : Prim) : IsPath (.lit p)
+  | getAttr : IsPath x → IsPath (.getAttr x a)
+
+/-- A type the generator builds values of under `c`. -/
+def TyU (c : Capabilities) (ty : CedarType) : Prop :=
+  (∃ b, ty = .bool b) ∨ (ty ∈ valueTypes ∧ inhabited c ty = true)
+
+/-- `e`'s type under `c`, if it has one, is one the generator builds. -/
+def TyOK (c : Capabilities) (e : Spec.Expr) : Prop :=
+  ∀ tx ce, typeOf e c env = .ok (tx, ce) → TyU c tx.typeOf
+
+/-- The fragment `CedarGen` is complete for, under capabilities `c`, at fuel `n`. A node's own
+fuel bounds its depth and the lengths of the lists it holds; the rest are the generator's
+restrictions:
+
+* a read justified by a capability is of a path;
+* a tag is read only from a path, by a path;
+* a record literal appears only as the base of a `has` or a read, with distinct field names;
+* a set, conditional, or read has a type the generator builds (`TyOK`): a boolean or one of the
+  `valueTypes`, the address record only where a capability lets it be read;
+* a dead branch (`&&`'s right operand after `false`, `||`'s after `true`, a singleton guard's
+  untaken branch) is anything (`AnyE`). -/
+inductive Scope : Capabilities → Spec.Expr → Nat → Prop where
+  | lit (p : Prim) (n : Nat) : Scope c (.lit p) n
+  | var (v : Var) (n : Nat) : Scope c (.var v) n
+  | and : Scope c a n → AnyE b n →
+      (∀ ta ca, typeOf a c env = .ok (ta, ca) → ta.typeOf ≠ .bool .ff → Scope (c ∪ ca) b n) →
+      Scope c (.and a b) (n + 1)
+  | or : Scope c a n → AnyE b n →
+      (∀ ta ca, typeOf a c env = .ok (ta, ca) → ta.typeOf ≠ .bool .tt → Scope c b n) →
+      Scope c (.or a b) (n + 1)
+  | ite : Scope c g n → AnyE t n → AnyE e n →
+      (∀ tg cg, typeOf g c env = .ok (tg, cg) → tg.typeOf ≠ .bool .ff → Scope (c ∪ cg) t n) →
+      (∀ tg cg, typeOf g c env = .ok (tg, cg) → tg.typeOf ≠ .bool .tt → Scope c e n) →
+      TyOK c (.ite g t e) → Scope c (.ite g t e) (n + 1)
+  | unaryApp : (∀ p, op = .like p → p.length ≤ n) → Scope c x n → Scope c (.unaryApp op x) (n + 1)
+  | binaryApp : op ≠ .getTag → Scope c a n → Scope c b n → Scope c (.binaryApp op a b) (n + 1)
+  | getTag : IsPath x → IsPath t → Scope c (.binaryApp .getTag x t) (n + 1)
+  | hasAttr : Scope c x n → Scope c (.hasAttr x a) (n + 1)
+  | hasAttr_rec : fs.length ≤ n → (fs.map Prod.fst).Nodup → (∀ p ∈ fs, Scope c p.2 n) →
+      Scope c (.hasAttr (.record fs) a) (n + 1)
+  | getAttr : Scope c x n →
+      (∀ tx cx, typeOf x c env = .ok (tx, cx) → ∃ t, attrTy tx.typeOf a = some (.required t)) →
+      TyOK c (.getAttr x a) → Scope c (.getAttr x a) (n + 1)
+  | getAttr_cap : IsPath x → (x, .attr a) ∈ c → TyOK c (.getAttr x a) → Scope c (.getAttr x a) (n + 1)
+  | getAttr_rec : fs.length ≤ n + 1 → (fs.map Prod.fst).Nodup → (∀ p ∈ fs, Scope c p.2 n) →
+      TyOK c (.getAttr (.record fs) a) → Scope c (.getAttr (.record fs) a) (n + 1)
+  | extHasAttr : atts ≠ [] → atts.length ≤ n + 1 → Scope c x n →
+      Scope c (.extHasAttr x a atts) (n + 1)
+  | set : xs ≠ [] → xs.length ≤ n + 1 → (∀ x ∈ xs, Scope c x n) → TyOK c (.set xs) →
+      Scope c (.set xs) (n + 1)
+  | call : (∀ x ∈ xs, Scope c x n) → Scope c (.call fn xs) (n + 1)
+
+theorem ofR_ok (h : r = .ok (tx, out)) : ofR e r = some ⟨e, tx, out⟩ := by simp [ofR, h]
+
+theorem ReachF.bool (h : ReachF f c j) (hb : j.ty = .bool b) : some j ∈ (f.bool c).support := by
+  rcases h with ⟨_, _, h⟩ | ⟨hv, _, _⟩
+  · exact h
+  · rw [hb] at hv; simp [valueTypes, setElts, entityTys] at hv
+
+theorem reach_bool (hb : tx.typeOf = .bool b) (h : some ⟨e, tx, out⟩ ∈ (f.bool c).support) :
+    ReachF f c ⟨e, tx, out⟩ := Or.inl ⟨b, hb, h⟩
+
+theorem reach_val (hv : tx.typeOf ∈ valueTypes) (hi : inhabited c tx.typeOf = true)
+    (h : some ⟨e, tx, out⟩ ∈ (f.atTy c tx.typeOf).support) : ReachF f c ⟨e, tx, out⟩ :=
+  Or.inr ⟨hv, hi, h⟩
+
+theorem inhabited_of_ne (h : ty ≠ .record addrTy) : inhabited c ty = true := by
+  simp [inhabited, h]
+
+theorem entity_value (h : ety ∈ CedarWide.entityTypes) : CedarType.entity ety ∈ valueTypes := by
+  simp only [valueTypes, entityTys, List.mem_append, List.mem_map]
+  exact Or.inl (Or.inl (Or.inr ⟨ety, h, rfl⟩))
+
+theorem reach_lit : typeOf (.lit p) c env = .ok (tx, out) →
+    ReachF (fam (G := SPMF) n) c ⟨.lit p, tx, out⟩ := by
+  intro h
+  simp only [typeOf] at h
+  have hr := ofR_ok (e := .lit p) h
+  cases p with
+  | bool b =>
+    have : ∃ bt, tx.typeOf = .bool bt := by
+      cases b <;> simp [typeOfLit, ok] at h <;> obtain ⟨rfl, rfl⟩ := h <;> exact ⟨_, rfl⟩
+    obtain ⟨bt, hbt⟩ := this
+    exact reach_bool hbt (hr ▸ fam_bool_lit b)
+  | int i =>
+    simp [typeOfLit, ok] at h; obtain ⟨rfl, rfl⟩ := h
+    exact reach_val (by simp [TypedExpr.typeOf, valueTypes]) (inhabited_of_ne (by simp [TypedExpr.typeOf]))
+      (fam_leaf (hr ▸ leaf_int))
+  | string s =>
+    simp [typeOfLit, ok] at h; obtain ⟨rfl, rfl⟩ := h
+    exact reach_val (by simp [TypedExpr.typeOf, valueTypes]) (inhabited_of_ne (by simp [TypedExpr.typeOf]))
+      (fam_leaf (hr ▸ leaf_string))
+  | entityUID uid =>
+    by_cases hc : (env.ets.isValidEntityUID uid || env.acts.contains uid) = true
+    · have hv := validUID_of hc
+      simp [typeOfLit, hc, ok] at h; obtain ⟨rfl, rfl⟩ := h
+      exact reach_val (by simpa [TypedExpr.typeOf] using entity_value (entityTypes_of_valid hv))
+        (inhabited_of_ne (by simp [TypedExpr.typeOf])) (fam_leaf (hr ▸ leaf_uid hv))
+    · simp [typeOfLit, hc, err] at h
+
+theorem reqty_eq : env.reqty = (⟨userT, view, photoT, ctxTy⟩ : RequestType) := rfl
+
+theorem ctx_ne_addr : ctxTy ≠ addrTy := by
+  intro h
+  have : ctxTy.contains "ip" = addrTy.contains "ip" := by rw [h]
+  revert this; decide
+
+theorem reach_var : typeOf (.var v) c env = .ok (tx, out) →
+    ReachF (fam (G := SPMF) n) c ⟨.var v, tx, out⟩ := by
+  intro h
+  simp only [typeOf] at h
+  have hr := ofR_ok (e := .var v) h
+  cases v <;> simp [typeOfVar, ok, reqty_eq] at h <;> obtain ⟨rfl, rfl⟩ := h
+  · exact reach_val (by simp [TypedExpr.typeOf, valueTypes, entityTys, CedarWide.entityTypes])
+      (inhabited_of_ne (by simp [TypedExpr.typeOf])) (fam_leaf (hr ▸ leaf_var (by simp)))
+  · exact reach_val (by simp [TypedExpr.typeOf, valueTypes, entityTys, CedarWide.entityTypes, view])
+      (inhabited_of_ne (by simp [TypedExpr.typeOf])) (fam_leaf (hr ▸ leaf_var (by simp [view])))
+  · exact reach_val (by simp [TypedExpr.typeOf, valueTypes, entityTys, CedarWide.entityTypes])
+      (inhabited_of_ne (by simp [TypedExpr.typeOf])) (fam_leaf (hr ▸ leaf_var (by simp)))
+  · exact reach_val (by simp [TypedExpr.typeOf, valueTypes])
+      (inhabited_of_ne (by simp [TypedExpr.typeOf, ctx_ne_addr])) (fam_leaf (hr ▸ leaf_ctx))
+
+theorem typeOf_and' (ha : typeOf a c env = .ok (ta, ca)) :
+    typeOf (.and a b) c env = typeOfAnd (ta, ca) (typeOf b (c ∪ ca) env) := by
+  simp [typeOf, ha]
+
+theorem typeOf_or' (ha : typeOf a c env = .ok (ta, ca)) :
+    typeOf (.or a b) c env = typeOfOr (ta, ca) (typeOf b c env) := by
+  simp [typeOf, ha]
+
+theorem typeOf_ite' (hg : typeOf g c env = .ok (tg, cg)) :
+    typeOf (.ite g t e) c env = typeOfIf (tg, cg) (typeOf t (c ∪ cg) env) (typeOf e c env) := by
+  simp [typeOf, hg]
+
+theorem fam_succ_bool : ((fam (G := SPMF) (n + 1)).bool c) = stepBool (fam n) c := rfl
+theorem fam_succ_atTy : ((fam (G := SPMF) (n + 1)).atTy c ty) = stepAt (fam n) c ty := rfl
+
+/-- **Completeness**, for every capability set: every fragment expression `typeOf` accepts is
+generated, with exactly `typeOf`'s judgment, at its fuel. -/
+theorem reach (hs : Scope c e n) :
+    ∀ {tx out}, typeOf e c env = .ok (tx, out) → ReachF (fam n) c ⟨e, tx, out⟩ := by
+  induction hs with
+  | lit p n => exact reach_lit
+  | var v n => exact reach_var
+  | @and c a n b _ hab _ iha ihb =>
+    intro tx out h
+    obtain ⟨t₁, b₁, c₁, h₁, hb₁, hrest⟩ := Cedar.Thm.type_of_and_inversion h
+    have hm₁ := (iha h₁).bool (b := b₁) hb₁
+    have h' := h; rw [typeOf_and' h₁] at h'
+    split at hrest
+    · obtain ⟨rfl, rfl⟩ := hrest
+      rename_i hff; subst hff
+      refine reach_bool hb₁ ?_
+      rw [fam_succ_bool]; apply stepBool_and
+      have hd : typeOfAnd (tx, c₁) dead = .ok (tx, ∅) := by simp [typeOfAnd, hb₁, ok]
+      rw [← ofR_ok hd]
+      exact ruleAnd_ff (fam n) hm₁ hb₁ (fam_any ▸ genAny_complete hab)
+    · rename_i hff
+      obtain ⟨bty, t₂, b₂, c₂, rfl, h₂, hb₂, -⟩ := hrest
+      have hm₂ := (ihb t₁ c₁ h₁ (by rw [hb₁]; simpa using hff) h₂).bool hb₂
+      refine reach_bool (b := bty) rfl ?_
+      rw [fam_succ_bool]; apply stepBool_and
+      rw [h₂] at h'
+      rw [← ofR_ok h']
+      exact ruleAnd_both (fam n) hm₁ (by simpa [J.ty, hb₁] using hff) hm₂
+  | _ => sorry
+
 end CedarGen
