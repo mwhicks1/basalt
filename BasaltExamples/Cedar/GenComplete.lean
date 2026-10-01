@@ -499,4 +499,183 @@ theorem genChain_complete : (n : Nat) → (cur : Option CedarType) → (l : List
       simp only [hm] at hc
       cases t <;> first | exact absurd hc id | exact go _ hc a
 
+section rules2
+variable (f : Fam SPMF)
+
+theorem ruleExtHas_complete (hbt : bt ∈ baseTypes c) (hx : some x ∈ (f.atTy c bt).support)
+    (hl₁ : 1 ≤ atts.length) (hl₂ : atts.length ≤ f.fuel + 1) (hch : ChainOK (some bt) (a :: atts))
+    (ht : typeOfExtHasAttr x.tx x.e (a :: atts) c env = .ok (bty, c')) :
+    some ⟨.extHasAttr x.e a atts, .extHasAttr x.tx a atts (.bool bty), c'⟩ ∈
+      (ruleExtHas f c).support := by
+  rw [SPMF.mem_support_iff_may, ruleExtHas]
+  walk [fun c' t => (supp_complete (f.atTy c' t)).obs,
+    fun b n => (supp_complete (genChain (G := SPMF) b n)).obs]
+  refine ⟨bt, hbt, some x, hx, atts.length, ⟨hl₁, hl₂⟩, a :: atts,
+    genChain_complete _ _ _ rfl hch, ?_⟩
+  simp [ht]
+
+theorem more_complete (field : CedarType → SPMF (Option J)) (pickTy : SPMF CedarType) :
+    (n : Nat) → (names : List Attr) → (fs : List (Attr × J)) → fs.length ≤ n →
+    (fs.map Prod.fst).Nodup → (∀ p ∈ fs, p.1 ∉ names) →
+    (∀ p ∈ fs, ∃ ty ∈ pickTy.support, some p.2 ∈ (field ty).support) →
+    some fs ∈ (recordLit.more field pickTy names n).support
+  | 0, _, [], _, _, _, _ => by rw [SPMF.mem_support_iff_may, recordLit.more]; walk
+  | n + 1, _, [], _, _, _, _ => by rw [SPMF.mem_support_iff_may, recordLit.more]; walk
+  | n + 1, names, (a, j) :: fs, hl, hnd, hn, hf => by
+    obtain ⟨ty, hty, hj⟩ := hf (a, j) (by simp)
+    have ih := more_complete field pickTy n (a :: names) fs (by simp at hl; omega)
+      (List.nodup_cons.mp hnd).2
+      (fun p hp => by
+        simp only [List.mem_cons, not_or]
+        refine ⟨fun h => ?_, hn p (by simp [hp])⟩
+        refine (List.nodup_cons.mp hnd).1 ?_
+        rw [← h]; exact List.mem_map.mpr ⟨p, hp, rfl⟩)
+      (fun p hp => hf p (by simp [hp]))
+    rw [SPMF.mem_support_iff_may, recordLit.more]
+    walk [genAttr_complete.obs, (supp_complete pickTy).obs, fun t => (supp_complete (field t)).obs,
+      fun nm m => (supp_complete (recordLit.more field pickTy nm m)).obs]
+    refine Or.inr ⟨a, ?_⟩
+    rw [if_neg (hn (a, j) (by simp))]
+    exact ⟨ty, hty, some j, hj, some fs, ih, rfl⟩
+
+/-- `j` is reachable from `f` at its own type, under `c`: a boolean from `f.bool`, any other type a
+value type inhabited under `c`, from `f.atTy`. -/
+def ReachF (f : Fam SPMF) (c : Capabilities) (j : J) : Prop :=
+  (∃ b, j.ty = .bool b ∧ some j ∈ (f.bool c).support) ∨
+  (j.ty ∈ valueTypes ∧ inhabited c j.ty = true ∧ some j ∈ (f.atTy c j.ty).support)
+
+theorem ReachF.not_bool (h : ReachF f c j) (hne : ∀ b, j.ty ≠ .bool b) :
+    j.ty ∈ valueTypes ∧ inhabited c j.ty = true ∧ some j ∈ (f.atTy c j.ty).support := by
+  rcases h with ⟨b, hb, _⟩ | h
+  · exact absurd hb (hne b)
+  · exact h
+
+theorem fields_pick {fs : List (Attr × J)} (hf : ∀ p ∈ fs, ReachF f c p.2) :
+    ∀ p ∈ fs, ∃ ty ∈ (elements (G := SPMF)
+        (CedarType.bool .anyBool :: valueTypes.filter (inhabited c)) (by simp)).support,
+      some p.2 ∈ (match ty with | .bool _ => f.bool c | _ => f.atTy c ty).support := by
+  intro p hp
+  rcases hf p hp with ⟨b, hb, h⟩ | ⟨hv, hi, h⟩
+  · refine ⟨.bool .anyBool, ?_, h⟩
+    rw [SPMF.mem_support_iff_may]; walk; simp
+  · refine ⟨p.2.ty, ?_, ?_⟩
+    · rw [SPMF.mem_support_iff_may]; walk; simp [hv, hi]
+    · split
+      · rename_i b hb; rw [hb] at hv; simp [valueTypes, setElts, entityTys] at hv
+      · exact h
+
+theorem recordLit_none {fs : List (Attr × J)} (hl : fs.length ≤ f.fuel) (hnd : (fs.map Prod.fst).Nodup)
+    (hf : ∀ p ∈ fs, ReachF f c p.2) : some (recordOf fs) ∈ (recordLit f c none).support := by
+  unfold recordLit
+  extract_lets field pickTy
+  rw [SPMF.mem_support_iff_may]
+  walk [fun nm m => (supp_complete (recordLit.more field pickTy nm m)).obs]
+  exact ⟨some fs, more_complete field pickTy _ [] fs hl hnd (by simp) (fields_pick f hf), rfl⟩
+
+theorem recordLit_some {rest : List (Attr × J)}
+    (hj : ((∃ b, ty = .bool b) ∧ some j ∈ (f.bool c).support) ∨
+      ((∀ b, ty ≠ .bool b) ∧ some j ∈ (f.atTy c ty).support))
+    (hl : rest.length ≤ f.fuel) (hnd : (rest.map Prod.fst).Nodup) (ha : a ∉ rest.map Prod.fst)
+    (hf : ∀ p ∈ rest, ReachF f c p.2) (hi : i ≤ rest.length) :
+    some (recordOf (rest.insertIdx i (a, j))) ∈ (recordLit f c (some (a, ty))).support := by
+  unfold recordLit
+  extract_lets field pickTy
+  have hfj : some j ∈ (field ty).support := by
+    simp only [field]
+    rcases hj with ⟨⟨b, rfl⟩, h⟩ | ⟨hne, h⟩
+    · exact h
+    · split
+      · rename_i b; exact absurd rfl (hne b)
+      · exact h
+  have hpick : ∀ p ∈ rest, ∃ ty ∈ pickTy.support, some p.2 ∈ (field ty).support := fields_pick f hf
+  clear_value field pickTy
+  rw [SPMF.mem_support_iff_may]
+  walk [fun t => (supp_complete (field t)).obs,
+    fun nm m => (supp_complete (recordLit.more field pickTy nm m)).obs]
+  refine ⟨some j, hfj, some rest,
+    more_complete field pickTy _ [a] rest hl hnd
+      (fun p hp h => ha (List.mem_map.mpr ⟨p, hp, by simpa using h⟩)) hpick,
+    i, ⟨Nat.zero_le _, hi⟩, rfl⟩
+
+theorem ruleRecordHas_complete {fs : List (Attr × J)} (hl : fs.length ≤ f.fuel) (hnd : (fs.map Prod.fst).Nodup)
+    (hf : ∀ p ∈ fs, ReachF f c p.2) :
+    ofR (.hasAttr (recordOf fs).1 a) (typeOfHasAttr (recordOf fs).2 (recordOf fs).1 a c env) ∈
+      (ruleRecordHas f c).support := by
+  rw [SPMF.mem_support_iff_may, ruleRecordHas]
+  walk [fun n => (supp_complete (recordLit f c n)).obs, genAttr_complete.obs]
+  exact ⟨some (recordOf fs), recordLit_none f hl hnd hf, a, rfl⟩
+
+theorem ruleRecordGet_complete {rest : List (Attr × J)}
+    (hj : ((∃ b, ty = .bool b) ∧ some j ∈ (f.bool c).support) ∨
+      ((∀ b, ty ≠ .bool b) ∧ some j ∈ (f.atTy c ty).support))
+    (hl : rest.length ≤ f.fuel) (hnd : (rest.map Prod.fst).Nodup) (ha : a ∉ rest.map Prod.fst)
+    (hf : ∀ p ∈ rest, ReachF f c p.2) (hi : i ≤ rest.length) :
+    let r := recordOf (rest.insertIdx i (a, j))
+    ofR (.getAttr r.1 a) (typeOfGetAttr r.2 r.1 a c env) ∈ (ruleRecordGet f c ty).support := by
+  intro r
+  rw [SPMF.mem_support_iff_may, ruleRecordGet]
+  walk [fun n => (supp_complete (recordLit f c n)).obs, genAttr_complete.obs]
+  exact ⟨a, some r, recordLit_some f hj hl hnd ha hf hi, rfl⟩
+
+/-- The strings `typeOf` accepts as an extension constructor's argument. -/
+def ValidArg : ExtType → String → Prop
+  | .ipAddr, s => (Ext.IPAddr.ip s).isSome
+  | .decimal, s => (Ext.Decimal.decimal s).isSome
+  | .datetime, s => (Ext.Datetime.parse s).isSome
+  | .duration, s => (Ext.Datetime.Duration.parse s).isSome
+
+theorem genExtArg_complete (h : ValidArg xt s) : s ∈ (genExtArg (G := SPMF) xt).support := by
+  rw [SPMF.mem_support_iff_may]
+  cases xt <;> (unfold genExtArg; walk [CedarTyped.genString.complete.obs]) <;>
+    exact Or.inr ⟨s, by simp_all [ValidArg]⟩
+
+theorem leaf_int : ofR (.lit (.int i)) (typeOfLit (.int i) env) ∈ (leaf (G := SPMF) c .int).support := by
+  rw [SPMF.mem_support_iff_may, leaf]; walk [CedarTyped.genInt64.complete.obs]
+  exact ⟨i, rfl⟩
+
+theorem leaf_string : ofR (.lit (.string s)) (typeOfLit (.string s) env) ∈ (leaf (G := SPMF) c .string).support := by
+  rw [SPMF.mem_support_iff_may, leaf]; walk [CedarTyped.genString.complete.obs]
+  exact ⟨s, rfl⟩
+
+theorem leaf_uid (h : ValidUID uid) :
+    ofR (.lit (.entityUID uid)) (typeOfLit (.entityUID uid) env) ∈ (leaf (G := SPMF) c (.entity uid.ty)).support := by
+  rw [SPMF.mem_support_iff_may, leaf]
+  walk [(supp_complete (genUID (G := SPMF) uid.ty)).obs]
+  all_goals first
+    | exact ⟨uid, genUID_complete h, Or.inr rfl⟩
+    | exact ⟨uid, genUID_complete h, rfl⟩
+
+theorem leaf_ext (h : ValidArg xt s) :
+    ofR (.call (ctorOf xt) [.lit (.string s)])
+      (typeOfCall (ctorOf xt) [.lit (.string s) .string] [.lit (.string s)]) ∈
+      (leaf (G := SPMF) c (.ext xt)).support := by
+  rw [SPMF.mem_support_iff_may, leaf]
+  walk [(supp_complete (genExtArg (G := SPMF) xt)).obs]
+  exact ⟨s, genExtArg_complete h, rfl⟩
+
+theorem leaf_var (hv : (v, ety) ∈ [(Var.principal, userT), (.resource, photoT), (.action, actionT)]) :
+    ofR (.var v) (typeOfVar v env) ∈ (leaf (G := SPMF) c (.entity ety)).support := by
+  simp only [List.mem_cons, Prod.mk.injEq, List.not_mem_nil, or_false] at hv
+  rcases hv with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩
+  · have hu : ValidUID ⟨userT, ""⟩ := Or.inl (by simp)
+    rw [SPMF.mem_support_iff_may, leaf]
+    walk [(supp_complete (genUID (G := SPMF) userT)).obs]
+    exact ⟨_, genUID_complete hu⟩
+  · have hu : ValidUID ⟨photoT, ""⟩ := Or.inl (by simp)
+    rw [SPMF.mem_support_iff_may, leaf]
+    walk [(supp_complete (genUID (G := SPMF) photoT)).obs]
+    exact ⟨_, genUID_complete hu⟩
+  · have hu : ValidUID view := Or.inr (Or.inl rfl)
+    rw [SPMF.mem_support_iff_may, leaf]
+    walk [(supp_complete (genUID (G := SPMF) actionT)).obs]
+    exact ⟨_, genUID_complete hu⟩
+
+theorem leaf_ctx : ofR (.var .context) (typeOfVar .context env) ∈
+    (leaf (G := SPMF) c (.record ctxTy)).support := by
+  rw [SPMF.mem_support_iff_may, leaf]
+  walk
+  all_goals simp
+
+end rules2
+
 end CedarGen
