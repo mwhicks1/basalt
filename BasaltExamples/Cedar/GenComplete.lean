@@ -924,6 +924,46 @@ theorem ReachF.value (h : ReachF f c j) (hv : j.ty ∈ valueTypes) :
   · rw [hb] at hv; exact absurd hv bool_not_value
   · exact h
 
+/-- Reduces membership in `stepBool f c` to a disjunction over its branches, each rule opaque. -/
+macro "step_bool" : tactic => `(tactic| (
+  rw [SPMF.mem_support_iff_may]; unfold stepBool pick
+  split <;> simp only [List.append_nil, List.cons_append, List.nil_append] <;>
+  walk [(supp_complete (ruleAnd _ _)).obs, (supp_complete (ruleOr _ _)).obs,
+    (supp_complete (ruleIte _ _ _)).obs, (supp_complete (ruleHas _ _)).obs,
+    (supp_complete (ruleHasTag _ _)).obs, (supp_complete (ruleExtHas _ _)).obs,
+    (supp_complete (ruleRecordHas _ _)).obs, fun ty => (supp_complete (ruleRecordGet _ _ ty)).obs,
+    fun ty => (supp_complete (ruleRead _ _ ty)).obs,
+    fun op t => (supp_complete (unary _ _ op t)).obs,
+    fun op t₁ t₂ => (supp_complete (binary _ _ op t₁ t₂)).obs,
+    fun fn tys => (supp_complete (call _ _ fn tys)).obs,
+    fun c' => (supp_complete (Fam.bool _ c')).obs, CedarTyped.genBool.complete.obs,
+    genName_complete.obs, fun n => (supp_complete (genPattern (G := SPMF) n)).obs,
+    (supp_complete (genPrim (G := SPMF))).obs]))
+
+/-- Reduces membership in `stepAt f c ty` to a disjunction over its branches, each rule opaque. -/
+macro "step_at" : tactic => `(tactic| (
+  rw [SPMF.mem_support_iff_may]; unfold stepAt pick construct
+  (try split) <;> simp only [List.append_nil, List.cons_append, List.nil_append] <;>
+  walk [fun ty => (supp_complete (leaf (G := SPMF) _ ty)).obs, (supp_complete (ruleIte _ _ _)).obs,
+    fun ty => (supp_complete (ruleRecordGet _ _ ty)).obs,
+    fun ty => (supp_complete (ruleRead _ _ ty)).obs,
+    fun elt => (supp_complete (ruleSet _ _ elt)).obs,
+    fun op t => (supp_complete (unary _ _ op t)).obs,
+    fun op t₁ t₂ => (supp_complete (binary _ _ op t₁ t₂)).obs,
+    fun fn tys => (supp_complete (call _ _ fn tys)).obs]))
+
+theorem typeOf_unaryApp' (hx : typeOf x c env = .ok (tx, cx)) :
+    typeOf (.unaryApp op x) c env = typeOfUnaryApp op tx := by
+  simp [typeOf, hx]
+
+theorem fam_fuel : (fam (G := SPMF) n).fuel = n := by cases n <;> rfl
+
+theorem entity_mem_tys (h : CedarType.entity ety ∈ valueTypes) : CedarType.entity ety ∈ entityTys := by
+  simp [valueTypes, setElts, entityTys] at h ⊢; exact h
+
+theorem set_value (h : CedarType.set ty ∈ valueTypes) : ty ∈ setElts := by
+  simp [valueTypes, setElts, entityTys] at h ⊢; exact h
+
 /-- **Completeness**, for every capability set: every fragment expression `typeOf` accepts is
 generated, with exactly `typeOf`'s judgment, at its fuel. -/
 theorem reach (hs : Scope c e n) :
