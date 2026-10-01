@@ -3,6 +3,7 @@ Copyright (c) 2026 Harrison Goldstein. All rights reserved.
 Released under MIT license as described in the file LICENSE.
 Authors: Michael Hicks
 -/
+import Cedar.Thm.Validation.Typechecker.Set
 import BasaltExamples.Cedar.Gen
 import BasaltExamples.Cedar.Typed
 
@@ -1312,6 +1313,47 @@ theorem call_inv (h : typeOf (.call fn xs) c env = .ok (tx, out)) :
     simp only [hm, bind, Except.bind] at h
     obtain ⟨js, h₁, h₂, h₃⟩ := mapM_typeOf_inv xs txs hm
     exact ⟨js, h₁, h₃, by rw [h₁, h₂]; exact h⟩
+
+theorem reach_set (hne : xs ≠ []) (hl : xs.length ≤ n + 1)
+    (ih : ∀ x ∈ xs, ∀ {tx out}, typeOf x c env = .ok (tx, out) →
+      ReachF (fam (G := SPMF) n) c ⟨x, tx, out⟩)
+    (hok : TyOK c (.set xs)) :
+    typeOf (.set xs) c env = .ok (tx, out) → ReachF (fam (G := SPMF) (n + 1)) c ⟨.set xs, tx, out⟩ := by
+  intro h
+  have hu := hok _ _ h
+  obtain ⟨-, txs, ty, htx, hall⟩ := Cedar.Thm.type_of_set_inversion h
+  obtain ⟨js, hjs, hj, hts⟩ := set_inv h
+  subst htx
+  have hv : CedarType.set ty ∈ valueTypes := by
+    rcases hu with ⟨_, hb⟩ | ⟨hv, _⟩
+    · cases hb
+    · exact hv
+  have hi : inhabited c (.set ty) = true := inhabited_of_ne (by simp)
+  have hty : ty ∈ valueTypes := by
+    have := set_value hv; simp [setElts, entityTys, CedarWide.entityTypes] at this
+    rcases this with rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
+      simp [valueTypes, setElts, entityTys, CedarWide.entityTypes]
+  have hm : ∀ j ∈ js, some j ∈ ((fam (G := SPMF) n).atTy c ty).support := by
+    intro j hjm
+    have hx : j.e ∈ xs := hjs ▸ List.mem_map_of_mem hjm
+    have r := ih j.e hx (hj j hjm)
+    obtain ⟨tᵢ, cᵢ, -, hᵢ, hlub⟩ := hall j.e hx
+    rw [hj j hjm] at hᵢ; cases hᵢ
+    rcases lub_U (c₃ := c) r.tyU (Or.inr ⟨hty, inhabited_of_ne (by
+        intro h; subst h; simp [valueTypes, setElts, entityTys] at hv)⟩) hlub with
+      ⟨_, _, ⟨_, hb⟩⟩ | ⟨_, h₂, -⟩
+    · subst hb; exact absurd hty bool_not_value
+    · have := r.value (h₂ ▸ hty); rw [h₂] at this; exact this
+  have hlen : 1 ≤ js.length := by
+    cases js with
+    | nil => simp at hjs; exact absurd hjs hne
+    | cons => simp
+  have hre := ruleSet_complete (fam n) (elt := ty) hlen
+    (by rw [fam_fuel]; have := congrArg List.length hjs; simp at this; omega) hm
+  rw [hjs, ofR_ok hts] at hre
+  refine reach_val hv hi ?_
+  rw [fam_succ_atTy]; step_at
+  all_goals branch hre
 
 /-- **Completeness**, for every capability set: every fragment expression `typeOf` accepts is
 generated, with exactly `typeOf`'s judgment, at its fuel. -/
