@@ -15,6 +15,52 @@ open CedarTyped (genBool genInt64 genString genChar)
 
 namespace CedarGen
 
+/-! ### Record literals, from typing -/
+
+theorem mapM_fields_inv : (fs : List (Attr × Spec.Expr)) → (atys : List (Attr × TypedExpr)) →
+    (fs.mapM fun p => (typeOf p.2 c env).map fun r => (p.1, r.1)) = .ok atys →
+    ∃ js : List (Attr × J), js.map (fun p => (p.1, p.2.e)) = fs ∧
+      js.map (fun p => (p.1, p.2.tx)) = atys ∧ ∀ p ∈ js, Judg c p.2
+  | [], atys, h => by
+    simp [pure, Except.pure] at h; subst h; exact ⟨[], rfl, rfl, by simp⟩
+  | (a, x) :: fs, atys, h => by
+    simp only [List.mapM_cons] at h
+    cases hx : typeOf x c env with
+    | error e => simp [hx, Except.map, bind, Except.bind] at h
+    | ok p =>
+      obtain ⟨tx, cx⟩ := p
+      cases hr : fs.mapM (fun p => (typeOf p.2 c env).map fun r => (p.1, r.1)) with
+      | error e => rw [hr] at h; simp [hx, Except.map, bind, Except.bind] at h
+      | ok tys =>
+        rw [hr] at h; simp [hx, Except.map, bind, Except.bind, pure, Except.pure] at h
+        subst h
+        obtain ⟨js, h₁, h₂, h₃⟩ := mapM_fields_inv fs tys hr
+        refine ⟨(a, ⟨x, tx, cx⟩) :: js, by simp [h₁], by simp [h₂], ?_⟩
+        rintro p (_ | ⟨_, hp⟩)
+        exacts [hx, h₃ p hp]
+
+theorem record_inv (h : typeOf (.record fs) c env = .ok (tr, cr)) :
+    ∃ js : List (Attr × J), js.map (fun p => (p.1, p.2.e)) = fs ∧ (∀ p ∈ js, Judg c p.2) ∧
+      recordOf js = (.record fs, tr) := by
+  simp only [typeOf] at h
+  have key := List.mapM₂_eq_mapM (m := Except TypeError)
+    (fun p : Attr × Spec.Expr => (typeOf p.2 c env).map fun r => (p.1, r.1)) fs
+  have h2 : (do
+      let atys ← fs.mapM (fun p => (typeOf p.2 c env).map fun r => (p.1, r.1))
+      ok (TypedExpr.record atys
+        (.record (Map.make (atys.map fun x => (x.1, Qualified.required x.2.typeOf)))))) =
+      (Except.ok (tr, cr) : ResultType) := by
+    rw [← key]; exact h
+  cases hm : fs.mapM (fun p => (typeOf p.2 c env).map fun r => (p.1, r.1)) with
+  | error e => rw [hm] at h2; simp [bind, Except.bind] at h2
+  | ok atys =>
+    rw [hm] at h2; simp [bind, Except.bind, ok] at h2
+    obtain ⟨rfl, -⟩ := h2
+    obtain ⟨js, h₁, h₂, h₃⟩ := mapM_fields_inv fs atys hm
+    refine ⟨js, h₁, h₃, ?_⟩
+    subst h₁ h₂
+    simp [recordOf, List.map_map, Function.comp_def]
+
 /-- **Completeness**, for every capability set: every fragment expression `typeOf` accepts is
 generated, with exactly `typeOf`'s judgment, at its fuel. -/
 theorem reach (hs : Scope c e n) :
