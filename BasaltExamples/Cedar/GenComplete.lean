@@ -1092,6 +1092,30 @@ theorem readable_of_cap (h : r ∈ capReads c t) : readable c t = true := by
   have : capReads c t ≠ [] := List.ne_nil_of_mem h
   simp [readable, this]
 
+theorem path_value (hp : IsPath x) :
+    typeOf x c env = .ok (tx, cx) → ((∃ ety, tx.typeOf = .entity ety) ∨ (∃ rty, tx.typeOf = .record rty)) →
+    tx.typeOf ∈ valueTypes := by
+  induction hp generalizing tx cx with
+  | var v =>
+    intro h _; simp only [typeOf] at h
+    cases v <;> simp [typeOfVar, ok, reqty_eq] at h <;> obtain ⟨rfl, -⟩ := h <;>
+      simp [TypedExpr.typeOf, valueTypes, entityTys, CedarWide.entityTypes, view]
+  | lit p =>
+    intro h hb
+    have r := reach_lit (n := 0) h
+    rcases r.tyU with ⟨b, hh⟩ | ⟨hh, _⟩
+    · have hh' : tx.typeOf = .bool b := hh
+      rcases hb with ⟨_, h⟩ | ⟨_, h⟩ <;> rw [hh'] at h <;> cases h
+    · exact hh
+  | @getAttr x a _ ih =>
+    intro h hb
+    obtain ⟨-, t₁, c₁, h₁, -, hbase⟩ := Cedar.Thm.type_of_getAttr_inversion h
+    rw [typeOf_getAttr h₁] at h
+    obtain ⟨q, hq, hty, -⟩ := getAttr_ty h
+    rcases attr_cases (ih h₁ hbase) hq with hv | hv
+    · rw [hty]; exact hv
+    · rw [hty, hv] at hb; rcases hb with ⟨_, h⟩ | ⟨_, h⟩ <;> cases h
+
 /-- **Completeness**, for every capability set: every fragment expression `typeOf` accepts is
 generated, with exactly `typeOf`'s judgment, at its fuel. -/
 theorem reach (hs : Scope c e n) :
