@@ -22,14 +22,18 @@ not.
 |---|---|---|---|
 | `Typed.lean` (`CedarTyped`) | literals, variables, `if`/`&&`/`||`, `!`/`-`/`is`, `==`/`<`/`<=`/`+`/`-`/`*`, `has`/`.`, over a small schema | each candidate finished by the real `typeOf` | **sound and complete** (`BasaltExamples/Cedar/Typed.lean`) |
 | `Wide.lean` (`CedarWide`) | adds entity/action literals, `in` over hierarchies, tags, sets and set operators, record literals, `like`, multi-attribute `has`, extension functions, over a richer schema | each candidate finished by the real `typeOf`; a failed sub-judgment falls back to a leaf | none |
-| `Gen.lean` (`CedarGen`) | `CedarWide`'s fragment and schema | **correct by construction**: no `typeOf` call; each rule combines its sub-results with the typechecker's own per-rule helper (`typeOfAnd`, `typeOfIf`, `typeOfBinaryApp`, `typeOfHasAttr`, `typeOfExtHasAttr`, …), and is offered only where it applies | **sound** (`BasaltExamples/Cedar/Gen.lean`) |
+| `Gen.lean` (`CedarGen`) | `CedarWide`'s fragment and schema | **correct by construction**: no `typeOf` call; each rule combines its sub-results with the typechecker's own per-rule helper (`typeOfAnd`, `typeOfIf`, `typeOfBinaryApp`, `typeOfHasAttr`, `typeOfExtHasAttr`, …), and is offered only where it applies | **sound** (`BasaltExamples/Cedar/Gen.lean`) and **complete** over a scoped fragment (`BasaltExamples/Cedar/GenComplete.lean`) |
 
 `CedarTyped`'s completeness is stated over the fragment `Frag`, for every capability set in scope:
 every fragment expression `typeOf` accepts is generated at some fuel, with exactly its judgment.
 Literals are complete (every `Int64`, every `String`); completeness is relative to the schema.
 
-`CedarGen` is checked on every test by `gen-cbc`: the generator never returns `none`, and the type and
-capabilities it computed equal `typeOf`'s exactly.
+`CedarGen`'s soundness (`genS_sound`) says every judgment it returns, at any fuel, is exactly
+`typeOf`'s. Its completeness (`genS_complete`) is stated per fuel over the fragment `Scope` (whose
+docstring lists the restrictions): at fuel `n`, every boolean fragment expression of fuel `n` that
+`typeOf` accepts is generated with exactly its judgment. Dead branches range over all of `Expr`
+(`AnyE`), and literals are complete. That the generator never returns `none` is not proved; `gen-cbc`
+checks it on every test, together with the judgment's agreement with `typeOf`.
 
 ## The Cedar dependency
 
