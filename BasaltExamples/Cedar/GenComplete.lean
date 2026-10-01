@@ -157,6 +157,163 @@ theorem reach_getRec (hl : fs.length ≤ n + 1) (hnd : (fs.map Prod.fst).Nodup)
     rw [fam_succ_atTy]; unfold stepAt
     exact mem_pick (w := 1) (g := fun _ => ruleRecordGet (fam n) c tx.typeOf) (by simp) (by decide) hm
 
+/-! ### Unary operators, `has`, reads, and tags -/
+
+theorem reach_unary (hp : ∀ p, op = .like p → p.length ≤ n)
+    (ihx : ∀ {tx out}, typeOf x c env = .ok (tx, out) → ReachF (fam (G := SPMF) n) c ⟨x, tx, out⟩) :
+    typeOf (.unaryApp op x) c env = .ok (tx, out) →
+    ReachF (fam (G := SPMF) (n + 1)) c ⟨.unaryApp op x, tx, out⟩ := by
+  intro h
+  obtain ⟨rfl, t₁, ty, c₁, rfl, h₁, hop⟩ := Cedar.Thm.type_of_unary_inversion h
+  have r := ihx h₁
+  have hr : ofR (.unaryApp op x) (typeOfUnaryApp op t₁) = some ⟨_, .unaryApp op t₁ ty, ∅⟩ :=
+    ofR_ok (by rw [← typeOf_unaryApp' h₁]; exact h)
+  cases op with
+  | not =>
+    obtain ⟨bty, rfl, hb⟩ := hop
+    refine reach_bool rfl ?_
+    rw [fam_succ_bool]; step_bool
+    all_goals (nth_or 9; exact hr ▸ unary_bool (fam n) (bt := .anyBool) (r.bool hb))
+  | neg =>
+    obtain ⟨hb, rfl⟩ := hop
+    refine reach_val (by simp [TypedExpr.typeOf, valueTypes])
+      (inhabited_of_ne (by simp [TypedExpr.typeOf])) ?_
+    have m := r.value (by rw [J.ty, hb]; simp [valueTypes]); simp only [J.ty] at m; rw [hb] at m
+    have hm := hr ▸ unary_value (fam n) (op := .neg) (by simp) m
+    simp only [TypedExpr.typeOf]; rw [fam_succ_atTy]; step_at
+    all_goals branch hm
+  | isEmpty =>
+    obtain ⟨rfl, ty₀, hb⟩ := hop
+    refine reach_bool rfl ?_
+    have hv := r.tyU; simp only [J.ty] at hv; rw [hb] at hv
+    rcases hv with ⟨_, hv⟩ | ⟨hv, _⟩
+    · cases hv
+    have m := r.value (by rw [J.ty, hb]; exact hv); simp only [J.ty] at m; rw [hb] at m
+    rw [fam_succ_bool]; step_bool
+    all_goals (nth_or 11; exact ⟨ty₀, set_value hv, hr ▸ unary_value (fam n) (by simp) m⟩)
+  | like p =>
+    obtain ⟨rfl, hb⟩ := hop
+    refine reach_bool rfl ?_
+    have m := r.value (by rw [J.ty, hb]; simp [valueTypes]); simp only [J.ty] at m; rw [hb] at m
+    rw [fam_succ_bool]; step_bool
+    all_goals (nth_or 12; exact ⟨p, fam_fuel ▸ genPattern_complete n p (hp p rfl),
+      hr ▸ unary_value (fam n) (by simp) m⟩)
+  | is ety =>
+    obtain ⟨ety₁, rfl, hb⟩ := hop
+    refine reach_bool rfl ?_
+    have hv := r.tyU; simp only [J.ty] at hv; rw [hb] at hv
+    rcases hv with ⟨_, hv⟩ | ⟨hv, _⟩
+    · cases hv
+    have m := r.value (by rw [J.ty, hb]; exact hv); simp only [J.ty] at m; rw [hb] at m
+    rw [fam_succ_bool]; step_bool
+    all_goals (nth_or 10; exact ⟨ety, _, entity_mem_tys hv, hr ▸ unary_value (fam n) (by simp) m⟩)
+
+theorem base_value (r : ReachF f c ⟨x, t₁, c₁⟩)
+    (hbase : (∃ ety, t₁.typeOf = .entity ety) ∨ (∃ rty, t₁.typeOf = .record rty)) :
+    t₁.typeOf ∈ valueTypes := by
+  rcases r.tyU with ⟨_, hh⟩ | ⟨hh, _⟩
+  · have hh' : t₁.typeOf = .bool _ := hh
+    rcases hbase with ⟨_, h⟩ | ⟨_, h⟩ <;> rw [hh'] at h <;> cases h
+  · exact hh
+
+theorem reach_has
+    (ihx : ∀ {tx out}, typeOf x c env = .ok (tx, out) → ReachF (fam (G := SPMF) n) c ⟨x, tx, out⟩) :
+    typeOf (.hasAttr x a) c env = .ok (tx, out) →
+    ReachF (fam (G := SPMF) (n + 1)) c ⟨.hasAttr x a, tx, out⟩ := by
+  intro h
+  obtain ⟨-, t₁, c₁, h₁, -, hbase⟩ := Cedar.Thm.type_of_hasAttr_inversion h
+  have r := ihx h₁
+  have h' := h; rw [typeOf_hasAttr h₁] at h'
+  obtain ⟨b, hb⟩ := typeOfHasAttr_bool h'
+  have hm := ofR_ok (e := .hasAttr x a) h' ▸
+    ruleHas_complete (fam n) (x := ⟨x, t₁, c₁⟩) (base_of_U r.tyU hbase) (r.value (base_value r hbase))
+  refine reach_bool hb ?_
+  rw [fam_succ_bool]; step_bool
+  all_goals (nth_or 4; exact hm)
+
+theorem reach_getReq
+    (hreq : ∀ tx cx, typeOf x c env = .ok (tx, cx) → ∃ t, attrTy tx.typeOf a = some (.required t))
+    (hok : TyOK c (.getAttr x a))
+    (ihx : ∀ {tx out}, typeOf x c env = .ok (tx, out) → ReachF (fam (G := SPMF) n) c ⟨x, tx, out⟩) :
+    typeOf (.getAttr x a) c env = .ok (tx, out) →
+    ReachF (fam (G := SPMF) (n + 1)) c ⟨.getAttr x a, tx, out⟩ := by
+  intro h
+  obtain ⟨rfl, t₁, c₁, h₁, -, hbase⟩ := Cedar.Thm.type_of_getAttr_inversion h
+  have r := ihx h₁
+  have h' := h; rw [typeOf_getAttr h₁] at h'
+  obtain ⟨q, hq, hty, -⟩ := getAttr_ty h'
+  obtain ⟨t, ht⟩ := hreq t₁ c₁ h₁
+  rw [ht] at hq; cases hq
+  have hv₁ := base_value r hbase
+  have hmem := mem_requiredReads (base_of_U r.tyU hbase) ht ⟨_, attrsOf_of ht⟩
+  have hre := ofR_ok (e := .getAttr x a) h' ▸
+    ruleRead_req (fam n) (x := ⟨x, t₁, c₁⟩) hmem (r.value hv₁)
+  simp only [Qualified.getType] at hty
+  rcases attr_cases hv₁ ht with hv | hb
+  · simp only [Qualified.getType] at hv
+    have hi : inhabited c t = true := by
+      rcases hok _ _ h with ⟨b, hb⟩ | ⟨_, hi⟩
+      · rw [hty] at hb; subst hb; exact absurd hv bool_not_value
+      · rw [hty] at hi; exact hi
+    refine reach_val (hty ▸ hv) (hty ▸ hi) ?_
+    rw [hty, fam_succ_atTy]; unfold stepAt
+    refine mem_pick (w := 3) (g := fun _ => ruleRead (fam n) c t) ?_ (by decide) hre
+    simp [readable_of_req hmem]
+  · simp only [Qualified.getType] at hb; subst hb
+    refine reach_bool hty ?_
+    rw [fam_succ_bool]; unfold stepBool
+    refine mem_pick (w := 1) (g := fun _ => ruleRead (fam n) c (.bool .anyBool)) ?_ (by decide) hre
+    simp [readable_of_req hmem]
+
+theorem reach_getCap (hp : IsPath x) (hc : (x, Key.attr a) ∈ c) (hok : TyOK c (.getAttr x a)) :
+    typeOf (.getAttr x a) c env = .ok (tx, out) →
+    ReachF (fam (G := SPMF) (n + 1)) c ⟨.getAttr x a, tx, out⟩ := by
+  intro h
+  obtain ⟨rfl, t₁, c₁, h₁, -, hbase⟩ := Cedar.Thm.type_of_getAttr_inversion h
+  have h' := h; rw [typeOf_getAttr h₁] at h'
+  obtain ⟨q, hq, hty, -⟩ := getAttr_ty h'
+  have hv₁ := path_value hp h₁ hbase
+  have hmem := mem_capReads' hc (pathTx_complete hp h₁) hq
+  have hre := ofR_ok (e := .getAttr x a) h' ▸ ruleRead_cap (fam n) hmem
+  rcases attr_cases hv₁ hq with hv | hb
+  · have hi : inhabited c q.getType = true := by
+      rcases hok _ _ h with ⟨b, hb⟩ | ⟨_, hi⟩
+      · rw [hty] at hb; rw [hb] at hv; exact absurd hv bool_not_value
+      · rw [hty] at hi; exact hi
+    refine reach_val (hty ▸ hv) (hty ▸ hi) ?_
+    rw [hty, fam_succ_atTy]; unfold stepAt
+    refine mem_pick (w := 3) (g := fun _ => ruleRead (fam n) c q.getType) ?_ (by decide) hre
+    simp [readable_of_cap hmem]
+  · rw [hb] at hmem hre
+    refine reach_bool (hty.trans hb) ?_
+    rw [fam_succ_bool]; unfold stepBool
+    refine mem_pick (w := 1) (g := fun _ => ruleRead (fam n) c (.bool .anyBool)) ?_ (by decide) hre
+    simp [readable_of_cap hmem]
+
+theorem reach_getTag (hx : IsPath x) (ht : IsPath t) :
+    typeOf (.binaryApp .getTag x t) c env = .ok (r, out) →
+    ReachF (fam (G := SPMF) (n + 1)) c ⟨.binaryApp .getTag x t, r, out⟩ := by
+  intro h
+  obtain ⟨tx, cx, tt, ct, h₁, h₂, -⟩ := Cedar.Thm.type_of_binaryApp_inversion h
+  have h' := h; rw [typeOf_binaryApp h₁ h₂] at h'
+  obtain ⟨ety, he, hs, htags, hc, hr⟩ := getTag_inv h'
+  have hmem := mem_tagReads' hc (pathTx_complete hx h₁) (pathTx_complete ht h₂) he hs htags
+  have hre := ofR_ok (e := .binaryApp .getTag x t) h'
+  refine reach_val (by rw [hr]; simp [valueTypes]) (by rw [hr]; exact inhabited_of_ne (by simp)) ?_
+  have hne : (tagReads c).isEmpty = false := by
+    cases hl : tagReads c with
+    | nil => rw [hl] at hmem; cases hmem
+    | cons => rfl
+  have hm : ofR (.binaryApp .getTag x t) (typeOfBinaryApp .getTag tx tt x t c env) ∈
+      (ruleTagRead (G := SPMF) c).support := by
+    rw [SPMF.mem_support_iff_may, ruleTagRead]
+    split
+    · rename_i heq; rw [heq] at hmem; cases hmem
+    · rename_i heq; walk; exact ⟨(x, tx, t, tt), heq ▸ hmem, rfl⟩
+  rw [hre] at hm
+  rw [hr, fam_succ_atTy]; unfold stepAt construct
+  exact mem_pick (w := 2) (g := fun _ => ruleTagRead c) (by simp [hne]) (by decide) hm
+
 /-- **Completeness**, for every capability set: every fragment expression `typeOf` accepts is
 generated, with exactly `typeOf`'s judgment, at its fuel. -/
 theorem reach (hs : Scope c e n) :
@@ -268,6 +425,31 @@ theorem reach (hs : Scope c e n) :
         rw [hty₂] at m₂; rw [hty₃] at m₃
         exact ruleIte_any (fam n) (branch := fun c' => (fam n).atTy c' tx.typeOf) hm₁
           (by simp [J.ty, hb₁]) (by simp [J.ty, hb₁]) m₂ m₃
-  | _ => sorry
+  | unaryApp hp _ ihx => exact reach_unary hp ihx
+  | binaryApp hop _ _ iha ihb => exact reach_binary hop iha ihb
+  | getTag hx ht => exact reach_getTag hx ht
+  | hasAttr _ ihx => exact reach_has ihx
+  | hasAttr_rec hl hnd _ ih => exact reach_hasRec hl hnd ih
+  | getAttr _ hreq hok ihx => exact reach_getReq hreq hok ihx
+  | getAttr_cap hp hc hok => exact reach_getCap hp hc hok
+  | getAttr_rec hl hnd _ hok ih => exact reach_getRec hl hnd ih hok
+  | extHasAttr hne hl _ ihx => exact reach_extHas hne hl ihx
+  | set hne hl _ hok ih => exact reach_set hne hl ih hok
+  | call _ ih => exact reach_call ih
+
+/-- A boolean fragment expression at fuel `n` under no capabilities, with the judgment `typeOf`
+gives it. -/
+def InScope (n : Nat) : Option J → Prop
+  | none => False
+  | some j => Scope [] j.e n ∧ typeOf j.e [] env = .ok (j.tx, j.out) ∧ ∃ b, j.ty = .bool b
+
+/-- **Completeness of `genS`.** At every fuel `n`, every boolean expression of the fragment at fuel
+`n` that the real typechecker accepts under no capabilities is generated, with exactly the judgment
+`typeOf` gives it. -/
+theorem genS_complete (n : Nat) : IsCompleteFor (genS (G := SPMF) n) (InScope n) := by
+  rintro (_ | j) h
+  · exact h.elim
+  · obtain ⟨hs, ht, b, hb⟩ := h
+    exact (reach hs ht).bool hb
 
 end CedarGen

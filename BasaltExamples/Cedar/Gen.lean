@@ -233,6 +233,11 @@ macro "judg" : tactic => `(tactic| first
   | (simp_all [SoundO, Judg, typeOf, ok]; done)
   | (simp; done))
 
+theorem ruleTagRead_sound : IsSoundFor (ruleTagRead (G := SPMF) c) (SoundO c) := by
+  rw [IsSoundFor.iff_obs, ruleTagRead]
+  split <;> walk
+  all_goals judg
+
 theorem leaf_sound (c : Capabilities) : (t : CedarType) → IsSoundFor (leaf c t) (SoundO c)
   | .set elt => by
     have ih := leaf_sound c elt
@@ -382,7 +387,7 @@ theorem stepAt_sound : IsSoundFor (stepAt f c ty) (SoundO c) := by
     fun elt => (ruleSet_sound f hf (elt := elt)).obs,
     fun op t => (unary_sound f hf (op := op) (t := t)).obs,
     fun op t₁ t₂ => (binary_sound f hf (op := op) (t₁ := t₁) (t₂ := t₂)).obs,
-    fun fn tys => (call_sound f hf (fn := fn) (tys := tys)).obs]
+    fun fn tys => (call_sound f hf (fn := fn) (tys := tys)).obs, (ruleTagRead_sound (c := c)).obs]
   all_goals judg
 
 end rules

@@ -574,6 +574,14 @@ def stepBool : G (Option J) :=
   ] : List (Nat × (Unit → G (Option J)))) ++
     (if readable c (.bool .anyBool) then [(1, fun _ => ruleRead f c (.bool .anyBool))] else [])) (by simp)
 
+/-- A tag read the capabilities justify. -/
+def ruleTagRead : G (Option J) :=
+  match tagReads c with
+  | [] => return none
+  | r :: rs => do
+    let q ← elements (r :: rs) (by simp)
+    return ofR (.binaryApp .getTag q.1 q.2.2.1) (typeOfBinaryApp .getTag q.2.1 q.2.2.2 q.1 q.2.2.1 c env)
+
 /-- Rules specific to a target type. -/
 def construct (ty : CedarType) : List (Nat × (Unit → G (Option J))) :=
   match ty with
@@ -583,13 +591,7 @@ def construct (ty : CedarType) : List (Nat × (Unit → G (Option J))) :=
       (1, fun _ => do
             call f c (← elements [ExtFun.toMilliseconds, .toSeconds, .toMinutes, .toHours, .toDays]
               (by decide)) [.ext .duration])]
-  | .string =>
-    match tagReads c with
-    | [] => []
-    | r :: rs => [(2, fun _ => do
-        let q ← elements (r :: rs) (by simp)
-        return ofR (.binaryApp .getTag q.1 q.2.2.1)
-          (typeOfBinaryApp .getTag q.2.1 q.2.2.2 q.1 q.2.2.1 c env))]
+  | .string => if (tagReads c).isEmpty then [] else [(2, fun _ => ruleTagRead c)]
   | .set elt => [(3, fun _ => ruleSet f c elt)]
   | .ext .datetime => [
       (1, fun _ => call f c .offset [.ext .datetime, .ext .duration]),
