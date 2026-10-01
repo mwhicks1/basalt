@@ -888,6 +888,42 @@ theorem typeOf_ite' (hg : typeOf g c env = .ok (tg, cg)) :
 theorem fam_succ_bool : ((fam (G := SPMF) (n + 1)).bool c) = stepBool (fam n) c := rfl
 theorem fam_succ_atTy : ((fam (G := SPMF) (n + 1)).atTy c ty) = stepAt (fam n) c ty := rfl
 
+theorem lub_bool_value (hv : v ∈ valueTypes) : (CedarType.bool b ⊔ v) = none := by
+  simp only [valueTypes, setElts, entityTys, CedarWide.entityTypes, List.map, List.cons_append,
+    List.nil_append, List.mem_cons, List.not_mem_nil, or_false] at hv
+  rcases hv with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+    rfl | rfl | rfl | rfl | rfl | rfl <;> simp [lub?]
+
+theorem lub_value_bool (hv : v ∈ valueTypes) : (v ⊔ CedarType.bool b) = none := by
+  simp only [valueTypes, setElts, entityTys, CedarWide.entityTypes, List.map, List.cons_append,
+    List.nil_append, List.mem_cons, List.not_mem_nil, or_false] at hv
+  rcases hv with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+    rfl | rfl | rfl | rfl | rfl | rfl <;> simp [lub?]
+
+theorem bool_not_value : CedarType.bool b ∉ valueTypes := by
+  simp [valueTypes, setElts, entityTys]
+
+/-- Two types the generator builds with a least upper bound: both booleans, or one value type twice. -/
+theorem lub_U (h₂ : TyU c₂ t₂) (h₃ : TyU c₃ t₃) (h : (t₂ ⊔ t₃) = some t) :
+    ((∃ b, t₂ = .bool b) ∧ (∃ b, t₃ = .bool b) ∧ (∃ b, t = .bool b)) ∨
+      (t ∈ valueTypes ∧ t₂ = t ∧ t₃ = t) := by
+  rcases h₂ with ⟨b₂, rfl⟩ | ⟨h₂, -⟩ <;> rcases h₃ with ⟨b₃, rfl⟩ | ⟨h₃, -⟩
+  · simp [lub?] at h; exact Or.inl ⟨⟨_, rfl⟩, ⟨_, rfl⟩, ⟨_, h.symm⟩⟩
+  · simp [lub_bool_value h₃] at h
+  · simp [lub_value_bool h₂] at h
+  · obtain ⟨rfl, rfl⟩ := lub_value h₂ h₃ h; exact Or.inr ⟨h₂, rfl, rfl⟩
+
+theorem ReachF.tyU (h : ReachF f c j) : TyU c j.ty := by
+  rcases h with ⟨b, hb, _⟩ | ⟨hv, hi, _⟩
+  · exact Or.inl ⟨b, hb⟩
+  · exact Or.inr ⟨hv, hi⟩
+
+theorem ReachF.value (h : ReachF f c j) (hv : j.ty ∈ valueTypes) :
+    some j ∈ (f.atTy c j.ty).support := by
+  rcases h with ⟨b, hb, _⟩ | ⟨_, _, h⟩
+  · rw [hb] at hv; exact absurd hv bool_not_value
+  · exact h
+
 /-- **Completeness**, for every capability set: every fragment expression `typeOf` accepts is
 generated, with exactly `typeOf`'s judgment, at its fuel. -/
 theorem reach (hs : Scope c e n) :
@@ -937,6 +973,68 @@ theorem reach (hs : Scope c e n) :
       rw [h₂] at h'
       rw [← ofR_ok h']
       exact ruleOr_both (fam n) hm₁ (by simpa [J.ty, hb₁] using htt) hm₂
+  | @ite c x₁ n x₂ x₃ _ hat hae _ _ hok ihg iht ihe =>
+    intro tx out h
+    obtain ⟨t₁, b₁, c₁, t₂, c₂, t₃, c₃, -, h₁, hb₁, hrest⟩ := Cedar.Thm.type_of_ite_inversion h
+    have hm₁ := (ihg h₁).bool hb₁
+    have h' := h; rw [typeOf_ite' h₁] at h'
+    have hu := hok tx out h
+    cases b₁ with
+    | tt =>
+      obtain ⟨h₂, hty, rfl⟩ := hrest
+      have r₂ := iht t₁ c₁ h₁ (by rw [hb₁]; simp) h₂
+      rw [h₂] at h'
+      have hk : typeOfIf (t₁, c₁) (J.res ⟨x₂, t₂, c₂⟩) dead = .ok (tx, c₁ ∪ c₂) := by
+        rw [← h']; simp [typeOfIf, hb₁, J.res]
+      rcases hu with ⟨bt, hbt⟩ | ⟨hv, hi⟩
+      · refine reach_bool hbt ?_; rw [fam_succ_bool]; apply stepBool_ite
+        rw [← ofR_ok hk]
+        exact ruleIte_tt (fam n) hm₁ hb₁ (r₂.bool (hty ▸ hbt)) (fam_any ▸ genAny_complete hae)
+      · refine reach_val hv hi ?_; rw [fam_succ_atTy]; apply stepAt_ite
+        rw [← ofR_ok hk]
+        have := r₂.value (by simpa [J.ty, ← hty] using hv)
+        simp only [J.ty, ← hty] at this
+        exact ruleIte_tt (fam n) (branch := fun c' => (fam n).atTy c' tx.typeOf) hm₁ hb₁ this
+          (fam_any ▸ genAny_complete hae)
+    | ff =>
+      obtain ⟨h₃, hty, rfl⟩ := hrest
+      have r₃ := ihe t₁ c₁ h₁ (by rw [hb₁]; simp) h₃
+      rw [h₃] at h'
+      have hk : typeOfIf (t₁, c₁) dead (J.res ⟨x₃, t₃, out⟩) = .ok (tx, out) := by
+        rw [← h']; simp [typeOfIf, hb₁, J.res]
+      rcases hu with ⟨bt, hbt⟩ | ⟨hv, hi⟩
+      · refine reach_bool hbt ?_; rw [fam_succ_bool]; apply stepBool_ite
+        rw [← ofR_ok hk]
+        exact ruleIte_ff (fam n) hm₁ hb₁ (r₃.bool (hty ▸ hbt)) (fam_any ▸ genAny_complete hat)
+      · refine reach_val hv hi ?_; rw [fam_succ_atTy]; apply stepAt_ite
+        rw [← ofR_ok hk]
+        have := r₃.value (by simpa [J.ty, ← hty] using hv)
+        simp only [J.ty, ← hty] at this
+        exact ruleIte_ff (fam n) (branch := fun c' => (fam n).atTy c' tx.typeOf) hm₁ hb₁ this
+          (fam_any ▸ genAny_complete hat)
+    | anyBool =>
+      obtain ⟨h₂, h₃, hlub, rfl⟩ := hrest
+      have r₂ := iht t₁ c₁ h₁ (by rw [hb₁]; simp) h₂
+      have r₃ := ihe t₁ c₁ h₁ (by rw [hb₁]; simp) h₃
+      rw [h₂, h₃] at h'
+      have hk : typeOfIf (t₁, c₁) (J.res ⟨x₂, t₂, c₂⟩) (J.res ⟨x₃, t₃, c₃⟩) =
+          .ok (tx, (c₁ ∪ c₂) ∩ c₃) := h'
+      rcases lub_U r₂.tyU r₃.tyU hlub with ⟨⟨b₂, hb₂⟩, ⟨b₃, hb₃⟩, ⟨bt, hbt⟩⟩ | ⟨hv, hty₂, hty₃⟩
+      · refine reach_bool hbt ?_; rw [fam_succ_bool]; apply stepBool_ite
+        rw [← ofR_ok hk]
+        exact ruleIte_any (fam n) hm₁ (by simp [J.ty, hb₁]) (by simp [J.ty, hb₁]) (r₂.bool hb₂)
+          (r₃.bool hb₃)
+      · have hi : inhabited c tx.typeOf = true := by
+          rcases hu with ⟨b, hb⟩ | ⟨_, hi⟩
+          · rw [hb] at hv; exact absurd hv bool_not_value
+          · exact hi
+        refine reach_val hv hi ?_; rw [fam_succ_atTy]; apply stepAt_ite
+        rw [← ofR_ok hk]
+        have m₂ := r₂.value (by rw [hty₂]; exact hv)
+        have m₃ := r₃.value (by rw [hty₃]; exact hv)
+        rw [hty₂] at m₂; rw [hty₃] at m₃
+        exact ruleIte_any (fam n) (branch := fun c' => (fam n).atTy c' tx.typeOf) hm₁
+          (by simp [J.ty, hb₁]) (by simp [J.ty, hb₁]) m₂ m₃
   | _ => sorry
 
 end CedarGen
