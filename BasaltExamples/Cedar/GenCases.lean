@@ -1255,7 +1255,7 @@ theorem chainOK_of : (atts : List Attr) → (tx : TypedExpr) → (x : Spec.Expr)
 theorem extHas_base (h : typeOfExtHasAttr tx x (a :: atts) c env = .ok r) :
     (∃ ety, tx.typeOf = .entity ety) ∨ (∃ rty, tx.typeOf = .record rty) := by
   by_contra hn
-  push_neg at hn
+  push Not at hn
   obtain ⟨e, he⟩ := extHas_err (x := x) (a := a) (atts := atts) (c := c) hn.1 hn.2
   rw [he] at h; cases h
 

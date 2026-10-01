@@ -93,15 +93,15 @@ test is comparable across arms (both run in the same libFuzzer loop).
 
 | tests | random: edges / distinct exprs | fuzz: edges / distinct exprs | fuzz-noramp: edges / distinct exprs |
 |---|---|---|---|
-| 10 | **3,173** / 9 | 1,271 / 4 | 1,755 / 7 |
-| 100 | **5,125** / 101 | 2,998 / 46 | 3,044 / 43 |
-| 1,000 | **5,996** / 945 | 4,522 / 328 | 4,342 / 366 |
-| 10,000 | **6,285** / 8,174 | 5,383 / 2,398 | 5,888 / 3,743 |
-| 100,000 | **6,432** / 86,550 | 6,361 / 45,735 | 6,414 / 48,132 |
-| 1,000,000 | 6,521 / 735,292 | **6,573** / 455,785 | 6,553 / 484,150 |
+| 10 | **2,962** / 9 | 1,530 / 6 | 1,583 / 5 |
+| 100 | **4,822** / 104 | 2,884 / 44 | 2,443 / 34 |
+| 1,000 | **5,888** / 923 | 3,955 / 315 | 4,085 / 271 |
+| 10,000 | **6,464** / 8,095 | 4,871 / 2,180 | 5,554 / 3,549 |
+| 100,000 | **6,780** / 85,672 | 6,465 / 43,813 | 6,553 / 46,579 |
+| 1,000,000 | 7,006 / 731,314 | **7,069** / 460,937 | 7,013 / 472,838 |
 
-Random covers more until ~100k tests; fuzz passes it by 1M, from 38% fewer distinct expressions: each
-input it keeps was chosen for new coverage. The margin is ~50 edges (<1%). Reproduce with
+Random covers more until past 100k tests; fuzz passes it by 1M, from 37% fewer distinct expressions:
+each input it keeps was chosen for new coverage. The margin is ~60 edges (<1%). Reproduce with
 `fuzz-run/cedar-experiment.sh`.
 
 - **Draw order matters to `FuzzGen`.** Its draw order is byte order, so a property must generate the
