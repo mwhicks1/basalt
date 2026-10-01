@@ -61,6 +61,36 @@ theorem record_inv (h : typeOf (.record fs) c env = .ok (tr, cr)) :
     subst h₁ h₂
     simp [recordOf, List.map_map, Function.comp_def]
 
+theorem fields_reach {js : List (Attr × J)} (hjs : js.map (fun p => (p.1, p.2.e)) = fs)
+    (hj : ∀ p ∈ js, Judg c p.2)
+    (ih : ∀ p ∈ fs, ∀ {tx out}, typeOf p.2 c env = .ok (tx, out) →
+      ReachF (fam (G := SPMF) n) c ⟨p.2, tx, out⟩) :
+    ∀ p ∈ js, ReachF (fam (G := SPMF) n) c p.2 := fun p hp =>
+  ih (p.1, p.2.e) (hjs ▸ List.mem_map_of_mem hp) (hj p hp)
+
+theorem names_eq {js : List (Attr × J)} (hjs : js.map (fun p => (p.1, p.2.e)) = fs) :
+    js.map Prod.fst = fs.map Prod.fst := by
+  subst hjs; simp [Function.comp_def]
+
+theorem reach_hasRec (hl : fs.length ≤ n) (hnd : (fs.map Prod.fst).Nodup)
+    (ih : ∀ p ∈ fs, ∀ {tx out}, typeOf p.2 c env = .ok (tx, out) →
+      ReachF (fam (G := SPMF) n) c ⟨p.2, tx, out⟩) :
+    typeOf (.hasAttr (.record fs) a) c env = .ok (tx, out) →
+    ReachF (fam (G := SPMF) (n + 1)) c ⟨.hasAttr (.record fs) a, tx, out⟩ := by
+  intro h
+  obtain ⟨-, tr, cr, h₁, -, -⟩ := Cedar.Thm.type_of_hasAttr_inversion h
+  obtain ⟨js, hjs, hj, hrec⟩ := record_inv h₁
+  have h' := h; rw [typeOf_hasAttr h₁] at h'
+  obtain ⟨b, hb⟩ := typeOfHasAttr_bool h'
+  have hm := ruleRecordHas_complete (fam n) (fs := js) (a := a)
+    (by rw [fam_fuel]; have := congrArg List.length hjs; simp at this; omega)
+    (names_eq hjs ▸ hnd) (fields_reach hjs hj ih)
+  rw [hrec] at hm
+  rw [ofR_ok (e := .hasAttr (.record fs) a) h'] at hm
+  refine reach_bool hb ?_
+  rw [fam_succ_bool]; step_bool
+  all_goals (nth_or 7; exact hm)
+
 /-- **Completeness**, for every capability set: every fragment expression `typeOf` accepts is
 generated, with exactly `typeOf`'s judgment, at its fuel. -/
 theorem reach (hs : Scope c e n) :
