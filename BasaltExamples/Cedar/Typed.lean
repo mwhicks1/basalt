@@ -251,7 +251,7 @@ theorem lub_valueTypes : ∀ t₂ ∈ valueTypes, ∀ t₃ ∈ valueTypes,
   all_goals first
     | (simp [Cedar.Thm.lub_refl]; done)
     | (simp [lub?, pType, rType, aType]; done)
-    | (simp [lub_ctx_addr, lub_addr_ctx, ctx_ne_addr, ctx_ne_addr.symm]; done)
+    | (simp [lub_ctx_addr, lub_addr_ctx, ctx_ne_addr, ctx_ne_addr.symm])
 
 /-- The schema's record types, canonicalized. -/
 theorem ctxTy_eq : ctxTy =
@@ -588,7 +588,7 @@ theorem reach (hf : Frag e) :
       exact ⟨0, by
         simp only [TypedExpr.typeOf, env, act]
         rw [candC, SPMF.mem_support_iff_may]; walk
-        all_goals simp [pType, rType, aType]⟩
+        all_goals simp⟩
   | @and a b hfa hfb iha ihb =>
     intro caps tx c h
     obtain ⟨tx₁, bty₁, c₁, h₁, hty₁, hrest⟩ := Cedar.Thm.type_of_and_inversion h

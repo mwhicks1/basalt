@@ -88,11 +88,11 @@ theorem genUID_complete (h : ValidUID uid) : uid ∈ (genUID (G := SPMF) uid.ty)
   · have hne : (uid.ty == actionT) = false := by
       simp only [List.mem_cons, List.not_mem_nil, or_false] at h
       rcases h with h | h | h | h <;> rw [h] <;> decide
-    rw [if_neg (by simp [hne])]
+    rw [ite_eq_right (by simp [hne])]
     walk [CedarTyped.genString.complete.obs]
     exact Or.inr ⟨uid.eid, rfl⟩
-  · rw [if_pos (by decide)]; walk; simp
-  · rw [if_pos (by decide)]; walk; simp
+  · rw [ite_eq_left (by decide)]; walk; simp
+  · rw [ite_eq_left (by decide)]; walk; simp
 
 /-- The literals `typeOf` accepts. -/
 def ValidPrim : Prim → Prop
@@ -319,7 +319,7 @@ theorem ruleAnd_ff (ha : some a ∈ (f.bool c).support) (hff : a.ty = .bool .ff)
   rw [SPMF.mem_support_iff_may, ruleAnd]
   walk [(supp_complete (f.bool c)).obs, (supp_complete f.any).obs]
   refine ⟨some a, ha, ?_⟩; dsimp only
-  rw [if_pos (by simp [hff])]
+  rw [ite_eq_left (by simp [hff])]
   exact ⟨b, hb, rfl⟩
 
 theorem ruleAnd_both (ha : some a ∈ (f.bool c).support) (hff : a.ty ≠ .bool .ff)
@@ -328,7 +328,7 @@ theorem ruleAnd_both (ha : some a ∈ (f.bool c).support) (hff : a.ty ≠ .bool 
   rw [SPMF.mem_support_iff_may, ruleAnd]
   walk [(supp_complete (f.bool c)).obs, (supp_complete (f.bool (c ∪ a.out))).obs]
   refine ⟨some a, ha, ?_⟩; dsimp only
-  rw [if_neg (by simpa using hff)]
+  rw [ite_eq_right (by simpa using hff)]
   exact ⟨some b, hb, rfl⟩
 
 theorem ruleOr_tt (ha : some a ∈ (f.bool c).support) (htt : a.ty = .bool .tt)
@@ -337,7 +337,7 @@ theorem ruleOr_tt (ha : some a ∈ (f.bool c).support) (htt : a.ty = .bool .tt)
   rw [SPMF.mem_support_iff_may, ruleOr]
   walk [(supp_complete (f.bool c)).obs, (supp_complete f.any).obs]
   refine ⟨some a, ha, ?_⟩; dsimp only
-  rw [if_pos (by simp [htt])]
+  rw [ite_eq_left (by simp [htt])]
   exact ⟨b, hb, rfl⟩
 
 theorem ruleOr_both (ha : some a ∈ (f.bool c).support) (htt : a.ty ≠ .bool .tt)
@@ -346,7 +346,7 @@ theorem ruleOr_both (ha : some a ∈ (f.bool c).support) (htt : a.ty ≠ .bool .
   rw [SPMF.mem_support_iff_may, ruleOr]
   walk [(supp_complete (f.bool c)).obs]
   refine ⟨some a, ha, ?_⟩; dsimp only
-  rw [if_neg (by simpa using htt)]
+  rw [ite_eq_right (by simpa using htt)]
   exact ⟨some b, hb, rfl⟩
 
 theorem ruleIte_tt (hg : some g ∈ (f.bool c).support) (htt : g.ty = .bool .tt)
@@ -356,7 +356,7 @@ theorem ruleIte_tt (hg : some g ∈ (f.bool c).support) (htt : g.ty = .bool .tt)
   walk [(supp_complete (f.bool c)).obs, (supp_complete f.any).obs,
     fun c' => (supp_complete (branch c')).obs]
   refine ⟨some g, hg, ?_⟩; dsimp only
-  rw [if_pos (by simp [htt])]
+  rw [ite_eq_left (by simp [htt])]
   exact ⟨some t, ht, e, he, rfl⟩
 
 theorem ruleIte_ff (hg : some g ∈ (f.bool c).support) (hff : g.ty = .bool .ff)
@@ -366,7 +366,7 @@ theorem ruleIte_ff (hg : some g ∈ (f.bool c).support) (hff : g.ty = .bool .ff)
   walk [(supp_complete (f.bool c)).obs, (supp_complete f.any).obs,
     fun c' => (supp_complete (branch c')).obs]
   refine ⟨some g, hg, ?_⟩; dsimp only
-  rw [if_neg (by simp [hff]), if_pos (by simp [hff])]
+  rw [ite_eq_right (by simp [hff]), ite_eq_left (by simp [hff])]
   exact ⟨some e, he, t, ht, rfl⟩
 
 theorem ruleIte_any (hg : some g ∈ (f.bool c).support) (htt : g.ty ≠ .bool .tt)
@@ -377,7 +377,7 @@ theorem ruleIte_any (hg : some g ∈ (f.bool c).support) (htt : g.ty ≠ .bool .
   walk [(supp_complete (f.bool c)).obs, (supp_complete f.any).obs,
     fun c' => (supp_complete (branch c')).obs]
   refine ⟨some g, hg, ?_⟩; dsimp only
-  rw [if_neg (by simpa using htt), if_neg (by simpa using hff)]
+  rw [ite_eq_right (by simpa using htt), ite_eq_right (by simpa using hff)]
   exact ⟨some t, ht, some e, he, rfl⟩
 
 theorem binary_complete (ha : some a ∈ (f.atTy c t₁).support) (hb : some b ∈ (f.atTy c t₂).support) :
@@ -539,7 +539,7 @@ theorem more_complete (field : CedarType → SPMF (Option J)) (pickTy : SPMF Ced
     walk [genAttr_complete.obs, (supp_complete pickTy).obs, fun t => (supp_complete (field t)).obs,
       fun nm m => (supp_complete (recordLit.more field pickTy nm m)).obs]
     refine Or.inr ⟨a, ?_⟩
-    rw [if_neg (hn (a, j) (by simp))]
+    rw [ite_eq_right (hn (a, j) (by simp))]
     exact ⟨ty, hty, some j, hj, some fs, ih, rfl⟩
 
 /-- `j` is reachable from `f` at its own type, under `c`: a boolean from `f.bool`, any other type a
@@ -754,8 +754,8 @@ theorem lub_value (h₂ : t₂ ∈ valueTypes) (h₃ : t₃ ∈ valueTypes) (h :
     rfl | rfl | rfl | rfl | rfl | rfl
   all_goals first
     | (rw [Cedar.Thm.lub_refl] at h; simp at h; exact ⟨h, h⟩)
-    | (simp [lub_ctx_addr, lub_addr_ctx] at h; done)
-    | (simp [lub?, userT, groupT, photoT, albumT, actionT] at h; done)
+    | (simp [lub_ctx_addr, lub_addr_ctx] at h)
+    | (simp [lub?, userT, groupT, photoT, albumT, actionT] at h)
 
 /-! ## The fragment -/
 
@@ -1148,7 +1148,7 @@ theorem getTag_inv (h : typeOfBinaryApp .getTag tx tt x t c env = .ok (r, c')) :
     ∃ ety, tx.typeOf = .entity ety ∧ tt.typeOf = .string ∧ env.ets.tags? ety = some (some .string) ∧
       (x, Key.tag t) ∈ c ∧ r.typeOf = .string := by
   unfold typeOfBinaryApp at h
-  split at h <;> (try contradiction) <;> try (simp [err] at h; done)
+  split at h <;> (try contradiction); try (simp at h; done)
   rename_i ety _ h₁ h₂
   simp only [typeOfGetTag] at h
   split at h
@@ -1174,8 +1174,7 @@ theorem chainOK_none : (l : List Attr) → l ≠ [] → ChainOK none l
   | [_], _ => trivial
   | _ :: b :: l, _ => chainOK_none (b :: l) (by simp)
 
-theorem hasAttr_ff (hb : tx.typeOf ∈ valueTypes)
-    (h : typeOfHasAttr tx x a c env = .ok (th, ci)) :
+theorem hasAttr_ff (h : typeOfHasAttr tx x a c env = .ok (th, ci)) :
     th.typeOf = .bool .ff ↔ attrTy tx.typeOf a = none := by
   unfold typeOfHasAttr at h
   split at h
@@ -1217,7 +1216,7 @@ theorem chainOK_of : (atts : List Attr) → (tx : TypedExpr) → (x : Spec.Expr)
     | error e => simp [hh, bind, Except.bind] at h
     | ok p =>
       obtain ⟨th, ci⟩ := p
-      have hff := hasAttr_ff hv hh
+      have hff := hasAttr_ff hh
       simp only [ChainOK]
       cases hq : attrTy tx.typeOf a with
       | none => exact chainOK_none _ (by simp)
@@ -1227,14 +1226,14 @@ theorem chainOK_of : (atts : List Attr) → (tx : TypedExpr) → (x : Spec.Expr)
         simp only [hh, bind, Except.bind] at h
         cases hg : typeOfGetAttr tx x a (c ∪ ci) env with
         | error e =>
-          simp only [hg] at h; (try split at h) <;> first | exact absurd ‹_› hnf | simp at h
+          simp only [hg] at h; first | exact absurd ‹_› hnf | simp at h
         | ok p =>
           obtain ⟨tn, cn⟩ := p
           obtain ⟨q', hq', hty, -⟩ := getAttr_ty hg
           rw [hq] at hq'; cases hq'
           cases hr : typeOfExtHasAttr tn (.getAttr x a) (b :: atts) (c ∪ ci) env with
           | error e =>
-            simp only [hg, hr] at h; (try split at h) <;> first | exact absurd ‹_› hnf | simp at h
+            simp only [hg, hr] at h; first | exact absurd ‹_› hnf | simp at h
           | ok p =>
             have hvn := attr_cases hv hq
             rw [← hty] at hvn ⊢
@@ -1434,9 +1433,9 @@ theorem reach_call (ih : ∀ x ∈ xs, ∀ {tx out}, typeOf x c env = .ok (tx, o
             exact fam_leaf (hre ▸ leaf_ext (xt := _) (by simp [ValidArg, hmk]))
           · simp [err] at hc
         · simp [err] at hc
-  all_goals split at hcall <;> (try contradiction) <;> (try (simp [err] at hcall; done))
+  all_goals split at hcall <;> (try contradiction)
   all_goals rename_i heq
-  all_goals simp only [ok, Function.comp, Except.ok.injEq, Prod.mk.injEq] at hcall
+  all_goals simp only [ok, Except.ok.injEq, Prod.mk.injEq] at hcall
   all_goals obtain ⟨rfl, rfl⟩ := hcall
   all_goals
     have hf := forall₂_of (f := fam (G := SPMF) n) (c := c) _ _ heq hr (by simp [valueTypes])
@@ -1533,7 +1532,7 @@ theorem reach_binary (hop : op ≠ .getTag)
     · rw [typeOfEq_nonlit hl] at h''
       split at h''
       · rename_i t hlub
-        simp only [ok, Function.comp, Except.ok.injEq, Prod.mk.injEq, TypedExpr.binaryApp.injEq,
+        simp only [ok, Except.ok.injEq, Prod.mk.injEq, TypedExpr.binaryApp.injEq,
           true_and] at h''
         obtain ⟨rfl, rfl⟩ := h''
         refine reach_bool rfl ?_
@@ -1552,7 +1551,7 @@ theorem reach_binary (hop : op ≠ .getTag)
                hre ▸ binary_complete (fam n) ma mb⟩)
       · split at h''
         · rename_i e₁ e₂ _ hta htb
-          simp only [ok, Function.comp, Except.ok.injEq, Prod.mk.injEq, TypedExpr.binaryApp.injEq,
+          simp only [ok, Except.ok.injEq, Prod.mk.injEq, TypedExpr.binaryApp.injEq,
             true_and] at h''
           obtain ⟨rfl, rfl⟩ := h''
           have va := ra.not_bool _ (by intro b hb; simp only [J.ty] at hb; rw [hta] at hb; cases hb)
@@ -1569,7 +1568,7 @@ theorem reach_binary (hop : op ≠ .getTag)
   case contains =>
     have h'' := h'
     unfold typeOfBinaryApp at h''
-    split at h'' <;> (try contradiction) <;> (try (simp [err] at h''; done))
+    split at h'' <;> (try contradiction)
     rename_i ty₃ _ hta
     have va := ra.not_bool _ (by intro b hb; simp only [J.ty] at hb; rw [hta] at hb; cases hb)
     have ma := va.2.2
@@ -1594,7 +1593,7 @@ theorem reach_binary (hop : op ≠ .getTag)
         all_goals (nth_or 19; exact ⟨_, h3, hm⟩)
   all_goals have h'' := h'
   all_goals unfold typeOfBinaryApp at h''
-  all_goals split at h'' <;> (try contradiction) <;> (try (simp [err] at h''; done))
+  all_goals split at h'' <;> (try contradiction)
   all_goals rename_i hta htb
   all_goals
     have va := ra.not_bool _ (by intro b hb; simp only [J.ty] at hb; rw [hta] at hb; cases hb)
