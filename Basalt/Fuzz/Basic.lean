@@ -53,15 +53,13 @@ def readByte (s : FuzzState) : UInt8 × FuzzState :=
   let b := if s.cursor < s.buffer.size then s.buffer.get! s.cursor else 0
   (b, { s with cursor := s.cursor + 1 })
 
+/-- Read `n` more bytes big-endian onto `acc`, advancing the cursor. -/
+def readNatFrom (acc : Nat) (s : FuzzState) : Nat → Nat × FuzzState
+  | 0 => (acc, s)
+  | n + 1 => let (b, s') := readByte s; readNatFrom (acc * 256 + b.toNat) s' n
+
 /-- Read `n` bytes big-endian as a `Nat`, advancing the cursor (zero-filling past end-of-buffer). -/
-def readNat (s : FuzzState) (n : Nat) : Nat × FuzzState := Id.run do
-  let mut acc := 0
-  let mut st := s
-  for _ in [0:n] do
-    let (b, st') := readByte st
-    acc := acc * 256 + b.toNat
-    st := st'
-  return (acc, st)
+def readNat (s : FuzzState) (n : Nat) : Nat × FuzzState := readNatFrom 0 s n
 
 /-- `choose` consumes `bytesFor (hi - lo + 1)` bytes and reduces them into `[lo, hi]`. Total. -/
 instance : RandomChoice FuzzGen where

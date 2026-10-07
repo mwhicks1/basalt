@@ -166,11 +166,28 @@ size_t LLVMFuzzerCustomMutator(uint8_t *Data, size_t Size, size_t MaxSize, unsig
    (`0` = never hit), where offset is from the executable base so `nm` can attribute it to a function.
    The first-hit index is what gives coverage as a function of tests run. The counters and the PC
    table are the linker-concatenated `__sancov_*` sections, in the same object order. */
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+extern uint8_t __start___sancov_cntrs[] __asm("section$start$__DATA$__sancov_cntrs");
+extern uint8_t __stop___sancov_cntrs[] __asm("section$end$__DATA$__sancov_cntrs");
+extern const uintptr_t __start___sancov_pcs[] __asm("section$start$__DATA$__sancov_pcs");
+extern const uintptr_t __stop___sancov_pcs[] __asm("section$end$__DATA$__sancov_pcs");
+/* `nm` prints Mach-O addresses unslid, so an offset is the PC less the image's ASLR slide. */
+static uintptr_t basalt_image_base(void) { return (uintptr_t)_dyld_get_image_vmaddr_slide(0); }
+#else
 extern uint8_t __start___sancov_cntrs[] __attribute__((weak));
 extern uint8_t __stop___sancov_cntrs[] __attribute__((weak));
 extern const uintptr_t __start___sancov_pcs[] __attribute__((weak));
 extern const uintptr_t __stop___sancov_pcs[] __attribute__((weak));
 extern const char __executable_start[] __attribute__((weak));
+static uintptr_t basalt_image_base(void) { return (uintptr_t)__executable_start; }
+#endif
+
+/* Whether this binary has any counters (the ELF symbols are weak, so absent ones are null). */
+static int basalt_have_counters(void) {
+  uintptr_t start = (uintptr_t)__start___sancov_cntrs, stop = (uintptr_t)__stop___sancov_cntrs;
+  return start != 0 && stop > start;
+}
 static uint32_t *g_cov_first;
 static size_t g_cov_n;
 static uint32_t g_cov_runs;
@@ -187,17 +204,179 @@ static void basalt_cov_dump(void) {
   FILE *f = fopen(path, "w");
   if (!f) return;
   for (size_t i = 0; i < g_cov_n; i++)
-    fprintf(f, "%lx %u\n", (unsigned long)(__start___sancov_pcs[2 * i] - (uintptr_t)__executable_start),
+    fprintf(f, "%lx %u\n", (unsigned long)(__start___sancov_pcs[2 * i] - basalt_image_base()),
             (unsigned)g_cov_first[i]);
   fclose(f);
 }
 
 static void basalt_cov_init(void) {
-  if (!getenv("BASALT_COV_OUT") || !__start___sancov_cntrs) return;
+  if (g_cov_first) return;                          /* `--warmup` already did, before the driver   */
+  if (!getenv("BASALT_COV_OUT") || !basalt_have_counters()) return;
   g_cov_n = (size_t)(__stop___sancov_cntrs - __start___sancov_cntrs);
   if ((size_t)(__stop___sancov_pcs - __start___sancov_pcs) != 2 * g_cov_n) return;
   g_cov_first = calloc(g_cov_n, sizeof *g_cov_first);
   if (g_cov_first) atexit(basalt_cov_dump);
+}
+
+
+/* ---------------------------------------------------------------------------------------------
+   Random warm-up (`--warmup`)
+
+   Before libFuzzer starts, `Basalt.Fuzz.warmup` runs the property at `RecordGen` and hands each
+   run's recorded buffer to `basalt_warmup_observe`, which judges it the way libFuzzer would — a run
+   is new if it hits an edge in a hit-count bucket no earlier run did — and if so keeps it, with its
+   features.
+   `basalt_warmup_write_seeds` then writes a set cover of the kept runs as libFuzzer's seed corpus.
+   --------------------------------------------------------------------------------------------- */
+
+/* libFuzzer's `CounterToFeature`: an 8-bit counter's hit-count bucket, 0..7. */
+static inline uint32_t basalt_bucket(uint8_t c) {
+  return c >= 128 ? 7 : c >= 32 ? 6 : c >= 16 ? 5 : c >= 8 ? 4 : c >= 4 ? 3 : c - 1;
+}
+
+typedef struct {
+  uint8_t  *buf;
+  size_t    size;
+  uint32_t *feats;           /* counter index * 8 + bucket, one per counter the run hit           */
+  size_t    nfeats;
+} basalt_seed;
+
+static struct {
+  size_t       n;            /* counters                                                          */
+  uint8_t     *seen;         /* per counter, a bit per bucket some run reached                    */
+  basalt_seed *seeds;
+  size_t       nseeds, cap;
+  uint32_t    *scratch;      /* the current run's features, `n` long                              */
+  uint64_t     runs;
+} g_warm;
+
+static int basalt_warmup_init(void) {
+  if (g_warm.seen) return 1;
+  if (!basalt_have_counters()) return 0;
+  g_warm.n = (size_t)(__stop___sancov_cntrs - __start___sancov_cntrs);
+  g_warm.seen = calloc(g_warm.n, 1);
+  g_warm.scratch = malloc(g_warm.n * sizeof *g_warm.scratch);
+  if (!g_warm.seen || !g_warm.scratch)
+    basalt_fuzz_die("out of memory for the warm-up's coverage map");
+  return 1;
+}
+
+/* Zero the counters, so the first observed run is judged on its own hits only. */
+LEAN_EXPORT lean_object *basalt_warmup_begin(void) {
+  if (!basalt_warmup_init())
+    basalt_fuzz_die("--warmup: no SanitizerCoverage counters in this binary");
+  basalt_cov_init();
+  memset(__start___sancov_cntrs, 0, g_warm.n);
+  return lean_box(0);
+}
+
+/* Called after each warm-up run with the bytes `RecordGen` recorded for it. Reads and then zeroes
+   the counters (libFuzzer is not running, so nothing else resets them); keeps a run that was new. */
+LEAN_EXPORT uint8_t basalt_warmup_observe(b_lean_obj_arg bytes) {
+  g_warm.runs++;
+  if (g_cov_first) basalt_cov_accumulate();
+  const uint8_t *c = __start___sancov_cntrs;
+  size_t nf = 0;
+  int fresh = 0;
+  for (size_t i = 0; i < g_warm.n; i++) {
+    /* Most counters are zero; skip them a word at a time. */
+    if ((i & 7) == 0 && i + 8 <= g_warm.n) {
+      uint64_t w;
+      memcpy(&w, c + i, 8);
+      if (!w) { i += 7; continue; }
+    }
+    if (!c[i]) continue;
+    uint32_t b = basalt_bucket(c[i]);
+    g_warm.scratch[nf++] = (uint32_t)(i * 8 + b);
+    if (!(g_warm.seen[i] & (1u << b))) { g_warm.seen[i] |= (uint8_t)(1u << b); fresh = 1; }
+  }
+  memset(__start___sancov_cntrs, 0, g_warm.n);
+  if (!fresh) return 0;
+  if (g_warm.nseeds == g_warm.cap) {
+    size_t cap = g_warm.cap ? 2 * g_warm.cap : 256;
+    basalt_seed *p = realloc(g_warm.seeds, cap * sizeof *p);
+    if (!p) basalt_fuzz_die("out of memory keeping warm-up seeds");
+    g_warm.seeds = p;
+    g_warm.cap = cap;
+  }
+  basalt_seed *sd = &g_warm.seeds[g_warm.nseeds++];
+  sd->size = lean_sarray_size(bytes);
+  sd->buf = malloc(sd->size ? sd->size : 1);
+  sd->feats = malloc((nf ? nf : 1) * sizeof *sd->feats);
+  if (!sd->buf || !sd->feats) basalt_fuzz_die("out of memory keeping warm-up seeds");
+  memcpy(sd->buf, lean_sarray_cptr(bytes), sd->size);
+  memcpy(sd->feats, g_warm.scratch, nf * sizeof *sd->feats);
+  sd->nfeats = nf;
+  return 1;
+}
+
+/* A max-heap of seed indices by (gain, then smaller input). */
+static size_t *g_heap, g_heap_n;
+static size_t *g_gain;
+static int basalt_heap_above(size_t a, size_t b) {
+  if (g_gain[a] != g_gain[b]) return g_gain[a] > g_gain[b];
+  return g_warm.seeds[a].size < g_warm.seeds[b].size;
+}
+static void basalt_heap_push(size_t x) {
+  size_t i = g_heap_n++;
+  g_heap[i] = x;
+  while (i && basalt_heap_above(g_heap[i], g_heap[(i - 1) / 2])) {
+    size_t p = (i - 1) / 2, t = g_heap[i];
+    g_heap[i] = g_heap[p]; g_heap[p] = t; i = p;
+  }
+}
+static size_t basalt_heap_pop(void) {
+  size_t top = g_heap[0];
+  g_heap[0] = g_heap[--g_heap_n];
+  size_t i = 0;
+  for (;;) {
+    size_t l = 2 * i + 1, r = l + 1, m = i;
+    if (l < g_heap_n && basalt_heap_above(g_heap[l], g_heap[m])) m = l;
+    if (r < g_heap_n && basalt_heap_above(g_heap[r], g_heap[m])) m = r;
+    if (m == i) break;
+    size_t t = g_heap[i]; g_heap[i] = g_heap[m]; g_heap[m] = t; i = m;
+  }
+  return top;
+}
+
+/* Write a greedy set cover of the kept runs' features into `dir`, one file per seed, and free them.
+   Lazy greedy: a seed's gain only falls as others are chosen, so a popped seed whose recomputed
+   gain still tops the heap is the greedy choice. Returns the number written; run once, at the
+   switch. */
+LEAN_EXPORT uint32_t basalt_warmup_write_seeds(b_lean_obj_arg dir) {
+  size_t n = g_warm.nseeds;
+  uint8_t *covered = calloc(g_warm.n ? g_warm.n : 1, 1);
+  g_heap = malloc((n ? n : 1) * sizeof *g_heap);
+  g_gain = malloc((n ? n : 1) * sizeof *g_gain);
+  if (!covered || !g_heap || !g_gain) basalt_fuzz_die("out of memory compressing warm-up seeds");
+  g_heap_n = 0;
+  for (size_t i = 0; i < n; i++) { g_gain[i] = g_warm.seeds[i].nfeats; basalt_heap_push(i); }
+  uint32_t written = 0;
+  char path[4096];
+  while (g_heap_n) {
+    size_t i = basalt_heap_pop();
+    basalt_seed *sd = &g_warm.seeds[i];
+    size_t gain = 0;
+    for (size_t j = 0; j < sd->nfeats; j++)
+      if (!(covered[sd->feats[j] >> 3] & (1u << (sd->feats[j] & 7)))) gain++;
+    if (!gain) continue;
+    g_gain[i] = gain;
+    if (g_heap_n && basalt_heap_above(g_heap[0], i)) { basalt_heap_push(i); continue; }
+    for (size_t j = 0; j < sd->nfeats; j++)
+      covered[sd->feats[j] >> 3] |= (uint8_t)(1u << (sd->feats[j] & 7));
+    snprintf(path, sizeof path, "%s/warmup-%06u", lean_string_cstr(dir), written);
+    FILE *f = fopen(path, "wb");
+    if (!f) basalt_fuzz_die("--warmup: cannot write a seed into the corpus directory");
+    if (sd->size) fwrite(sd->buf, 1, sd->size, f);
+    fclose(f);
+    written++;
+  }
+  fprintf(stderr, "[basalt] warm-up: %llu runs, %zu new, %u seeds after set cover\n",
+          (unsigned long long)g_warm.runs, n, written);
+  for (size_t i = 0; i < n; i++) { free(g_warm.seeds[i].buf); free(g_warm.seeds[i].feats); }
+  free(g_warm.seeds); g_warm.seeds = NULL; g_warm.nseeds = g_warm.cap = 0;
+  free(covered); free(g_heap); free(g_gain); g_heap = NULL; g_gain = NULL;
+  return written;
 }
 
 /* Libfuzzer harness -- called by libFuzzer loop during testing.

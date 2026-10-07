@@ -148,7 +148,11 @@ Examples and tests elaborate their proofs and `#guard_msgs` pins during `lake bu
   reasoning alone cost two of the three length benchmarks 1.5x and 2.7x of their success rate. The
   default build type-checks these modules but emits no C, so a change to the *native* half (bridge,
   runtime detection, link) is caught only by `fuzz-run/build.sh` and the `basalt-fuzz` CI workflow; a
-  drift from the proved `genBST` is caught by `BasaltTest/Fuzz.lean`. Anything added to the
+  drift from the proved `genBST` is caught by `BasaltTest/Fuzz.lean`. `--warmup` (random generation
+  first, then mutation from what it covered) rests on `RecordGen`
+  ([Basalt/Fuzz/Record.lean](Basalt/Fuzz/Record.lean)), whose per-draw decode contract is
+  `readNat_recordDraw` there and whose whole-run agreement with `FuzzGen` is pinned by
+  `BasaltTest/Fuzz.lean`. Anything added to the
   Mathlib-free link closure must stay Mathlib-free: import the narrowest module, not an umbrella.
 
 - **Cedar** — generators for the real Cedar language's typing judgment (`BasaltFuzz/Cedar/`), their

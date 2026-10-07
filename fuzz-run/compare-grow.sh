@@ -3,8 +3,13 @@
 # Released under MIT license as described in the file LICENSE.
 # Authors: Michael Hicks
 
-# Compare the fuzz backend with and without `--grow`. Reproduces the tables in fuzz-run/README.md
-# ("How much growth helps").
+# Compare two or more settings of the fuzz backend against each other, at one length regime.
+# Reproduces the tables in fuzz-run/README.md ("How much growth helps" and "What the warm-up costs").
+#
+# SETTINGS is the list of flag sets to compare, space-separated, `off` meaning no extra flag:
+#
+#   fuzz-run/compare-grow.sh                                    # off vs --grow (the default)
+#   SETTINGS="off --warmup=300 --warmup=1000" fuzz-run/compare-grow.sh long-16
 #
 # This is the intra-backend counterpart of compare-backends.sh, which compares fuzz against the
 # random backends. Only a property whose generator *outruns its buffer* can separate the two settings
@@ -28,6 +33,7 @@ cd "$(dirname "$0")/.."
 MODE="${MODE:-rate}"
 PROPS=("$@")
 [ ${#PROPS[@]} -gt 0 ] || PROPS=(long-16 long-32 long-64)
+read -r -a SETTINGS <<<"${SETTINGS:-off --grow}"
 
 [ -x fuzz-run/basalt-fuzz ] || { echo "build first: fuzz-run/build.sh" >&2; exit 1; }
 
@@ -64,23 +70,26 @@ budget_for() {
     long-16) echo 3000 ;;
     long-32) echo 30000 ;;
     long-64) echo 120000 ;;
+    chain-2) echo 500 ;;
+    chain-3) echo 1000 ;;
+    chain-4) echo 1200 ;;
     *) echo "no budget known for '$1'; pass BUDGET=N" >&2; exit 1 ;;
   esac
 }
 
 run_rate() {
   local trials="${TRIALS:-300}"
-  printf '%-10s %-8s %9s %14s\n' property setting budget "found (±1 SE)"
-  printf '%.0s-' {1..45}; echo
+  printf '%-10s %-14s %9s %14s\n' property setting budget "found (±1 SE)"
+  printf '%.0s-' {1..51}; echo
   for p in "${PROPS[@]}"; do
     local budget; budget=$(budget_for "$p")
-    for setting in "off" "--grow"; do
+    for setting in "${SETTINGS[@]}"; do
       local hits=0 flags=()
-      if [ "$setting" = "--grow" ]; then flags=(--grow); fi
+      if [ "$setting" != "off" ]; then flags=("$setting"); fi
       for _ in $(seq "$trials"); do
         found_within "$p" "$budget" "${flags[@]+"${flags[@]}"}" && hits=$((hits+1))
       done
-      printf '%-10s %-8s %9s %14s\n' "$p" "$setting" "$budget" \
+      printf '%-10s %-14s %9s %14s\n' "$p" "$setting" "$budget" \
         "$(python3 -c "
 h,n=$hits,$trials; p=h/n
 print(f'{h}/{n} {p*100:.1f}% ±{(p*(1-p)/n)**.5*100:.1f}')")"
@@ -119,17 +128,17 @@ print(f"{m:,.0f}" if m>=100 else f"{m:.2f}")' "$@"; }
 # 15/15. Read the whole table knowing that a repeat of it may reverse the ordering.
 run_median() {
   local trials="${TRIALS:-61}"
-  printf '%-10s %-10s %14s %10s %8s\n' property setting "median runs" "median s" "found"
-  printf '%.0s-' {1..56}; echo
+  printf '%-10s %-14s %14s %10s %8s\n' property setting "median runs" "median s" "found"
+  printf '%.0s-' {1..60}; echo
   for p in "${PROPS[@]}"; do
-    for setting in "off" "--grow"; do
+    for setting in "${SETTINGS[@]}"; do
       local rs=() ss=() found=0 flags=()
-      if [ "$setting" = "--grow" ]; then flags=(--grow); fi
+      if [ "$setting" != "off" ]; then flags=("$setting"); fi
       for _ in $(seq "$trials"); do
         read -r r s <<<"$(trial "$p" "${flags[@]+"${flags[@]}"}")"
         rs+=("$r"); ss+=("$s"); [ "$r" != "-" ] && found=$((found+1))
       done
-      printf '%-10s %-10s %14s %10s %5s/%s\n' \
+      printf '%-10s %-14s %14s %10s %5s/%s\n' \
         "$p" "$setting" "$(median "${rs[@]}")" "$(median "${ss[@]}")" "$found" "$trials"
     done
   done

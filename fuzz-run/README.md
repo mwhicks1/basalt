@@ -180,6 +180,7 @@ seconds, once). Instrumentation itself needs nothing extra.
 ```bash
 fuzz-run/basalt-fuzz [--backend=fuzz|io|plausible] <property> [-runs=N] [-discard_ratio=N] [libFuzzer args...]
 fuzz-run/basalt-fuzz <property> [--grow]           # fuzz backend only, see below
+fuzz-run/basalt-fuzz <property> --warmup=N [--warmup-stall=K]   # random first, then fuzz; see below
 fuzz-run/basalt-fuzz replay <property> <file>      # reproduce a saved input, no fuzzer
 ```
 
@@ -204,9 +205,10 @@ corpus. The random backends read `-runs=N` from the same spelling, plus `-discar
 discard budget (`Basalt/PBT/Driver.lean`), and ignore the rest — under `fuzz`, libFuzzer owns the
 loop, so a discarded input is a `-1` return and neither budget applies.
 
-`--grow` is Basalt's own and is consumed before libFuzzer sees the command line; everything else is
-forwarded verbatim, and libFuzzer rejects a flag it does not know. It is off by default and measurement
-does not support turning it on ([Extending the buffer](#extending-the-buffer)).
+`--grow` and `--warmup` are Basalt's own and are consumed before libFuzzer sees the command line;
+everything else is forwarded verbatim, and libFuzzer rejects a flag it does not know. `--grow` is off
+by default and measurement does not support turning it on ([Extending the buffer](#extending-the-buffer));
+`--warmup` is described in [Random warm-up](#random-warm-up).
 
 ## Backends
 
@@ -399,8 +401,86 @@ the identical campaign either way. `--grow` therefore costs nothing to leave on 
 never runs short, and the `starved` count in the run report is how you tell which case you are in.
 
 None of this proves the idea cannot work, and the setting is kept so it can be re-measured: run
-`fuzz-run/compare-grow.sh` in both modes after any change to the mechanism, and read a median table
+`fuzz-run/compare-grow.sh` (whose `SETTINGS` defaults to this comparison) in both modes after any
+change to the mechanism, and read a median table
 only against the reversal above.
+
+## Random warm-up
+
+Random generation and coverage-guided mutation win at different budgets: random covers more early,
+the fuzzer overtakes it late (CEDAR.md). `--warmup=N` runs both, in that order: up to `N` random tests,
+then libFuzzer seeded with the ones that reached new coverage. `--warmup-stall=K` ends the random phase
+sooner, once `K` tests in a row have found nothing new. The warm-up's tests come out of the `-runs`
+budget, so a campaign is the same length either way.
+
+Its measured gain in *coverage* is on Cedar, where that crossover was found: +50 ± 8 edges at 1M tests
+over the best non-hybrid arm, a larger and better-separated margin than coverage guidance itself buys
+there (CEDAR.md). What it costs a campaign hunting a bug is
+[below](#what-the-warm-up-costs).
+
+**A random run has to become a corpus entry.** `RecordGen` (`Basalt/Fuzz/Record.lean`) makes each
+choice from SplitMix, uniformly as `IO` does, and records bytes that `FuzzGen`'s `choose` decodes to that
+choice: for a value `d` of a range of `r` outcomes it writes `d + r·k` for a random `k` that fits the
+`bytesFor r` bytes `choose` will read, since `FuzzGen` reduces modulo `r`. Two simpler encodings fail.
+Random bytes decoded by `FuzzGen` have the wrong distribution — modulo reduction makes `0..55` twice as
+likely as `56..199` from one byte — and the wrong length: too short and the run reads zeros past the
+end, too long and the corpus keeps a tail no draw reads. A recorded buffer is exactly as long as its run
+read. `readNat_recordDraw` proves the decoding per draw; that a whole run replays is a free theorem
+of the generator's polymorphism, which `BasaltTest/Fuzz.lean` pins instead.
+
+**The novelty test is libFuzzer's, reimplemented.** libFuzzer's own (`TracePC::CollectFeatures`,
+`InputCorpus::AddFeature`) is internal C++ with no stable entry, and its loop is not running yet. It is
+small: a feature is an edge together with the bucket of its 8-bit counter (1, 2, 3, 4–7, 8–15, 16–31,
+32–127, 128+), and a run is new if it reaches a feature no earlier run did. `basalt_warmup_observe` in
+`native.c` applies exactly that to the SanitizerCoverage counters after each run, then zeroes them, since
+nothing else does while libFuzzer is not running.
+
+**The kept runs are compressed before libFuzzer sees them.** Admission one run at a time cannot drop a
+seed that a later one subsumes: if `A` and `B` cover disjoint features and `C` later covers both, `C` is
+not new and is never kept, so `A` and `B` both stay. At the switch the warm-up therefore solves set cover
+over every kept run's features (greedy, lazily evaluated) and writes only the cover, into the first
+corpus directory on the command line — libFuzzer's output corpus — or a fresh temporary one. libFuzzer
+then runs each seed once at startup, which rebuilds its own coverage map, and continues as usual. On
+`gen-traced` the cover keeps about half of what the warm-up kept (853 of 1,690 at 100,000 tests).
+
+Three consequences. A counterexample found during the warm-up is written as `crash-warmup-<n>` under
+`-artifact_prefix` and replays like any other artifact, because it *is* a `FuzzGen` buffer.
+`-max_len` defaults to 65536 and the `-len_control` ramp stays off, as with `--grow`: a seed is as
+long as its run needed, and the ramp would hold its mutations to that length for most of the campaign
+(`fuzz-noramp`, the best-measured setting in CEDAR.md, is the same choice). And novelty during the
+warm-up is judged on the code that runs then, which includes the generator's `RecordGen` specialization
+rather than its `FuzzGen` one; libFuzzer judges the seeds again, on its own, when it loads them.
+
+The switch is one-way. Switching back would not need a second process: a callback that runs
+`RecordGen`, returns `-1` (so libFuzzer neither keeps the input nor records its features), and writes a
+new run into the output corpus would have it adopted at libFuzzer's next `-reload`, with libFuzzer's
+coverage map intact throughout.
+
+### What the warm-up costs
+
+Nothing measurable at a tenth of the budget, and it is the budget — not the seeds — that is the thing
+to get right. `MODE=rate SETTINGS="off --warmup=N" fuzz-run/compare-grow.sh` measures the same
+success-rate-at-a-fixed-budget as the growth table below; 300 trials per cell, macOS arm64 (M-series),
+`-len_control=0 -max_len=65536` for both:
+
+| property | budget | warm-up | off | with the warm-up |
+|---|---|---|---|---|
+| `long-16` | 3,000 runs | 300 | 20.0% ±2.3 | **25.3%** ±2.5 |
+| `chain-3` | 1,000 runs | 100 | 44.3% ±2.9 | **58.3%** ±2.8 |
+
+`chain-3` is the surprise and the reason this table is here. Its bug sits behind three nested guards,
+which is exactly what a blind sampler cannot reach — `random` needs about 6M runs for it
+([How fast each backend finds a bug](#how-fast-each-backend-finds-a-bug)) — so a warm-up spends 10% of
+the budget on a search that will not find the bug, and the campaign still finds it *more* often
+(+14.0 points, z = 3.5). What it buys is not progress toward the bug but a varied starting corpus:
+without it libFuzzer begins from one empty input, and the inputs it mutates for its first hundred runs
+are all descendants of that. `long-16` moves the same way and is not decisive on its own (+5.3,
+z = 1.6).
+
+**The cost is whatever share of `-runs` the warm-up takes, and that share is the one thing to size.**
+It is subtracted from the budget, so `--warmup=1000` under `-runs=1000` leaves the fuzzer nothing:
+`chain-3` scores 0/100 there against 45/100 with no warm-up. A tenth is what both rows above and the
+Cedar arms (10,000 or 100,000 of 1,000,000, CEDAR.md) use.
 
 ## What a run looks like
 
@@ -551,6 +631,12 @@ it.
   queue entry, and JQF/Zest grows the input mid-run and saves the grown form, both because they own the
   scheduling loop. Inside libFuzzer the way out is not a better mutator but a different encoding: a
   self-delimiting choice sequence, where "ran out of bytes" is not a state that exists.
+- **The warm-up switches once, and its seeds are judged on the wrong specialization.** Switching back
+  is sketched in [Random warm-up](#random-warm-up) and not built; and a warm-up run's novelty is judged
+  on the code that ran, which is the generator's `RecordGen` specialization, so the counters it sets are
+  not the ones the same input sets under `FuzzGen`. libFuzzer re-judges the seeds when it loads them,
+  which bounds the cost to a warm-up keeping seeds a `FuzzGen` run would not have — never to losing one
+  it would.
 - **`bytesFor` is computed per `choose` call, at runtime.** Determining it statically would be
   nicer. Reading a fixed word instead is *not* the fix: with a whole word per choice, many word
   values map to the same value (2²⁴ words per outcome over `chooseNat 0 255`), so most mutations of

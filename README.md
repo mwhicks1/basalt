@@ -26,6 +26,7 @@ def myGen [Gen G] : G α := ...
 | `SPMF.Cost` | the same, plus a count of random choices |
 | `GenStats.StatGen` | seeded, fuel-guarded execution that counts choices (drives `#genstats`) |
 | `Fuzz.FuzzGen` | choices read from a byte buffer, so a coverage-guided fuzzer drives generation |
+| `Fuzz.RecordGen` | random choices as `IO`'s, recording the byte buffer that replays them at `FuzzGen` |
 
 `RandomChoice.choose` is the only source of randomness; every combinator (`elements`, `oneOf`,
 `frequency`, `listOf`, …) is built on it. Recursive generators are defined by
@@ -140,7 +141,9 @@ interpretations — `--backend=io` or `--backend=plausible` instead of the defau
 `fuzz` — from one shared property registry. Which backend finds a bug faster is a property of the
 bug: blind random sampling wins on shallow bugs (fewer runs, ~2–5× the throughput), while a bug
 behind several nested guards is reachable only by coverage guidance. `fuzz-run/compare-backends.sh` measures it and
-`fuzz-run/README.md` records the numbers.
+`fuzz-run/README.md` records the numbers. `--warmup=N` runs both in one campaign — `N` random tests,
+then coverage-guided mutation seeded with the ones that found new coverage — which covers more than
+either alone on the Cedar benchmark (`CEDAR.md`).
 
 ## Repository layout
 
