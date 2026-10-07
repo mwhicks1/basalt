@@ -14,6 +14,8 @@
 #   fuzz         coverage-guided `FuzzGen`, libFuzzer's defaults (its input-length ramp on)
 #   fuzz-noramp  coverage-guided, `-max_len=65536 -len_control=0` (the best-measured setting)
 #   fuzz-grow    coverage-guided with Basalt's `--grow`
+#   warm-<N>     a random warm-up of N tests (`--warmup=N`, e.g. `warm-10000`), then coverage-guided
+#                from its seeds, `-max_len=65536 -len_control=0` like `fuzz-noramp`
 #
 # Every arm runs the same binary, so instrumentation and counters are identical and only the source of
 # the choices differs. The binary is copied under a name without `basalt-fuzz` in it, so that another
@@ -25,7 +27,7 @@ PROP=${PROP:-gen-traced}
 RUNS=${RUNS:-1000000}
 TRIALS=${TRIALS:-2}
 ARMS=${ARMS:-random fuzz fuzz-noramp}
-JOBS=${JOBS:-$(nproc)}
+JOBS=${JOBS:-$(nproc 2>/dev/null || sysctl -n hw.ncpu)}
 OUT=${OUT:-/tmp/cedar-exp-$PROP}
 
 [ -n "${NOBUILD:-}" ] || fuzz-run/build.sh >/dev/null
@@ -47,6 +49,7 @@ run_one() {
     fuzz)        be=fuzz; flags=() ;;
     fuzz-noramp) be=fuzz; flags=(-max_len=65536 -len_control=0) ;;
     fuzz-grow)   be=fuzz; flags=(--grow) ;;
+    warm-*)      be=fuzz; flags=(--warmup="${arm#warm-}" -max_len=65536 -len_control=0) ;;
     *) echo "unknown arm $arm" >&2; return 1 ;;
   esac
   BASALT_COV_OUT="$OUT/$arm/$be.$t.cov" "$BIN" --backend="$be" "$PROP" -runs="$RUNS" \

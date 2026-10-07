@@ -67,11 +67,13 @@ share the binary and its instrumentation and differ only in the source of choice
 | `fuzz` | libFuzzer's mutated bytes (`FuzzGen`), default settings |
 | `fuzz-noramp` | the same, with `-max_len=65536 -len_control=0` |
 | `fuzz-grow` | the same, with Basalt's `--grow` |
+| `warm-<N>` | a random warm-up of `N` tests, then mutation from its seeds (`--warmup=N`, `fuzz-run/README.md`), otherwise `fuzz-noramp`'s settings |
 
 Coverage is counted per edge by `Basalt/Fuzz/native.c` (`BASALT_COV_OUT`: the first test to hit each
 SanitizerCoverage edge), restricted to Cedar's own code by symbol (`lp_Cedar_*`), and excluding
 Cedar's printing code, which the traced properties' input hashing runs. Distinct inputs come from the
-`BASALT_H` hash each traced property prints per test.
+`BASALT_H` hash each traced property prints per test. `fuzz-run/edge-sets.py` compares the arms' edge
+*sets* from the same dumps, which is how a hybrid arm is checked against the union of the others.
 
 ### Properties (`BasaltFuzzMain.lean`)
 
@@ -104,6 +106,32 @@ test is comparable across arms (both run in the same libFuzzer loop).
 Random covers more until past 100k tests; fuzz passes it by 1M, from 37% fewer distinct expressions:
 each input it keeps was chosen for new coverage. The margin is ~60 edges (<1%). Reproduce with
 `fuzz-run/cedar-experiment.sh`.
+
+### Random first, then mutation, beats either (`--warmup`)
+
+The crossover above is the argument for running both in one campaign: random for the early budget,
+mutation from what it found for the rest (`--warmup=N`, `fuzz-run/README.md`). 6 trials × 1M tests per
+arm, `gen-traced`, macOS arm64 (M-series), every trial of every arm run concurrently from one binary:
+
+| arm | edges, per trial | mean ± SE | distinct exprs |
+|---|---|---|---|
+| `random` | 6988, 7023, 7009, 6997, 6957, 7014 | 6,998 ± 10 | 731,696 |
+| `fuzz-noramp` | 7056, 7004, 7016, 7039, 7033, 7025 | 7,029 ± 7 | 485,109 |
+| `warm-100000` | 7100, 7078, 7049, 7068, 7105, 7076 | **7,079 ± 8** | 507,607 |
+
+**The warm-up's margin is larger than the one it is built on and, unlike it, is decisive at this trial
+count**: `warm-100000` is +50 ± 8 edges over `fuzz-noramp` (t = 6.5) and +81 ± 17 over `random`
+(t = 4.9), where `fuzz-noramp` over `random` is +31 ± 15 (t = 2.0), a margin two of the six trials
+reverse. `wide-traced` agrees at 3 trials (random 6,465; `fuzz-noramp` 6,516; `warm-10000` 6,550;
+`warm-100000` 6,560), and on `gen-traced` at 3 trials a 10,000-test warm-up already gets most of it
+(7,084 against 7,110 for 100,000). The early budget is random's unchanged: `warm-100000`'s curve *is*
+`random`'s until 100,000 tests, by construction, so the hybrid gives up nothing to buy this.
+
+**It is not a strict superset.** Pooling 6 trials per arm, the warm-up's union reaches 18 edges no
+baseline trial did and misses 30 that the baselines' union reached — the gap being mutation time spent
+elsewhere, not a blind spot: the misses concentrate in `parseSegsV4` and `lubRecordType`, which a
+single lucky draw reaches. What the hybrid wins reliably is the *per-trial* count, which is what a
+campaign gets.
 
 - **Draw order matters to `FuzzGen`.** Its draw order is byte order, so a property must generate the
   thing under test first. With the request and entity store drawn before the expression, their bytes

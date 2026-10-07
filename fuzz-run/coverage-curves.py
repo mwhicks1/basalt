@@ -36,7 +36,7 @@ def symbols(d):
     if d not in sym_cache:
         addrs, names = [], []
         for line in open(f"{d}/syms.txt"):
-            a, n = line.split(); addrs.append(int(a, 16)); names.append(n)
+            a, n = line.split(); addrs.append(int(a, 16)); names.append(n.removeprefix("_") if n.startswith("_lp_") or n.startswith("__init_") else n)
         sym_cache[d] = (addrs, names)
     return sym_cache[d]
 
