@@ -54,63 +54,64 @@ def runOneIO (counters : IO.Ref (Nat × Nat)) (T : PropM FuzzGen Unit)
         ("buffer", s!"{bytes.size} bytes, {r.deficit} short")]
     pure 1
 
-/-- Zero the coverage counters before the first warm-up run. -/
-@[extern "basalt_warmup_begin"]
-opaque warmupBeginImpl : BaseIO Unit
+/-- Hand the C bridge the bytes a `RecordGen` run recorded, to keep if the run reached new coverage. -/
+@[extern "basalt_hybrid_offer"]
+opaque hybridOfferImpl (bytes : ByteArray) : BaseIO Unit
 
-/-- Judge one warm-up run by the coverage it left in the counters, as libFuzzer would, and keep its
-recorded `bytes` as a candidate seed if it reached something no earlier run did. -/
-@[extern "basalt_warmup_observe"]
-opaque warmupObserveImpl (bytes : @& ByteArray) : BaseIO Bool
+/-- How a hybrid campaign moves between random and coverage-guided phases (`fuzz-run/README.md`,
+"Random warm-up"). The first phase is random and lasts at most `firstMax` tests (`0`: no cap); it
+ends earlier on the leveling-off rule if `adaptive`, and with `switchBack` every later phase ends on
+it too. `minWindow`, `level`, and `confidence` are the rule's `K`, `φ`, and `c`. -/
+structure HybridConfig where
+  firstMax : Nat := 0
+  minWindow : Nat := 0
+  level : Float := 1
+  confidence : Float := 10
+  adaptive : Bool := false
+  switchBack : Bool := false
 
-/-- Write a set cover of the kept runs into `dir` as libFuzzer seeds; returns how many. -/
-@[extern "basalt_warmup_write_seeds"]
-opaque warmupWriteSeedsImpl (dir : @& String) : BaseIO UInt32
+/-- Arm a hybrid campaign in the C bridge, with `runRandom` as the random phases' callback and
+`budget` the `-runs` bound (`0`: none). -/
+@[extern "basalt_hybrid_config"]
+opaque hybridConfigImpl (runRandom : ByteArray → IO UInt8) (firstMax minWindow : UInt64)
+    (level confidence : Float) (budget : UInt64) (adaptive switchBack : Bool) : IO Unit
 
-/-- How a random warm-up ends: after `runs` tests, or sooner once `stall` tests in a row (if
-nonzero) have found nothing new. -/
-structure WarmupConfig where
-  runs : Nat
-  stall : Nat := 0
-
-/-- Run `T` at `RecordGen` under `cfg`, keeping each run that reached new coverage; returns how many
-tests ran. A failure is reported like any other, its recorded bytes are saved under
-`artifactPrefix` — a `FuzzGen` input, so `replay` reproduces it — and the process exits. -/
-def warmup (T : PropM RecordGen Unit) (cfg : WarmupConfig) (artifactPrefix : String) : IO Nat := do
-  warmupBeginImpl
-  let mut g ← SplitMix.newIO
-  let mut ran := 0
-  let mut discards := 0
-  let mut sinceNew := 0
-  while ran < cfg.runs && (cfg.stall == 0 || sinceNew < cfg.stall) do
-    let (outcome, bytes, g') := runRecord T g
-    g := g'
-    ran := ran + 1
-    sinceNew := if (← warmupObserveImpl bytes) then 0 else sinceNew + 1
-    match outcome with
-    | Except.ok () => pure ()
-    | Except.error .discard => discards := discards + 1
-    | Except.error (.fail msg) =>
-      let path := s!"{artifactPrefix}crash-warmup-{ran}"
-      IO.FS.writeBinFile path bytes
-      reportFailure msg
-        #[("input bytes", s!"{bytes.toList.map (fun b => b.toNat)}"),
-          ("runs", s!"{ran - discards} ({discards} discarded), in the random warm-up"),
-          ("artifact", path)]
-      IO.Process.exit failureExitCode
-  return ran
+/-- One random test, for a random phase: libFuzzer's buffer is ignored, the run is drawn at
+`RecordGen` from `gen`, and its recorded bytes go to the bridge. A failure is reported here, its
+bytes saved under `artifactPrefix` — a `FuzzGen` input, so `replay` reproduces it — and the bridge
+exits on the `1` it returns, without letting libFuzzer save the buffer, which is not this run's
+input. -/
+def runOneRecorded (counters : IO.Ref (Nat × Nat)) (T : PropM RecordGen Unit)
+    (gen : IO.Ref SplitMix) (artifactPrefix : String) (_ : ByteArray) : IO UInt8 := do
+  let (outcome, bytes, g') := runRecord T (← gen.get)
+  gen.set g'
+  hybridOfferImpl bytes
+  match outcome with
+  | Except.ok () => counters.modify (fun (runs, discards) => (runs + 1, discards)); pure 0
+  | Except.error .discard => counters.modify (fun (r, d) => (r, d + 1)); pure 2
+  | Except.error (.fail msg) =>
+    counters.modify (fun (runs, discards) => (runs + 1, discards))
+    let (runs, discards) ← counters.get
+    let path := s!"{artifactPrefix}crash-random-{runs + discards}"
+    IO.FS.writeBinFile path bytes
+    reportFailure msg
+      #[("input bytes", s!"{bytes.toList.map (fun b => b.toNat)}"),
+        ("runs", s!"{runs} ({discards} discarded), failing in a random phase"),
+        ("artifact", path)]
+    pure 1
 
 /-- Start a fuzzing campaign for property `T`. `argv` is forwarded to libFuzzer (corpus dirs,
 `-runs`, `-max_len`, `-artifact_prefix`, …). A failure aborts the process, with the artifact saved and
 the exit code set by libFuzzer. -/
-def go (T : PropM FuzzGen Unit) (argv : Array String := #[]) (grow : Bool := false) : IO Unit := do
+def go (T : PropM FuzzGen Unit) (argv : Array String := #[]) (grow : Bool := false)
+    (counters? : Option (IO.Ref (Nat × Nat)) := none) : IO Unit := do
   IO.println s!"[basalt] starting libFuzzer campaign (grow={grow}, {argv.toList})"
   -- libFuzzer announces that the linked custom mutator disables `-len_control` on every campaign,
   -- `--grow` or not; an explicit flag wins over that default (`splitFlags`), so say so.
   if let some lc := argv.find? (·.startsWith "-len_control=") then
     IO.println s!"[basalt] {lc} is explicit and overrides libFuzzer's \
       \"Disabling -len_control by default\""
-  let counters ← IO.mkRef (0, 0)
+  let counters ← match counters? with | some c => pure c | none => IO.mkRef (0, 0)
   -- Report nothing after `goImpl`: libFuzzer `exit()`s when `-runs` is exhausted, so a line placed
   -- there silently never appears (the tally lives in `runOneIO`, the statistics in an `atexit`).
   goImpl (fun bytes => runOneIO counters T bytes) argv grow
@@ -153,59 +154,94 @@ def replay (T : PropM FuzzGen Unit) (path : String) : IO Unit := do
   | Except.error (.fail msg) => reportFailure msg
 
 /-- Basalt's own fuzz flags, split out of `argv`: libFuzzer rejects a flag it does not recognize, so
-what we consume must not be forwarded. -/
+what we consume must not be forwarded. `bad` collects the ones given malformed. -/
 structure FuzzFlags where
   grow : Bool := false
-  warmup : Option WarmupConfig := none
+  hybrid : Option HybridConfig := none
+  bad : Array String := #[]
 
-private def natArg? (a pre : String) : Option Nat :=
-  if a.startsWith pre then (a.drop pre.length).toString.toNat? else none
+/-- A decimal such as `0.5` or `10`. -/
+private def decimal? (s : String) : Option Float :=
+  match s.splitOn "." with
+  | [i] => i.toNat?.map Nat.toFloat
+  | [i, f] => do
+    let i ← (if i.isEmpty then some 0 else i.toNat?)
+    let fn ← f.toNat?
+    pure (i.toFloat + fn.toFloat / (10 ^ f.length).toFloat)
+  | _ => none
+
+/-- Basalt's flags, each `--name` or `--name=value`. -/
+private def ours : List String :=
+  ["--grow", "--warmup", "--warmup-stall", "--switch-back", "--level", "--confidence"]
+
+private def isOurs (a : String) : Bool :=
+  ours.any fun f => a == f || a.startsWith (f ++ "=")
+
+/-- The value of `--name=V`, if given. -/
+private def valueOf? (argv : Array String) (name : String) : Option String :=
+  argv.findSome? fun a =>
+    if a.startsWith (name ++ "=") then some (a.drop (name.length + 1)).toString else none
 
 def splitFlags (argv : Array String) : FuzzFlags × Array String :=
   let grow := argv.contains "--grow"
-  let warmRuns := argv.findSome? (natArg? · "--warmup=")
-  let stall := (argv.findSome? (natArg? · "--warmup-stall=")).getD 0
-  let rest := argv.filter (fun a => a != "--grow" && !a.startsWith "--warmup")
+  let nat (n : String) : Option (Option Nat) := (valueOf? argv n).map String.toNat?
+  let dec (n : String) : Option (Option Float) := (valueOf? argv n).map decimal?
+  let bad := argv.filter (fun a => a.startsWith "--grow=" || a.startsWith "--switch-back=") ++
+    #["--warmup", "--warmup-stall", "--level", "--confidence"].filter fun n =>
+    (argv.contains n) ||
+    (match nat n, dec n with
+     | some none, _ => n == "--warmup" || n == "--warmup-stall"
+     | _, some none => n == "--level" || n == "--confidence"
+     | _, _ => false)
+  let first := (nat "--warmup").join
+  let stall := (nat "--warmup-stall").join
+  let switchBack := argv.contains "--switch-back"
+  let hybrid : Option HybridConfig :=
+    if first.isNone && stall.isNone && !switchBack then none
+    else some { firstMax := first.getD 0, minWindow := stall.getD 0,
+                level := ((dec "--level").join).getD 1,
+                confidence := ((dec "--confidence").join).getD 10,
+                adaptive := stall.isSome || switchBack, switchBack }
+  let rest := argv.filter (!isOurs ·)
   -- `-max_len` bounds the buffer and so bounds the structure growth can build; libFuzzer's own
   -- default derives it from the seed corpus, which is 4096 at a cold start. Left there it, and not
-  -- the property, decides how far growth gets. A warm-up's seeds are as long as their runs read, so
-  -- the same holds for the inputs mutated from them.
-  let long := grow || warmRuns.isSome
+  -- the property, decides how far growth gets. A random phase's seeds are as long as their runs
+  -- read, so the same holds for the inputs mutated from them.
+  let long := grow || hybrid.isSome
   let rest := if long && !rest.any (·.startsWith "-max_len=") then rest.push "-max_len=65536"
               else rest
   -- Linking a custom mutator makes libFuzzer disable its `-len_control` length ramp, which is what
-  -- growth wants: the mutator, not the ramp, decides how long an input needs to be. A warm-up wants
-  -- it off too: the ramp would hold each seed's mutations to the seed's own length for most of the
-  -- campaign. Otherwise there is no mutator decision to make, so restore libFuzzer's own default
-  -- and leave the campaign as it was. Only an *absent* flag is defaulted — passing
-  -- `-len_control=N` explicitly (including `0`) wins, which is how the modes are compared under
-  -- one length regime.
+  -- growth wants: the mutator, not the ramp, decides how long an input needs to be. A hybrid
+  -- campaign wants it off too: the ramp would hold each seed's mutations to the seed's own length
+  -- for most of the campaign. Otherwise there is no mutator decision to make, so restore
+  -- libFuzzer's own default and leave the campaign as it was. Only an *absent* flag is defaulted —
+  -- passing `-len_control=N` explicitly (including `0`) wins, which is how the modes are compared
+  -- under one length regime.
   let rest := if !long && !rest.any (·.startsWith "-len_control=") then
                 rest.push "-len_control=100"
               else rest
-  ({ grow, warmup := warmRuns.map ({ runs := ·, stall }) }, rest)
+  ({ grow, hybrid, bad }, rest)
 
 /-- The value of libFuzzer's `-flag=V`, if given. -/
 private def strFlag? (argv : Array String) (flag : String) : Option String :=
   argv.findSome? fun a => if a.startsWith flag then some (a.drop flag.length).toString else none
 
-/-- A random warm-up, then libFuzzer seeded with what it found. The seeds go into the first corpus
-directory on the command line — libFuzzer's output corpus — or a fresh one appended to it, and
-the warm-up's tests come out of the `-runs` budget. -/
-def goWarm (T : Property) (cfg : WarmupConfig) (grow : Bool) (argv : Array String) : IO Unit := do
-  let budget := strFlag? argv "-runs=" |>.bind String.toNat?
-  let cfg := match budget with | some r => { cfg with runs := min cfg.runs r } | none => cfg
-  IO.println s!"[basalt] random warm-up of at most {cfg.runs} tests\
-    {if cfg.stall == 0 then "" else s!", or until {cfg.stall} in a row find nothing new"}"
-  let ran ← warmup (T RecordGen) cfg ((strFlag? argv "-artifact_prefix=").getD "")
-  let (dir, argv) ← match argv.find? (fun a => !a.startsWith "-") with
-    | some d => pure (d, argv)
-    | none => do let d ← IO.FS.createTempDir; pure (d.toString, argv.push d.toString)
-  let _ ← warmupWriteSeedsImpl dir
-  let argv := match budget with
-    | some r => argv.map fun a => if a.startsWith "-runs=" then s!"-runs={r - ran}" else a
-    | none => argv
-  go (T FuzzGen) argv grow
+/-- A hybrid campaign: random and coverage-guided phases in one libFuzzer loop, switching as `cfg`
+says. Every phase's tests count against the one `-runs` budget. -/
+def goHybrid (T : Property) (cfg : HybridConfig) (grow : Bool) (argv : Array String) : IO Unit := do
+  let budget := (strFlag? argv "-runs=" |>.bind String.toNat?).getD 0
+  IO.println s!"[basalt] hybrid campaign: random first\
+    {if cfg.firstMax == 0 then "" else s!" (at most {cfg.firstMax} tests)"}\
+    {if cfg.adaptive then s!", switching when coverage levels off (K={cfg.minWindow}, \
+      level={cfg.level}, confidence={cfg.confidence})" else ""}\
+    {if cfg.switchBack then ", in both directions" else ""}"
+  let counters ← IO.mkRef (0, 0)
+  let gen ← IO.mkRef (← SplitMix.newIO)
+  let artifactPrefix := (strFlag? argv "-artifact_prefix=").getD ""
+  hybridConfigImpl (runOneRecorded counters (T RecordGen) gen artifactPrefix)
+    cfg.firstMax.toUInt64 cfg.minWindow.toUInt64 cfg.level cfg.confidence budget.toUInt64
+    cfg.adaptive cfg.switchBack
+  go (T FuzzGen) argv grow counters
 
 /-- The coverage-guided backend, for `Basalt.PBT.dispatch`. `--grow` is Basalt's own
 (`fuzz-run/README.md`); the rest of `argv` goes to libFuzzer, and a saved artifact — which *is* a
@@ -215,12 +251,12 @@ def fuzzBackend : Backend where
   name := "fuzz"
   campaign T argv :=
     let (flags, rest) := splitFlags argv
-    match flags.warmup with
-    | some cfg => goWarm T cfg flags.grow rest
-    | none =>
-      if argv.any (·.startsWith "--warmup") then
-        usageError "--warmup=N needs a number of tests; --warmup-stall=K needs --warmup=N"
-      else go (T FuzzGen) rest flags.grow
+    if !flags.bad.isEmpty then
+      usageError s!"malformed: {flags.bad.toList}; --warmup=N and --warmup-stall=K take a number \
+        of tests, --level=φ and --confidence=c a decimal"
+    else match flags.hybrid with
+    | some cfg => goHybrid T cfg flags.grow rest
+    | none => go (T FuzzGen) rest flags.grow
   replay? := some (fun T path => replay (T FuzzGen) path)
 
 /-- Random `IO` choices, run and coverage-counted by libFuzzer (`goRandom`): the baseline that

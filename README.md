@@ -141,9 +141,9 @@ interpretations — `--backend=io` or `--backend=plausible` instead of the defau
 `fuzz` — from one shared property registry. Which backend finds a bug faster is a property of the
 bug: blind random sampling wins on shallow bugs (fewer runs, ~2–5× the throughput), while a bug
 behind several nested guards is reachable only by coverage guidance. `fuzz-run/compare-backends.sh` measures it and
-`fuzz-run/README.md` records the numbers. `--warmup=N` runs both in one campaign — `N` random tests,
-then coverage-guided mutation seeded with the ones that found new coverage — which covers more than
-either alone on the Cedar benchmark (`CEDAR.md`).
+`fuzz-run/README.md` records the numbers. `--warmup-stall=0` runs both in one campaign — random tests
+until coverage levels off, then coverage-guided mutation seeded with the ones that found new coverage
+— which covers more than either alone at mid-range budgets on the Cedar benchmark (`CEDAR.md`).
 
 ## Repository layout
 

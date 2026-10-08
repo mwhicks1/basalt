@@ -180,7 +180,7 @@ seconds, once). Instrumentation itself needs nothing extra.
 ```bash
 fuzz-run/basalt-fuzz [--backend=fuzz|io|plausible] <property> [-runs=N] [-discard_ratio=N] [libFuzzer args...]
 fuzz-run/basalt-fuzz <property> [--grow]           # fuzz backend only, see below
-fuzz-run/basalt-fuzz <property> --warmup=N [--warmup-stall=K]   # random first, then fuzz; see below
+fuzz-run/basalt-fuzz <property> [--warmup=N] [--warmup-stall=K] [--switch-back]   # hybrid; see below
 fuzz-run/basalt-fuzz replay <property> <file>      # reproduce a saved input, no fuzzer
 ```
 
@@ -408,15 +408,18 @@ only against the reversal above.
 ## Random warm-up
 
 Random generation and coverage-guided mutation win at different budgets: random covers more early,
-the fuzzer overtakes it late (CEDAR.md). `--warmup=N` runs both, in that order: up to `N` random tests,
-then libFuzzer seeded with the ones that reached new coverage. `--warmup-stall=K` ends the random phase
-sooner, once `K` tests in a row have found nothing new. The warm-up's tests come out of the `-runs`
-budget, so a campaign is the same length either way.
+the fuzzer overtakes it late (CEDAR.md). A *hybrid* campaign runs both in one libFuzzer loop: random
+first, then fuzzing seeded with the random runs that reached new coverage, and optionally back again.
 
-Its measured gain in *coverage* is on Cedar, where that crossover was found: +50 ± 8 edges at 1M tests
-over the best non-hybrid arm, a larger and better-separated margin than coverage guidance itself buys
-there (CEDAR.md). What it costs a campaign hunting a bug is
-[below](#what-the-warm-up-costs).
+| flag | meaning |
+|---|---|
+| `--warmup=N` | random first, for at most `N` tests; given alone, exactly `N` |
+| `--warmup-stall=K` | end the first random phase when coverage levels off (below), never judging a window shorter than `K` tests |
+| `--switch-back` | apply the same rule in both directions for the rest of the campaign |
+| `--level=φ`, `--confidence=c` | the rule's parameters, default `1` and `10` |
+
+Every phase's tests count against the one `-runs` budget, so a campaign is the same length either
+way. `--warmup-stall=0` is the setting to reach for; CEDAR.md has the measurements.
 
 **A random run has to become a corpus entry.** `RecordGen` (`Basalt/Fuzz/Record.lean`) makes each
 choice from SplitMix, uniformly as `IO` does, and records bytes that `FuzzGen`'s `choose` decodes to that
@@ -428,59 +431,82 @@ end, too long and the corpus keeps a tail no draw reads. A recorded buffer is ex
 read. `readNat_recordDraw` proves the decoding per draw; that a whole run replays is a free theorem
 of the generator's polymorphism, which `BasaltTest/Fuzz.lean` pins instead.
 
-**The novelty test is libFuzzer's, reimplemented.** libFuzzer's own (`TracePC::CollectFeatures`,
-`InputCorpus::AddFeature`) is internal C++ with no stable entry, and its loop is not running yet. It is
-small: a feature is an edge together with the bucket of its 8-bit counter (1, 2, 3, 4–7, 8–15, 16–31,
-32–127, 128+), and a run is new if it reaches a feature no earlier run did. `basalt_warmup_observe` in
-`native.c` applies exactly that to the SanitizerCoverage counters after each run, then zeroes them, since
-nothing else does while libFuzzer is not running.
+**One loop, two modes.** In a random phase the callback ignores libFuzzer's buffer, runs the property at
+`RecordGen`, and returns `-1`, so libFuzzer neither keeps the input nor records its coverage; `native.c`
+judges the run itself, with libFuzzer's notion of a feature — an edge together with the bucket of its
+8-bit counter (1, 2, 3, 4–7, 8–15, 16–31, 32–127, 128+) — since libFuzzer's own check
+(`TracePC::CollectFeatures`, `InputCorpus::AddFeature`) is internal C++ with no stable entry. On the
+switch to fuzzing, the phase's new runs are compressed and the custom mutator hands them to libFuzzer
+one per call, so each enters the corpus by libFuzzer's own admission rule. A switch back loses nothing:
+libFuzzer's corpus stays in memory and the next fuzzing phase resumes from it.
 
-**The kept runs are compressed before libFuzzer sees them.** Admission one run at a time cannot drop a
+**The seeds are a set cover, not every run that was new.** Admission one run at a time cannot drop a
 seed that a later one subsumes: if `A` and `B` cover disjoint features and `C` later covers both, `C` is
-not new and is never kept, so `A` and `B` both stay. At the switch the warm-up therefore solves set cover
-over every kept run's features (greedy, lazily evaluated) and writes only the cover, into the first
-corpus directory on the command line — libFuzzer's output corpus — or a fresh temporary one. libFuzzer
-then runs each seed once at startup, which rebuilds its own coverage map, and continues as usual. On
-`gen-traced` the cover keeps about half of what the warm-up kept (853 of 1,690 at 100,000 tests).
+not new and is never kept, so `A` and `B` both stay. At each switch the phase's runs are therefore
+reduced by greedy set cover (lazily evaluated) over the features *that phase* discovered — not every
+feature they hit, most of which the corpus already has. On `gen-traced` it keeps about half (~880 of
+~1,750 at a 1M budget).
 
-Three consequences. A counterexample found during the warm-up is written as `crash-warmup-<n>` under
-`-artifact_prefix` and replays like any other artifact, because it *is* a `FuzzGen` buffer.
-`-max_len` defaults to 65536 and the `-len_control` ramp stays off, as with `--grow`: a seed is as
-long as its run needed, and the ramp would hold its mutations to that length for most of the campaign
-(`fuzz-noramp`, the best-measured setting in CEDAR.md, is the same choice). And novelty during the
-warm-up is judged on the code that runs then, which includes the generator's `RecordGen` specialization
-rather than its `FuzzGen` one; libFuzzer judges the seeds again, on its own, when it loads them.
+### When to switch
 
-The switch is one-way. Switching back would not need a second process: a callback that runs
-`RecordGen`, returns `-1` (so libFuzzer neither keeps the input nor records its features), and writes a
-new run into the output corpus would have it adopted at libFuzzer's next `-reload`, with libFuzzer's
-coverage map intact throughout.
+Let `F` be the campaign's *finds* so far — tests that reached a feature no earlier test did — `H` the
+remaining budget (`-runs` less the tests run, or the phase's own length if `-runs` is unbounded), and
+`r_other` the other mode's find rate over the window on which it was last left. The rate worth staying
+for is `λ* = min(φ·F/H, r_other)`; a phase is judged over consecutive windows of
+`w = max(K, ⌈c/λ*⌉)` tests, and hands over at the end of the first with fewer than `c` finds.
 
-### What the warm-up costs
+- `φ·F/H` is the rate at which spending the rest of the budget here would add a further `φ` of the
+  finds so far. It makes the wait grow with the budget: a small rate is worth a lot over a long
+  horizon, so it takes longer to conclude it is negligible. If finds grow like `b·ln n`, the first
+  switch lands near `n* ≈ (b/F)·R/φ` — linear in the budget `R`.
+- `r_other` hands over only to a mode that was doing better when it was left. Without it, once both
+  modes fall below `φ·F/H` each "levels off" in its first window: measured on Cedar, ~2,500 switches in
+  1M tests. With it, the mode that just left sets a low bar for its successor, windows only lengthen,
+  and the campaign settles (3–5 switches in 5M).
+- The windows are consecutive, not sliding: a sliding window tested after every test fires on noise
+  almost at once. `c` is the confidence — at the threshold rate a window expects `c` finds.
+- A *find* is the unit, not a feature: one novel run brings tens of features at once, so a window
+  with fewer than `c` features usually means just "no novel run", which happens by chance. Counting
+  features switched at ~24k tests on Cedar whatever `φ` was; counting finds made the switch point
+  stable across trials (±10%) and proportional to `1/φ`.
+- The window is recomputed after every test, since `F` and `H` move. One sized at a phase's start,
+  when `F ≈ 1`, is ~10⁷ tests long and never closes.
 
-Nothing measurable at a tenth of the budget, and it is the budget — not the seeds — that is the thing
-to get right. `MODE=rate SETTINGS="off --warmup=N" fuzz-run/compare-grow.sh` measures the same
-success-rate-at-a-fixed-budget as the growth table below; 300 trials per cell, macOS arm64 (M-series),
-`-len_control=0 -max_len=65536` for both:
+`BASALT_PHASE_TRACE=1` prints every window as it closes: its length, its finds, and whether it was
+quiet. `φ = 1` is calibrated on Cedar, where it puts the first switch near the best fixed warm-up
+measured (about 120k tests of a 1M budget, against a hand-picked 100k).
 
-| property | budget | warm-up | off | with the warm-up |
-|---|---|---|---|---|
-| `long-16` | 3,000 runs | 300 | 20.0% ±2.3 | **25.3%** ±2.5 |
-| `chain-3` | 1,000 runs | 100 | 44.3% ±2.9 | **58.3%** ±2.8 |
+### Three consequences
 
-`chain-3` is the surprise and the reason this table is here. Its bug sits behind three nested guards,
-which is exactly what a blind sampler cannot reach — `random` needs about 6M runs for it
-([How fast each backend finds a bug](#how-fast-each-backend-finds-a-bug)) — so a warm-up spends 10% of
-the budget on a search that will not find the bug, and the campaign still finds it *more* often
-(+14.0 points, z = 3.5). What it buys is not progress toward the bug but a varied starting corpus:
-without it libFuzzer begins from one empty input, and the inputs it mutates for its first hundred runs
-are all descendants of that. `long-16` moves the same way and is not decisive on its own (+5.3,
-z = 1.6).
+A counterexample found in a random phase is written as `crash-random-<n>` under `-artifact_prefix` and
+replays like any other artifact, because it *is* a `FuzzGen` buffer; the bridge exits past libFuzzer's
+exit hook, which would otherwise save the buffer in hand — not that test's input — as the crash.
+`-max_len` defaults to 65536 and the `-len_control` ramp stays off, as with `--grow`: a seed is as long
+as its run needed, and the ramp would hold its mutations to that length for most of the campaign
+(`fuzz-noramp`, the best-measured setting in CEDAR.md, is the same choice). And novelty during a random
+phase is judged on the code that runs then, which includes the generator's `RecordGen` specialization
+rather than its `FuzzGen` one; libFuzzer judges each seed again, on its own, when it is handed over.
 
-**The cost is whatever share of `-runs` the warm-up takes, and that share is the one thing to size.**
-It is subtracted from the budget, so `--warmup=1000` under `-runs=1000` leaves the fuzzer nothing:
-`chain-3` scores 0/100 there against 45/100 with no warm-up. A tenth is what both rows above and the
-Cedar arms (10,000 or 100,000 of 1,000,000, CEDAR.md) use.
+### What it costs a campaign hunting a bug
+
+`SETTINGS="off --warmup=N --warmup-stall=0 --switch-back" fuzz-run/compare-grow.sh` measures the same
+success rate at a fixed budget as the growth table above; 300 trials per cell, macOS arm64 (M-series),
+`-len_control=0 -max_len=65536` throughout:
+
+| property | budget | off | `--warmup` (10%) | `--warmup-stall=0` | `--switch-back` |
+|---|---|---|---|---|---|
+| `chain-3` | 1,000 runs | 43.7% ±2.9 | 59.0% ±2.8 | **82.7%** ±2.2 | 62.0% ±2.8 |
+| `long-16` | 3,000 runs | 18.0% ±2.2 | **29.3%** ±2.6 | 18.7% ±2.2 | 13.3% ±2.0 |
+
+These benchmarks put one bug behind nested guards, so they measure depth, not the breadth a hybrid is
+for; they show it does not cost depth, and they should not set its parameters. Every `chain-3` find
+under the hybrid comes in the fuzzing phase: its first guard is a uniform 1-in-256 byte, which random
+hits at exactly that rate, while libFuzzer starting from an empty input must first insert a byte and
+get its value right — so random banks the first stage cheaply and hands over a seed already past it.
+At budgets this small the rule spends much of the budget on random (two-thirds, on `chain-3`), which
+helps there and does nothing for `long-16`. The one way to lose outright is a fixed `--warmup=N` at or
+above `-runs`, which leaves the fuzzer nothing: `chain-3` scores 0/100 with `--warmup=1000` under
+`-runs=1000`.
 
 ## What a run looks like
 
@@ -631,12 +657,14 @@ it.
   queue entry, and JQF/Zest grows the input mid-run and saves the grown form, both because they own the
   scheduling loop. Inside libFuzzer the way out is not a better mutator but a different encoding: a
   self-delimiting choice sequence, where "ran out of bytes" is not a state that exists.
-- **The warm-up switches once, and its seeds are judged on the wrong specialization.** Switching back
-  is sketched in [Random warm-up](#random-warm-up) and not built; and a warm-up run's novelty is judged
+- **A random phase's seeds are judged on the wrong specialization.** A random run's novelty is judged
   on the code that ran, which is the generator's `RecordGen` specialization, so the counters it sets are
-  not the ones the same input sets under `FuzzGen`. libFuzzer re-judges the seeds when it loads them,
-  which bounds the cost to a warm-up keeping seeds a `FuzzGen` run would not have — never to losing one
-  it would.
+  not the ones the same input sets under `FuzzGen`. libFuzzer re-judges each seed when it is handed
+  over, which bounds the cost to keeping seeds a `FuzzGen` run would not have — never to losing one it
+  would.
+- **The switching rule's budget is in tests, not time.** `H` counts tests, but a random test is about
+  25% cheaper than a fuzzing one on Cedar, so under `-max_total_time` the rule has no horizon and falls
+  back to the phase's own length.
 - **`bytesFor` is computed per `choose` call, at runtime.** Determining it statically would be
   nicer. Reading a fixed word instead is *not* the fix: with a whole word per choice, many word
   values map to the same value (2²⁴ words per outcome over `chooseNat 0 255`), so most mutations of
