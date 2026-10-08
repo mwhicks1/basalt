@@ -68,6 +68,8 @@ share the binary and its instrumentation and differ only in the source of choice
 | `fuzz-noramp` | the same, with `-max_len=65536 -len_control=0` |
 | `fuzz-grow` | the same, with Basalt's `--grow` |
 | `warm-<N>` | a random warm-up of `N` tests, then mutation from its seeds (`--warmup=N`, `fuzz-run/README.md`), otherwise `fuzz-noramp`'s settings |
+| `auto-<φ>` | the same, but switching when random's coverage levels off (`--warmup-stall=0 --level=φ`) |
+| `back-<φ>` | the same rule in both directions (`--switch-back --level=φ`) |
 
 Coverage is counted per edge by `Basalt/Fuzz/native.c` (`BASALT_COV_OUT`: the first test to hit each
 SanitizerCoverage edge), restricted to Cedar's own code by symbol (`lp_Cedar_*`), and excluding
@@ -107,31 +109,49 @@ Random covers more until past 100k tests; fuzz passes it by 1M, from 37% fewer d
 each input it keeps was chosen for new coverage. The margin is ~60 edges (<1%). Reproduce with
 `fuzz-run/cedar-experiment.sh`.
 
-### Random first, then mutation, beats either (`--warmup`)
+### Random first, then mutation (`--warmup-stall`, `--switch-back`)
 
-The crossover above is the argument for running both in one campaign: random for the early budget,
-mutation from what it found for the rest (`--warmup=N`, `fuzz-run/README.md`). 6 trials × 1M tests per
-arm, `gen-traced`, macOS arm64 (M-series), every trial of every arm run concurrently from one binary:
+The crossover above is the argument for running both in one campaign: random until its coverage levels
+off, then mutation from what it found (`fuzz-run/README.md`, "Random warm-up", which owns the switching
+rule). `auto-1` is `--warmup-stall=0 --level=1`; `back-1` adds `--switch-back`. `gen-traced`, macOS
+arm64 (M-series), 3 trials × 5M tests per arm, one trial per core so that time is comparable:
 
-| arm | edges, per trial | mean ± SE | distinct exprs |
-|---|---|---|---|
-| `random` | 6988, 7023, 7009, 6997, 6957, 7014 | 6,998 ± 10 | 731,696 |
-| `fuzz-noramp` | 7056, 7004, 7016, 7039, 7033, 7025 | 7,029 ± 7 | 485,109 |
-| `warm-100000` | 7100, 7078, 7049, 7068, 7105, 7076 | **7,079 ± 8** | 507,607 |
+| tests | random | `fuzz-noramp` | `auto-1` | `back-1` |
+|---|---|---|---|---|
+| 100,000 | **6,780** ±11 | 6,506 ±69 | 6,763 ±8 | **6,782** ±7 |
+| 1,000,000 | 6,988 ±4 | 7,016 ±35 | **7,083** ±4 | **7,076** ±1 |
+| 5,000,000 | 7,098 ±4 | **7,198** ±34 | **7,196** ±1 | **7,198** ±10 |
 
-**The warm-up's margin is larger than the one it is built on and, unlike it, is decisive at this trial
-count**: `warm-100000` is +50 ± 8 edges over `fuzz-noramp` (t = 6.5) and +81 ± 17 over `random`
-(t = 4.9), where `fuzz-noramp` over `random` is +31 ± 15 (t = 2.0), a margin two of the six trials
-reverse. `wide-traced` agrees at 3 trials (random 6,465; `fuzz-noramp` 6,516; `warm-10000` 6,550;
-`warm-100000` 6,560), and on `gen-traced` at 3 trials a 10,000-test warm-up already gets most of it
-(7,084 against 7,110 for 100,000). The early budget is random's unchanged: `warm-100000`'s curve *is*
-`random`'s until 100,000 tests, by construction, so the hybrid gives up nothing to buy this.
+| time | random | `fuzz-noramp` | `auto-1` | `back-1` |
+|---|---|---|---|---|
+| 1 min | **6,740** | 6,353 | **6,747** | **6,756** |
+| 15 min | 7,015 | 7,018 | **7,089** | 7,080 |
+| 30 min | 7,061 | 7,107 | **7,144** | 7,130 |
+| 55 min (random done) | 7,098 | **7,186** ±31 | **7,182** ±6 | **7,176** ±15 |
 
-**It is not a strict superset.** Pooling 6 trials per arm, the warm-up's union reaches 18 edges no
-baseline trial did and misses 30 that the baselines' union reached — the gap being mutation time spent
-elsewhere, not a blind spot: the misses concentrate in `parseSegsV4` and `lubRecordType`, which a
-single lucky draw reaches. What the hybrid wins reliably is the *per-trial* count, which is what a
-campaign gets.
+- **Until it switches the hybrid *is* random, and after it leads both.** The rule switched at 430k–530k
+  tests of the 5M budget (at 115k–128k of a 1M one, in all of 6 trials), and the hybrid led both pure
+  arms from there to ~3M tests, ~8 to ~50 minutes. At 1M tests, 6 trials: `auto-1` 7,089 ±9 against
+  `fuzz-noramp` 7,027 ±12 and random 6,991 ±6 — the same as the best fixed warm-up (`warm-100000`,
+  7,086 ±8), with no budget picked by hand.
+- **By 5M tests pure fuzzing has caught up**; the hybrid gets there sooner, and far more consistently
+  (±1 against ±34).
+- **Pure fuzzing's trials are the more diverse.** Pooled, its 3 trials cover 7,294 edges against the
+  hybrid's 7,224 (`fuzz-run/edge-sets.py`): each fuzzing trial wanders somewhere different, while the
+  hybrid's start from near-identical random corpora and end up in the same place.
+- **Switching back buys nothing here.** It switched 3–5 times in 5M tests — back to random at ~1.1M
+  for 20k–40k tests, then fuzzing to the end — and ties `auto-1`. After the first fuzzing phase random
+  finds almost nothing the corpus has not already reached.
+- **For distinct inputs random wins outright**: 3.5M distinct expressions in 55 minutes, against ~2.0M
+  for every fuzzing arm. The fuzzing phase pays only for code coverage, and only at mid-range budgets.
+- **`wide-traced` agrees** on the fixed warm-up, at 3 trials × 1M: random 6,465, `fuzz-noramp` 6,516,
+  `warm-10000` 6,550, `warm-100000` 6,560.
+
+`fuzz-run/hybrid-experiment.sh` reruns all of this — build, the four arms, and every table above
+plus where each trial switched — into one directory; it takes ~75 minutes on 12 cores. Time is from
+`BASALT_COV_OUT`'s `.time` file (milliseconds at every 1000th test);
+`fuzz-run/budget-table.py` gives both tables, with standard errors, and `fuzz-run/coverage-curves.py`
+draws both, with zoomed panels for the tail.
 
 - **Draw order matters to `FuzzGen`.** Its draw order is byte order, so a property must generate the
   thing under test first. With the request and entity store drawn before the expression, their bytes

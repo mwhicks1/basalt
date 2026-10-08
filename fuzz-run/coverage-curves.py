@@ -7,11 +7,13 @@
 Reads `fuzz-run/compare-coverage.sh` output directories whose property printed `BASALT_H` lines
 (`wide-traced`, `wide-traced-ef`). Each `<arm>.<t>.cov` gives, per edge, the index of the first test
 that hit it, so coverage after n tests is the number of package edges with first-hit index <= n; each
-`<arm>.<t>.log` gives the hash of every test's expression, in order.
+`<arm>.<t>.log` gives the hash of every test's expression, in order. Where `<arm>.<t>.cov.time` exists
+(milliseconds at every 1000th test), the same two curves are also drawn against elapsed time. The
+page's subtitle names `$PROP`, which `cedar-experiment.sh` exports.
 
   fuzz-run/coverage-curves.py OUT.html LABEL=DIR:ARM [LABEL=DIR:ARM ...]
 """
-import bisect, html, json, math, re, sys
+import bisect, html, json, math, os, re, sys
 
 PREFIX = "lp_Cedar_"
 # The traced properties hash `reprStr` of each input, which runs the package's derived printing code;
@@ -53,7 +55,7 @@ def trials(d, arm):
 series = []
 for label, d, arm in specs:
     addrs, names = symbols(d)
-    cov_curves, uniq_curves = [], []
+    cov_curves, uniq_curves, covt_curves, uniqt_curves = [], [], [], []
     for t in trials(d, arm):
         firsts = []
         for line in open(f"{d}/{arm}.{t}.cov"):
@@ -72,57 +74,91 @@ for label, d, arm in specs:
         xs = points(n)
         cov_curves.append([(x, bisect.bisect_right(firsts, x)) for x in xs])
         uniq_curves.append([(x, uniq[x - 1]) for x in xs])
+        try:
+            ticks = [(0, 0)] + [tuple(map(int, l.split())) for l in open(f"{d}/{arm}.{t}.cov.time")]
+        except FileNotFoundError:
+            continue
+        tms = [ms for _, ms in ticks]
+        def tests_by(sec):
+            i = bisect.bisect_right(tms, sec * 1000) - 1
+            if i >= len(ticks) - 1: return min(ticks[-1][0], n)
+            (n0, t0), (n1, t1) = ticks[i], ticks[i + 1]
+            return min(n, n0 + (n1 - n0) * (sec * 1000 - t0) // max(t1 - t0, 1))
+        secs = points(max(1, tms[-1] // 1000))
+        covt_curves.append([(x, bisect.bisect_right(firsts, tests_by(x))) for x in secs])
+        uniqt_curves.append([(x, uniq[max(tests_by(x), 1) - 1]) for x in secs])
     def mean(curves):
+        if not curves: return []
         m = min(len(c) for c in curves)
         return [(curves[0][i][0], sum(c[i][1] for c in curves) / len(curves)) for i in range(m)]
     series.append({"label": label, "cov": mean(cov_curves), "uniq": mean(uniq_curves),
+                   "covt": mean(covt_curves), "uniqt": mean(uniqt_curves),
                    "trials": len(cov_curves)})
+timed = all(s["covt"] for s in series)
+# Where the zoomed panels start: a tenth of the way through, in log terms — late enough that every arm
+# is past its steep early climb.
+ZOOM_TESTS = 10 ** max(1, int(math.log10(min(s["cov"][-1][0] for s in series))) - 2)
+ZOOM_SECS = 10 ** max(0, int(math.log10(min(s["covt"][-1][0] for s in series))) - 1) if timed else 1
 
 COLORS = [f"var(--series-{i})" for i in range(1, 6)]
 W, H = 560, 320
-ML, MR, MT, MB = 64, 150, 16, 44
+ML, MR, MT, MB = 64, 170, 16, 44
 
-def chart(key, title, ylabel, cid):
-    maxx = max(s[key][-1][0] for s in series)
-    maxy = max(max(y for _, y in s[key]) for s in series)
-    top = 10 ** math.ceil(math.log10(maxy)) if maxy > 0 else 1
-    step = top / 5
-    while top - step >= maxy * 1.02 and top > step: top -= step
-    lx0, lx1 = 0.0, math.log10(maxx)
+def compact(v):
+    """A tick label: `3.2M`, `800k`, or the number itself below 10,000."""
+    if v >= 1e6: return f"{v / 1e6:.1f}M".replace(".0M", "M")
+    if v >= 1e4: return f"{v / 1e3:.0f}k"
+    return f"{int(v):,}"
+
+def chart(key, title, ylabel, cid, xlabel="tests run (log scale)", xmin=1):
+    """A log-x chart of `key`. With `xmin` above 1 it is a zoom on the tail: only points from `xmin`
+    on, and a y axis fitted to them rather than starting at 0, which is where the arms differ."""
+    curves = [[(x, y) for x, y in s[key] if x >= xmin] for s in series]
+    maxx = max(c[-1][0] for c in curves)
+    ys = [y for c in curves for _, y in c]
+    lo_y, hi_y = (0, max(ys)) if xmin <= 1 else (min(ys), max(ys))
+    raw = (hi_y - lo_y) / 5 or 1
+    step = next(m * 10 ** e for e in range(0, 12) for m in (1, 2, 5) if m * 10 ** e >= raw)
+    bot = (lo_y // step) * step if xmin > 1 else 0
+    top = bot + step * math.ceil((hi_y - bot) / step + 1e-9)
+    lx0, lx1 = math.log10(xmin), math.log10(maxx)
     pw, ph = W - ML - MR, H - MT - MB
     sx = lambda x: ML + (math.log10(x) - lx0) / (lx1 - lx0) * pw
-    sy = lambda y: MT + ph - y / top * ph
+    sy = lambda y: MT + ph - (y - bot) / (top - bot) * ph
     g = [f'<svg viewBox="0 0 {W} {H}" role="img" aria-labelledby="{cid}-t" class="chart" id="{cid}">',
          f'<title id="{cid}-t">{html.escape(title)}</title>']
-    for k in range(6):
-        y = top * k / 5
+    k = 0
+    while bot + k * step <= top + 1e-9:
+        y = bot + k * step
         g.append(f'<line class="grid" x1="{ML}" x2="{ML+pw}" y1="{sy(y):.1f}" y2="{sy(y):.1f}"/>')
-        g.append(f'<text class="tick" x="{ML-8}" y="{sy(y)+4:.1f}" text-anchor="end">{int(y):,}</text>')
-    e = 0
+        g.append(f'<text class="tick" x="{ML-8}" y="{sy(y)+4:.1f}" text-anchor="end">{compact(y)}</text>')
+        k += 1
+    e = math.ceil(lx0 - 1e-9)
     while 10 ** e <= maxx:
         x = 10 ** e
         g.append(f'<text class="tick" x="{sx(x):.1f}" y="{MT+ph+18}" text-anchor="middle">'
                  f'{"1" if e == 0 else ("10" if e == 1 else f"1e{e}")}</text>')
         e += 1
     g.append(f'<line class="axis" x1="{ML}" x2="{ML+pw}" y1="{MT+ph}" y2="{MT+ph}"/>')
-    g.append(f'<text class="axis-label" x="{ML+pw/2}" y="{H-6}" text-anchor="middle">tests run (log scale)</text>')
-    g.append(f'<text class="axis-label" transform="translate(14,{MT+ph/2}) rotate(-90)" text-anchor="middle">{html.escape(ylabel)}</text>')
+    g.append(f'<text class="axis-label" x="{ML+pw/2}" y="{H-6}" text-anchor="middle">{xlabel}</text>')
+    g.append(f'<text class="axis-label" transform="translate(12,{MT+ph/2}) rotate(-90)" text-anchor="middle">{html.escape(ylabel)}</text>')
     labels = []
-    for i, s in enumerate(series):
-        pts = " ".join(f"{sx(x):.1f},{sy(y):.1f}" for x, y in s[key])
+    for i, c in enumerate(curves):
+        pts = " ".join(f"{sx(x):.1f},{sy(y):.1f}" for x, y in c)
         g.append(f'<polyline class="line" style="stroke:{COLORS[i]}" points="{pts}"/>')
-        lx, ly = s[key][-1]
-        labels.append([sy(ly), i, f"{s['label']}: {int(ly):,}"])
+        lx, ly = c[-1]
+        labels.append([sy(ly), i, f"{series[i]['label']}: {int(ly):,}"])
     labels.sort()
     for j in range(1, len(labels)):
         if labels[j][0] - labels[j-1][0] < 14: labels[j][0] = labels[j-1][0] + 14
     for yy, i, text in labels:
-        g.append(f'<circle cx="{ML+pw:.1f}" cy="{sy(series[i][key][-1][1]):.1f}" r="4" '
+        g.append(f'<circle cx="{sx(curves[i][-1][0]):.1f}" cy="{sy(curves[i][-1][1]):.1f}" r="4" '
                  f'style="fill:{COLORS[i]}" class="endpoint"/>')
         g.append(f'<text class="direct" x="{ML+pw+10}" y="{yy+4:.1f}">{html.escape(text)}</text>')
     g.append(f'<line class="crosshair" id="{cid}-x" x1="0" x2="0" y1="{MT}" y2="{MT+ph}" visibility="hidden"/>')
     g.append(f'<rect class="hit" x="{ML}" y="{MT}" width="{pw}" height="{ph}" '
-             f'data-chart="{cid}" data-key="{key}" data-ml="{ML}" data-pw="{pw}" data-lx1="{lx1}"/>')
+             f'data-chart="{cid}" data-key="{key}" data-ml="{ML}" data-pw="{pw}" data-lx0="{lx0}" '
+             f'data-lx1="{lx1}" data-unit="{"s" if key.endswith("t") else "tests"}"/>')
     g.append('</svg>')
     return "\n".join(g)
 
@@ -139,7 +175,11 @@ def table(key, ylabel):
 
 legend = "".join(f'<span class="key"><span class="swatch" style="background:{COLORS[i]}"></span>'
                  f'{html.escape(s["label"])} ({s["trials"]} trials)</span>' for i, s in enumerate(series))
-data = json.dumps({s["label"]: {"cov": s["cov"], "uniq": s["uniq"]} for s in series})
+timed_figs = (f'''<figure><figcaption>Cedar code coverage, by time</figcaption>{chart("covt", "Cedar edges covered vs. seconds elapsed", "Cedar edges covered", "c3", "seconds elapsed (log scale)")}<div class="tip" id="c3-tip"></div></figure>
+<figure><figcaption>Distinct expressions, by time</figcaption>{chart("uniqt", "Distinct expressions vs. seconds elapsed", "distinct expressions", "c4", "seconds elapsed (log scale)")}<div class="tip" id="c4-tip"></div></figure>
+<figure><figcaption>Cedar code coverage, by time, from {ZOOM_SECS} s on (zoomed)</figcaption>{chart("covt", "Cedar edges covered vs. seconds elapsed, tail", "Cedar edges covered", "c6", "seconds elapsed (log scale)", xmin=ZOOM_SECS)}<div class="tip" id="c6-tip"></div></figure>''' if timed else "")
+data = json.dumps({s["label"]: {"cov": s["cov"], "uniq": s["uniq"], "covt": s["covt"],
+                                "uniqt": s["uniqt"]} for s in series})
 
 page = f"""<!doctype html><html><head><meta charset="utf-8">
 <title>Cedar coverage and input diversity vs. tests run</title>
@@ -179,11 +219,13 @@ caption {{ text-align:left; font-weight:600; color:var(--text-primary); padding-
 th, td {{ border-bottom:1px solid var(--grid); padding:3px 10px; text-align:right; }}
 </style></head><body><div class="viz-root">
 <h1>Cedar coverage and input diversity vs. tests run</h1>
-<p class="sub">Property <code>wide-soundness</code> (CedarWide generator). Mean of trials; x axis is the number of tests run.</p>
+<p class="sub">Property <code>{html.escape(os.environ.get("PROP", "?"))}</code>. Mean of trials; the x axis is tests run, or (bottom row) seconds elapsed, each trial on a core of its own.</p>
 <div class="legend">{legend}</div>
 <div class="charts">
 <figure><figcaption>Cedar code coverage</figcaption>{chart("cov", "Cedar edges covered vs. tests run", "Cedar edges covered", "c1")}<div class="tip" id="c1-tip"></div></figure>
 <figure><figcaption>Distinct expressions generated</figcaption>{chart("uniq", "Distinct expressions vs. tests run", "distinct expressions", "c2")}<div class="tip" id="c2-tip"></div></figure>
+<figure><figcaption>Cedar code coverage, from {compact(ZOOM_TESTS)} tests on (zoomed)</figcaption>{chart("cov", "Cedar edges covered vs. tests run, tail", "Cedar edges covered", "c5", xmin=ZOOM_TESTS)}<div class="tip" id="c5-tip"></div></figure>
+{timed_figs}
 </div>
 <details><summary>Table view</summary>{table("cov", "Cedar edges covered")}{table("uniq", "Distinct expressions")}</details>
 </div>
@@ -193,21 +235,21 @@ const COLORS = {json.dumps(COLORS)};
 document.querySelectorAll('.hit').forEach(r => {{
   const cid = r.dataset.chart, key = r.dataset.key, svg = document.getElementById(cid);
   const tip = document.getElementById(cid + '-tip'), cross = document.getElementById(cid + '-x');
-  const ml = +r.dataset.ml, pw = +r.dataset.pw, lx1 = +r.dataset.lx1;
+  const ml = +r.dataset.ml, pw = +r.dataset.pw, lx0 = +r.dataset.lx0, lx1 = +r.dataset.lx1;
   r.addEventListener('mousemove', ev => {{
     const pt = svg.createSVGPoint(); pt.x = ev.clientX; pt.y = ev.clientY;
     const p = pt.matrixTransform(svg.getScreenCTM().inverse());
-    const x = Math.pow(10, Math.max(0, Math.min(1, (p.x - ml) / pw)) * lx1);
+    const x = Math.pow(10, lx0 + Math.max(0, Math.min(1, (p.x - ml) / pw)) * (lx1 - lx0));
     let rows = '', near = null;
     Object.entries(DATA).forEach(([label, s], i) => {{
-      const c = s[key]; let best = c[0];
+      const c = s[key].filter(q => q[0] >= Math.pow(10, lx0) * 0.999); let best = c[0];
       for (const q of c) if (Math.abs(Math.log(q[0]) - Math.log(x)) < Math.abs(Math.log(best[0]) - Math.log(x))) best = q;
       near = best[0];
       rows += `<div><span class="swatch" style="background:${{COLORS[i]}}"></span>${{label}}: <b>${{Math.round(best[1]).toLocaleString()}}</b></div>`;
     }});
-    const sx = ml + Math.log10(near) / lx1 * pw;
+    const sx = ml + (Math.log10(near) - lx0) / (lx1 - lx0) * pw;
     cross.setAttribute('x1', sx); cross.setAttribute('x2', sx); cross.setAttribute('visibility', 'visible');
-    tip.innerHTML = `<div>${{near.toLocaleString()}} tests</div>` + rows;
+    tip.innerHTML = `<div>${{near.toLocaleString()}} ${{r.dataset.unit}}</div>` + rows;
     tip.style.display = 'block';
     const box = svg.getBoundingClientRect(), fb = svg.parentElement.getBoundingClientRect();
     tip.style.left = (ev.clientX - fb.left + 14) + 'px'; tip.style.top = (ev.clientY - fb.top + 10) + 'px';

@@ -16,6 +16,9 @@
 #   fuzz-grow    coverage-guided with Basalt's `--grow`
 #   warm-<N>     a random warm-up of N tests (`--warmup=N`, e.g. `warm-10000`), then coverage-guided
 #                from its seeds, `-max_len=65536 -len_control=0` like `fuzz-noramp`
+#   auto-<φ>     the same, but the random phase ends when coverage levels off (`--warmup-stall=0
+#                --level=φ`)
+#   back-<φ>     the same rule in both directions, switching back to random (`--switch-back`)
 #
 # Every arm runs the same binary, so instrumentation and counters are identical and only the source of
 # the choices differs. The binary is copied under a name without `basalt-fuzz` in it, so that another
@@ -50,6 +53,8 @@ run_one() {
     fuzz-noramp) be=fuzz; flags=(-max_len=65536 -len_control=0) ;;
     fuzz-grow)   be=fuzz; flags=(--grow) ;;
     warm-*)      be=fuzz; flags=(--warmup="${arm#warm-}" -max_len=65536 -len_control=0) ;;
+    auto-*)      be=fuzz; flags=(--warmup-stall=0 --level="${arm#auto-}" -max_len=65536 -len_control=0) ;;
+    back-*)      be=fuzz; flags=(--switch-back --level="${arm#back-}" -max_len=65536 -len_control=0) ;;
     *) echo "unknown arm $arm" >&2; return 1 ;;
   esac
   BASALT_COV_OUT="$OUT/$arm/$be.$t.cov" "$BIN" --backend="$be" "$PROP" -runs="$RUNS" \
