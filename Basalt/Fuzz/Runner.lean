@@ -4,6 +4,7 @@ Released under MIT license as described in the file LICENSE.
 Authors: Michael Hicks
 -/
 import Basalt.Fuzz.Basic
+import Basalt.Fuzz.Choice
 import Basalt.Fuzz.Record
 import Basalt.PBT.Driver
 
@@ -184,6 +185,7 @@ def replay (T : PropM FuzzGen Unit) (path : String) : IO Unit := do
 what we consume must not be forwarded. `bad` collects the ones given malformed. -/
 structure FuzzFlags where
   grow : Bool := false
+  policy : FillPolicy := .fresh
   diag : Diag := {}
   hybrid : Option HybridConfig := none
   bad : Array String := #[]
@@ -200,7 +202,7 @@ private def decimal? (s : String) : Option Float :=
 
 /-- Basalt's flags, each `--name` or `--name=value`. -/
 private def ours : List String :=
-  ["--grow", "--fill", "--trace-probe", "--diag-mutations", "--warmup", "--warmup-stall", "--switch-back", "--level", "--confidence"]
+  ["--grow", "--fill", "--fill-policy", "--trace-probe", "--diag-mutations", "--warmup", "--warmup-stall", "--switch-back", "--level", "--confidence"]
 
 private def isOurs (a : String) : Bool :=
   ours.any fun f => a == f || a.startsWith (f ++ "=")
@@ -220,6 +222,8 @@ def splitFlags (argv : Array String) : FuzzFlags × Array String :=
   let bad := argv.filter (fun a => a.startsWith "--grow=" || a.startsWith "--switch-back=" ||
       a.startsWith "--trace-probe=" || a.startsWith "--diag-mutations=" || a == "--fill") ++
     (if fill.any (fun f => f != "random" && f != "zero") then #["--fill"] else #[]) ++
+    (if (valueOf? argv "--fill-policy").any (fun f => f != "fresh" && f != "simplest")
+     then #["--fill-policy"] else #[]) ++
     #["--warmup", "--warmup-stall", "--level", "--confidence"].filter fun n =>
     (argv.contains n) ||
     (match nat n, dec n with
@@ -253,7 +257,8 @@ def splitFlags (argv : Array String) : FuzzFlags × Array String :=
   let rest := if !long && !rest.any (·.startsWith "-len_control=") then
                 rest.push "-len_control=100"
               else rest
-  ({ grow, diag, hybrid, bad }, rest)
+  let policy := if valueOf? argv "--fill-policy" == some "simplest" then .simplest else .fresh
+  ({ grow, policy, diag, hybrid, bad }, rest)
 
 /-- The value of libFuzzer's `-flag=V`, if given. -/
 private def strFlag? (argv : Array String) (flag : String) : Option String :=
@@ -292,6 +297,108 @@ def fuzzBackend : Backend where
     | some cfg => goHybrid T cfg flags.grow rest flags.diag
     | none => go (T FuzzGen) rest flags.grow none flags.diag
   replay? := some (fun T path => replay (T FuzzGen) path)
+
+/-! ## The choice-sequence backend -/
+
+/-- Hand the C bridge what a `ChoiceFuzz` run did: its realized records and its draws' bounds
+(`ChoiceState`), for the mutator to edit. -/
+@[extern "basalt_choice_note"]
+opaque noteChoiceImpl (realized : @& ByteArray) (bounds : @& ByteArray) : BaseIO Unit
+
+/-- Offer the choice mutator a constant to plant in a draw whose range admits it
+(`harvested_literals%`). -/
+@[extern "basalt_choice_literal"]
+opaque choiceLiteralImpl (n : UInt64) : BaseIO Unit
+
+/-- `runOneIO` for a choice-sequence input. -/
+def runOneChoiceIO (counters : IO.Ref (Nat × Nat)) (T : PropM ChoiceFuzz Unit) (policy : FillPolicy)
+    (bytes : ByteArray) : IO UInt8 := do
+  let r := runChoiceOn T bytes policy
+  noteChoiceImpl r.realized r.bounds
+  match r.outcome with
+  | Except.ok () => counters.modify (fun (runs, discards) => (runs + 1, discards)); pure 0
+  | Except.error .discard => counters.modify (fun (r, d) => (r, d + 1)); pure 2
+  | Except.error (.fail msg) =>
+    counters.modify (fun (runs, discards) => (runs + 1, discards))
+    let (runs, discards) ← counters.get
+    reportFailure msg
+      #[("input bytes", s!"{bytes.toList.map (fun b => b.toNat)}"),
+        ("runs", s!"{runs} ({discards} discarded)"),
+        ("records", s!"{bytes.size} bytes in, {r.realized.size} realized")]
+    pure 1
+
+/-- `runOneRecorded` for the choice backend: a random test is a `ChoiceFuzz` run of no records,
+filled from the campaign's PRNG, and its realized records are the seed, which replays exactly. -/
+def runOneChoiceRandom (counters : IO.Ref (Nat × Nat)) (T : PropM ChoiceFuzz Unit)
+    (gen : IO.Ref SplitMix) (artifactPrefix : String) (_ : ByteArray) : IO UInt8 := do
+  let r := runChoice T ByteArray.empty (← gen.get)
+  gen.set r.fill
+  hybridOfferImpl r.realized
+  match r.outcome with
+  | Except.ok () => counters.modify (fun (runs, discards) => (runs + 1, discards)); pure 0
+  | Except.error .discard => counters.modify (fun (r, d) => (r, d + 1)); pure 2
+  | Except.error (.fail msg) =>
+    counters.modify (fun (runs, discards) => (runs + 1, discards))
+    let (runs, discards) ← counters.get
+    let path := s!"{artifactPrefix}crash-random-{runs + discards}"
+    IO.FS.writeBinFile path r.realized
+    reportFailure msg
+      #[("runs", s!"{runs} ({discards} discarded), failing in a random phase"),
+        ("artifact", path)]
+    pure 1
+
+/-- The bridge's mode bit for a choice-sequence campaign (`Diag.modes` holds the others). -/
+def choiceMode : UInt32 := 8
+
+/-- A choice-sequence campaign: libFuzzer's buffer is a record sequence, and the bridge's mutator
+edits the realized records of the input it mutates. -/
+def goChoice (T : PropM ChoiceFuzz Unit) (argv : Array String) (policy : FillPolicy)
+    (counters? : Option (IO.Ref (Nat × Nat)) := none) : IO Unit := do
+  IO.println s!"[basalt] starting choice-sequence campaign ({argv.toList})"
+  let counters ← match counters? with | some c => pure c | none => IO.mkRef (0, 0)
+  goImpl (runOneChoiceIO counters T policy) argv false choiceMode
+
+/-- `goHybrid` for the choice backend. -/
+def goHybridChoice (T : Property) (cfg : HybridConfig) (argv : Array String) (policy : FillPolicy) :
+    IO Unit := do
+  let budget := (strFlag? argv "-runs=" |>.bind String.toNat?).getD 0
+  IO.println s!"[basalt] hybrid choice-sequence campaign: random first\
+    {if cfg.adaptive then s!", switching when coverage levels off (level={cfg.level})" else ""}"
+  let counters ← IO.mkRef (0, 0)
+  let gen ← IO.mkRef (← SplitMix.newIO)
+  let artifactPrefix := (strFlag? argv "-artifact_prefix=").getD ""
+  hybridConfigImpl (runOneChoiceRandom counters (T ChoiceFuzz) gen artifactPrefix)
+    cfg.firstMax.toUInt64 cfg.minWindow.toUInt64 cfg.level cfg.confidence budget.toUInt64
+    cfg.adaptive cfg.switchBack
+  goChoice (T ChoiceFuzz) argv policy counters
+
+/-- Replay a choice-sequence input. The fill is seeded by the buffer, so it needs no flag; the fill
+policy does (`BASALT_FILL_POLICY=simplest`). -/
+def replayChoice (T : PropM ChoiceFuzz Unit) (path : String) : IO Unit := do
+  let bytes ← IO.FS.readBinFile path
+  let policy := if (← IO.getEnv "BASALT_FILL_POLICY") == some "simplest" then .simplest else .fresh
+  IO.println s!"[basalt] replaying {path} ({bytes.size} bytes) as a choice sequence"
+  let r := runChoiceOn T bytes policy
+  match r.outcome with
+  | Except.ok () => IO.println s!"outcome: pass"
+  | Except.error .discard => IO.println s!"outcome: discard"
+  | Except.error (.fail msg) => reportFailure msg
+
+/-- The choice-sequence backend (`DESIGN-choice-sequences.md`): `fuzz`'s flags, except that
+`--grow` and `--fill` have no meaning here, plus `--fill-policy=fresh|simplest`. -/
+@[basalt_backend]
+def choiceBackend : Backend where
+  name := "choice"
+  campaign T argv :=
+    -- The mutator, not libFuzzer's length ramp, decides how long an input is (`splitFlags`).
+    let argv := if argv.any (·.startsWith "-len_control=") then argv else argv.push "-len_control=0"
+    let argv := if argv.any (·.startsWith "-max_len=") then argv else argv.push "-max_len=65536"
+    let (flags, rest) := splitFlags argv
+    if !flags.bad.isEmpty then usageError s!"malformed: {flags.bad.toList}"
+    else match flags.hybrid with
+    | some cfg => goHybridChoice T cfg rest flags.policy
+    | none => goChoice (T ChoiceFuzz) rest flags.policy
+  replay? := some (fun T path => replayChoice (T ChoiceFuzz) path)
 
 /-- Random `IO` choices, run and coverage-counted by libFuzzer (`goRandom`): the baseline that
 `fuzz`'s coverage is compared against. -/

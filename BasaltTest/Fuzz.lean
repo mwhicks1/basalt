@@ -263,3 +263,78 @@ private def replayMismatches (n : Nat) (seed : UInt64) : Nat := Id.run do
 
 /-- info: 0 -/
 #guard_msgs in #eval IO.println (replayMismatches 500 2026)
+
+/-! ## `ChoiceFuzz`
+
+A record is a kind byte and an LEB128 value; replay is positional, and a record that does not fit
+its draw, like a draw past the end, takes the fill. These pin the decoding, that every value is in
+the draw's range whatever the buffer, and that a run's realized records replay it exactly — which
+is what the mutator edits and what a random phase seeds the corpus with. -/
+
+/-- The values a choice run of `propTwo`-style draws produced, and whether each came from a record. -/
+private def propPair [Gen G] : PropM G Unit := do
+  let x ← generate (chooseNat 0 9)
+  let y ← generate (chooseNat 100 300)
+  check false s!"{x} {y}"
+
+/- `[1, 7, 1, 172, 1]`: two `.nat` records, `7` and `172` (LEB128 `0xAC 0x01`). -/
+/-- info: fail: 7 172 -/
+#guard_msgs in #eval IO.println (renderOutcome (runChoiceOn propPair (bytes [1, 7, 1, 172, 1])).outcome)
+
+/- A record out of its draw's range (`20` for `[0, 9]`) is replaced by the fill, and the next record
+is still read at the next draw: replay is positional. -/
+/-- info: true -/
+#guard_msgs in #eval IO.println <|
+  let r := runChoiceOn propPair (bytes [1, 20, 1, 172, 1])
+  (renderOutcome r.outcome).endsWith " 172" && renderOutcome r.outcome != "fail: 20 172"
+
+/- The realized records of a run replay it exactly, fill values included, with no fill used. -/
+/-- info: true -/
+#guard_msgs in #eval IO.println <|
+  let r := runChoiceOn propPair (bytes [1, 20])
+  let r' := runChoiceOn propPair r.realized
+  renderOutcome r.outcome == renderOutcome r'.outcome && r.realized == r'.realized &&
+    r'.bounds.get! 0 == 0
+
+/-- Draws whose ranges depend on earlier values, checked in range: the support rule. -/
+private def propInRange [Gen G] : PropM G Unit := do
+  let x ← generate (chooseNat 0 100)
+  let y ← generate (chooseNat x (x + 5))
+  let z ← generate (chooseInt (-3) 3)
+  check (x ≤ 100 && x ≤ y && y ≤ x + 5 && -3 ≤ z && z ≤ 3) s!"out of range: {x} {y} {z}"
+
+/-- Of `n` random buffers, how many give a value outside its draw's range, or whose realized
+records do not replay them. -/
+private def choiceMismatches (n : Nat) (seed : UInt64) : Nat := Id.run do
+  let mut g := SplitMix.ofSeed seed
+  let mut bad := 0
+  for _ in [0:n] do
+    let (len, g1) := g.randNat 0 40
+    let mut b := ByteArray.empty
+    let mut g2 := g1
+    for _ in [0:len] do
+      let (x, g3) := g2.randNat 0 255
+      b := b.push (if x < 128 then 1 else x.toUInt8)
+      g2 := g3
+    g := g2
+    let r := runChoiceOn propRecorded b
+    let r' := runChoiceOn propRecorded r.realized
+    if renderOutcome r.outcome != renderOutcome r'.outcome || r.realized != r'.realized ||
+        renderOutcome (runChoiceOn propInRange b).outcome != "pass" then
+      bad := bad + 1
+  return bad
+
+/-- info: 0 -/
+#guard_msgs in #eval IO.println (choiceMismatches 300 7)
+
+/- A random phase's run (no records, the campaign's PRNG) replays from its realized records. -/
+/-- info: 0 -/
+#guard_msgs in #eval IO.println <| Id.run do
+  let mut g := SplitMix.ofSeed 99
+  let mut bad := 0
+  for _ in [0:200] do
+    let r := runChoice propRecorded ByteArray.empty g
+    g := r.fill
+    if renderOutcome (runChoiceOn propRecorded r.realized).outcome != renderOutcome r.outcome then
+      bad := bad + 1
+  return bad

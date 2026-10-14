@@ -153,9 +153,22 @@ fi
 # weak reference on Linux — so nothing in the link *references* it and it must be kept and exported
 # explicitly. The check after the link is what catches a spelling that stops doing that.
 if [ "$UNAME" = "Darwin" ]; then
-  EXPORT_FLAGS="-Wl,-exported_symbol,_LLVMFuzzerCustomMutator"
+  EXPORT_FLAGS="-Wl,-exported_symbol,_LLVMFuzzerCustomMutator -Wl,-exported_symbol,_LLVMFuzzerCustomCrossOver"
 else
   EXPORT_FLAGS="-Wl,--export-dynamic"
+fi
+
+# The choice backend's constant pool (Basalt/Fuzz/native.c) reads the instrumented code's comparison
+# operands by wrapping the runtime's `trace-cmp` hooks, which needs GNU ld's `--wrap`; without it
+# (macOS) the pool stays empty and the `const` operator never fires.
+if [ "$UNAME" = "Darwin" ]; then
+  CMP_WRAP_DEFINE=""; WRAP_FLAGS=""
+else
+  CMP_WRAP_DEFINE="-DBASALT_CMP_WRAP"
+  WRAP_FLAGS=""
+  for h in cmp8 const_cmp8 cmp4 const_cmp4; do
+    WRAP_FLAGS="$WRAP_FLAGS -Wl,--wrap=__sanitizer_cov_trace_$h"
+  done
 fi
 
 # Which driver symbol the bridge calls. LLVM >= 12 has the stable C entry `LLVMFuzzerRunDriver`;
@@ -179,7 +192,7 @@ echo "== platform: $UNAME; cc: $CC; runtime: $FUZZER_LIB_FLAGS ${DRIVER_DEFINE:+
 # ---------------------------------------------------------------------------------------------
 echo "== compile the C bridge =="
 # shellcheck disable=SC2086   # flag strings: the split into words is the point
-$CC -O1 $BRIDGE_INCLUDES $DRIVER_DEFINE -c Basalt/Fuzz/native.c -o "$OUT/native.o"
+$CC -O1 $BRIDGE_INCLUDES $DRIVER_DEFINE $CMP_WRAP_DEFINE -c Basalt/Fuzz/native.c -o "$OUT/native.o"
 EXTRA_OBJS=("$OUT/native.o")
 
 # On glibc >= 2.38 (Ubuntu 24.04, etc.) the runtime references `__isoc23_strtol`/`_strtoul` that
@@ -202,7 +215,7 @@ fi
 echo "== write link.rsp =="
 : > "$OUT/link.rsp"
 # shellcheck disable=SC2086   # flag strings: the split into words is the point
-for a in "${EXTRA_OBJS[@]}" $FUZZER_LIB_FLAGS $CXXLIB_FLAGS $EXPORT_FLAGS; do
+for a in "${EXTRA_OBJS[@]}" $FUZZER_LIB_FLAGS $CXXLIB_FLAGS $EXPORT_FLAGS $WRAP_FLAGS; do
   printf '"%s"\n' "$a" >> "$OUT/link.rsp"
 done
 
@@ -270,6 +283,8 @@ done < <(grep -o '"[^"]*\.c\.o\.export"' "$LAKE_RSP" | tr -d '"')
 # pipe, so `nm` on a large binary gets SIGPIPE and the pipeline reports failure despite a match.
 [ "$(nm -g "$EXE" 2>/dev/null | grep -c 'T _\?LLVMFuzzerCustomMutator$' || true)" -gt 0 ] \
   || die "LLVMFuzzerCustomMutator is not exported: --grow would silently do nothing"
+[ "$(nm -g "$EXE" 2>/dev/null | grep -c 'T _\?LLVMFuzzerCustomCrossOver$' || true)" -gt 0 ] \
+  || die "LLVMFuzzerCustomCrossOver is not exported: the choice backend would never recombine"
 
 # The committed entry point stays `fuzz-run/basalt-fuzz`, which every caller (CI, compare-*.sh) uses.
 cp "$EXE" fuzz-run/basalt-fuzz

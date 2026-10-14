@@ -41,7 +41,7 @@ xargs -P "$JOBS" -L 1 bash -c 'run_one "$0" "$1"' < "$jobs_file"
 
 series=()
 for arm in $ARMS; do
-  case $arm in random*) be=io-libfuzzer ;; *) be=fuzz ;; esac
+  case $arm in random*) be=io-libfuzzer ;; choice*) be=choice ;; *) be=fuzz ;; esac
   series+=("$arm=$OUT/$arm:$be")
 done
 python3 fuzz-run/coverage-curves.py --linear "$OUT/curves-linear.html" "${series[@]}" > /dev/null

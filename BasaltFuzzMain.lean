@@ -4,6 +4,7 @@ Released under MIT license as described in the file LICENSE.
 Authors: Michael Hicks
 -/
 import Basalt.Combinators
+import Basalt.Fuzz.Literals
 import Basalt.Fuzz.Runner
 import BasaltFuzz.BuggyBST
 import BasaltFuzz.Cedar.Gen
@@ -46,9 +47,10 @@ def cedarProperties : List (String × Property) :=
 
 /-- The property registry, selected by the first non-flag CLI argument. `bst-*` are the worked BST
 demo (`BasaltFuzz/BuggyBST.lean`): the `-buggy-*` ones have real bugs every backend can find,
-and the others must never fail. `chain-*` and `long-*` are the staged microbenchmarks
+and the others must never fail. `chain-*`, `long-*` and `needle-*` are the staged microbenchmarks
 (`BasaltFuzz/Staged.lean`), the one place the backends differ by orders of magnitude;
-`long-*` is the one whose difficulty is buffer length, so it is where `--grow` is measured.
+`long-*` is the one whose difficulty is buffer length, so it is where `--grow` is measured, and
+`needle-*` the one only a planted comparison constant solves.
 
 Each entry is a `Property`, so one registry serves every backend; `fun _ =>` is the explicit `G`
 binder it asks for. -/
@@ -66,12 +68,17 @@ def properties : List (String × Property) :=
     ("chain-4",              fun _ => Staged.propChain 4),
     ("long-16",              fun _ => Staged.propLong 16),
     ("long-32",              fun _ => Staged.propLong 32),
-    ("long-64",              fun _ => Staged.propLong 64) ] : List (String × Property))
+    ("long-64",              fun _ => Staged.propLong 64),
+    ("needle",               fun _ => Staged.propNeedle 1),
+    ("needle-2",             fun _ => Staged.propNeedle 2) ] : List (String × Property))
     ++ cedarProperties
 
 /-- `dispatch`'s default backend is the first one registered, which is `io` — Basalt's own backends
 are registered by the import. This executable is a fuzzer, so it moves `fuzzBackend` to the front
-rather than listing the backends: anything else tagged `@[basalt_backend]` is still offered. -/
-def main (args : List String) : IO Unit :=
+rather than listing the backends: anything else tagged `@[basalt_backend]` is still offered. The
+targets' literals go to the choice backend's constant pool first. -/
+def main (args : List String) : IO Unit := do
+  for n in harvested_literals% Staged BuggyBST CedarGen CedarWide CedarTyped do
+    choiceLiteralImpl n.toUInt64
   let (fuzz, others) := (registered_backends% : List Backend).partition (·.name == fuzzBackend.name)
   dispatch "basalt-fuzz" properties args (fuzz ++ others)

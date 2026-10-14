@@ -162,13 +162,25 @@ static void basalt_fuzz_report_stats(void) {
 static size_t basalt_hybrid_mutate(uint8_t *Data, size_t Size, size_t MaxSize);
 
 static void basalt_diag_parent(const uint8_t *Data, size_t Size, int seeded);
+static void *basalt_grow_buf(void *p, size_t *cap, size_t need, size_t elt);
+static int g_choice;                   /* a choice-sequence campaign (`--backend=choice`)        */
+static int g_ch_seeded;                /* the input now running is a queued hybrid seed          */
+static size_t basalt_choice_mutate(const uint8_t *Data, size_t Size, const uint8_t *Donor,
+                                   size_t DSize, uint8_t *Out, size_t MaxSize, unsigned Seed);
 
 __attribute__((visibility("default")))
 size_t LLVMFuzzerCustomMutator(uint8_t *Data, size_t Size, size_t MaxSize, unsigned Seed) {
   (void)Seed;
   size_t hybrid = basalt_hybrid_mutate(Data, Size, MaxSize);
   basalt_diag_parent(Data, Size, hybrid != 0);
+  g_ch_seeded = hybrid != 0;
   if (hybrid) return hybrid;
+  if (g_choice) {
+    static uint8_t *in; static size_t incap;
+    in = basalt_grow_buf(in, &incap, Size ? Size : 1, 1);
+    memcpy(in, Data, Size);
+    return basalt_choice_mutate(in, Size, NULL, 0, Data, MaxSize, Seed);
+  }
   size_t want = g_last_run_deficit;
   if (g_grow && want && basalt_fuzz_slot_matches(Data, Size)) {
     g_last_run_deficit = 0;                          /* one growth per observation                  */
@@ -610,7 +622,11 @@ typedef struct {
   size_t    n;
   uint8_t  *buf;
   size_t    size;
+  uint8_t  *rz, *bd;          /* a choice campaign's trace: realized records, and bounds          */
+  size_t    rzn, bdn;
 } basalt_tentry;
+
+static struct { uint8_t *rz, *bd; size_t rzn, bdn, rzcap, bdcap; } g_ch;   /* the last run's        */
 
 static struct {
   basalt_tentry *e;
@@ -648,14 +664,22 @@ static void basalt_tc_put(const uint8_t *d, size_t size) {
   size_t j = key & (g_tc.cap - 1);
   while (g_tc.e[j].key) j = (j + 1) & (g_tc.cap - 1);
   basalt_tentry *e = &g_tc.e[j];
-  e->w = malloc((g_tr.n ? g_tr.n : 1) * sizeof *e->w);
+  size_t n = g_choice ? 0 : g_tr.n;
+  e->w = malloc((n ? n : 1) * sizeof *e->w);
   e->buf = malloc(size ? size : 1);
   if (!e->w || !e->buf) basalt_fuzz_die("out of memory caching traces");
-  memcpy(e->w, g_tr.w, g_tr.n * sizeof *e->w);
+  memcpy(e->w, g_tr.w, n * sizeof *e->w);
   memcpy(e->buf, d, size);
-  e->key = key; e->n = g_tr.n; e->size = size; e->cursor = g_tr.cursor; e->run = g_run_idx;
+  if (g_choice) {
+    e->rz = malloc(g_ch.rzn ? g_ch.rzn : 1);
+    e->bd = malloc(g_ch.bdn ? g_ch.bdn : 1);
+    if (!e->rz || !e->bd) basalt_fuzz_die("out of memory caching traces");
+    memcpy(e->rz, g_ch.rz, g_ch.rzn); memcpy(e->bd, g_ch.bd, g_ch.bdn);
+    e->rzn = g_ch.rzn; e->bdn = g_ch.bdn;
+  }
+  e->key = key; e->n = n; e->size = size; e->cursor = g_tr.cursor; e->run = g_run_idx;
   g_tc.n++;
-  g_tc.bytes += g_tr.n * sizeof *e->w + size + sizeof *e;
+  g_tc.bytes += n * sizeof *e->w + size + sizeof *e + e->rzn + e->bdn;
 }
 
 enum { PAR_NONE = 0, PAR_OK, PAR_MISS, PAR_SEED };
@@ -758,6 +782,507 @@ static void basalt_trace_report(void) {
           (double)g_tc.bytes / 1e6, (unsigned long long)g_tc.lookups, (unsigned long long)g_tc.misses);
 }
 
+/* ---------------------------------------------------------------------------------------------
+   Choice-sequence campaigns (`--backend=choice`)
+
+   The buffer is a sequence of records, a kind byte and an LEB128 value (`Basalt.Fuzz.ChoiceFuzz`).
+   Each run hands back its realized records and its draws' bounds (`basalt_choice_note`); the mutator
+   finds the trace of the input it is given — the last run's, or the cache's for a corpus unit — and
+   edits the *realized* records, so the fill values a run drew become ordinary records the next edit
+   keeps. Operators are chosen by a bandit rewarded by new features. DESIGN-choice-sequences.md §3
+   gives the design; `BASALT_CHOICE_OPS` (a comma list of operator names) restricts the operators and
+   `BASALT_CHOICE_BANDIT=0` makes the choice uniform.
+   --------------------------------------------------------------------------------------------- */
+
+LEAN_EXPORT lean_object *basalt_choice_note(b_lean_obj_arg rz, b_lean_obj_arg bd) {
+  size_t rn = lean_sarray_size(rz), bn = lean_sarray_size(bd);
+  g_ch.rz = basalt_grow_buf(g_ch.rz, &g_ch.rzcap, rn, 1);
+  g_ch.bd = basalt_grow_buf(g_ch.bd, &g_ch.bdcap, bn, 1);
+  memcpy(g_ch.rz, lean_sarray_cptr(rz), rn); g_ch.rzn = rn;
+  memcpy(g_ch.bd, lean_sarray_cptr(bd), bn); g_ch.bdn = bn;
+  return lean_box(0);
+}
+
+/* A record as the mutator sees it. A value or bound too wide for 64 bits is kept as its raw bytes
+   and only ever copied. */
+typedef struct {
+  uint8_t kind, fill, wide, known;     /* `known`: the bounds came from a trace                    */
+  uint64_t lo, hi, v;
+  const uint8_t *raw; uint32_t rawlen; /* the record's bytes, kind included                       */
+} crec;
+
+typedef struct { crec *r; size_t n, cap; } crecs;
+
+static int basalt_leb(const uint8_t *b, size_t n, size_t *i, uint64_t *out, int *wide) {
+  uint64_t v = 0; int shift = 0; *wide = 0;
+  while (*i < n) {
+    uint8_t x = b[(*i)++];
+    if (shift < 63 || (shift == 63 && (x & 0x7f) <= 1)) v |= (uint64_t)(x & 0x7f) << shift;
+    else *wide = 1;
+    shift += 7;
+    if (x < 128) { *out = v; return 1; }
+  }
+  return 0;
+}
+
+static void crecs_push(crecs *a, crec r) {
+  a->r = basalt_grow_buf(a->r, &a->cap, a->n + 1, sizeof *a->r);
+  a->r[a->n++] = r;
+}
+
+/* Records of `rz`, with bounds from `bd` if given (`bd == NULL`: unknown). As `parseRecords`. */
+static void basalt_parse(crecs *a, const uint8_t *rz, size_t rn, const uint8_t *bd, size_t bn) {
+  a->n = 0;
+  size_t i = 0, j = 0;
+  while (i < rn) {
+    size_t start = i;
+    crec r = {0};
+    r.kind = rz[i++];
+    if (r.kind != 1) break;
+    int wide;
+    if (!basalt_leb(rz, rn, &i, &r.v, &wide)) break;
+    r.wide = (uint8_t)wide;
+    r.raw = rz + start; r.rawlen = (uint32_t)(i - start);
+    r.lo = 0; r.hi = UINT64_MAX;
+    if (bd && j < bn) {
+      int w1 = 0, w2 = 0;
+      r.fill = bd[j++] & 1;
+      if (basalt_leb(bd, bn, &j, &r.lo, &w1) && basalt_leb(bd, bn, &j, &r.hi, &w2)) {
+        r.known = 1;
+        if (w1 || w2) r.wide = 1;
+      }
+    }
+    crecs_push(a, r);
+  }
+}
+
+static size_t basalt_put_leb(uint8_t *o, size_t cap, size_t at, uint64_t v) {
+  do {
+    if (at >= cap) return SIZE_MAX;
+    uint8_t x = v & 0x7f; v >>= 7;
+    o[at++] = v ? (uint8_t)(x | 0x80) : x;
+  } while (v);
+  return at;
+}
+
+/* Encode records into `o`, stopping at the last record that fits. */
+static size_t basalt_encode(const crecs *a, uint8_t *o, size_t cap) {
+  size_t at = 0;
+  for (size_t k = 0; k < a->n; k++) {
+    const crec *r = &a->r[k];
+    size_t next;
+    if (r->wide) {
+      if (at + r->rawlen > cap) break;
+      memcpy(o + at, r->raw, r->rawlen); next = at + r->rawlen;
+    } else {
+      if (at >= cap) break;
+      o[at] = r->kind;
+      next = basalt_put_leb(o, cap, at + 1, r->v);
+      if (next == SIZE_MAX) break;
+    }
+    at = next;
+  }
+  return at;
+}
+
+static uint64_t g_crng = 0x853c49e6748fea9bULL;
+static inline uint64_t crand(void) {
+  g_crng += 0x9e3779b97f4a7c15ULL;
+  return basalt_mix64(g_crng);
+}
+static inline uint64_t crand_below(uint64_t n) { return n ? crand() % n : 0; }
+/* A uniform value in [lo, hi]. */
+static inline uint64_t crand_in(uint64_t lo, uint64_t hi) {
+  uint64_t span = hi - lo;
+  return span == UINT64_MAX ? crand() : lo + crand_below(span + 1);
+}
+/* A length: 1 with probability 1/2, 2 with 1/4, … */
+static inline size_t crand_geom(size_t max) {
+  size_t k = 1;
+  while (k < max && (crand() & 1)) k++;
+  return k;
+}
+
+/* Comparison operands, from the instrumented code's `trace-cmp` hooks (linked with `--wrap`, so the
+   runtime's own hooks still run). A Lean scalar arrives tagged (`2n+1`), so an odd operand is also
+   offered untagged. A direct-mapped table: recent operands evict colliding older ones. */
+#define BASALT_POOL 1024
+static uint64_t g_pool[BASALT_POOL];
+static uint8_t  g_pool_used[BASALT_POOL];
+static size_t   g_pool_n;
+static inline void basalt_pool_add(uint64_t x) {
+  size_t i = basalt_mix64(x) & (BASALT_POOL - 1);
+  if (!g_pool_used[i]) { g_pool_used[i] = 1; g_pool_n++; }
+  g_pool[i] = x;
+}
+static inline void basalt_pool_cmp(uint64_t a, uint64_t b, int konst) {
+  if (!g_choice) return;
+  if (a & 1) basalt_pool_add(a >> 1);
+  if (!konst && (b & 1)) basalt_pool_add(b >> 1);
+  basalt_pool_add(a);
+  if (!konst) basalt_pool_add(b);
+}
+/* The targets' own literals (`harvested_literals%`), offered alongside the comparison operands. */
+static uint64_t *g_lits;
+static size_t g_lits_n, g_lits_cap;
+LEAN_EXPORT lean_object *basalt_choice_literal(uint64_t n) {
+  g_lits = basalt_grow_buf(g_lits, &g_lits_cap, g_lits_n + 1, sizeof *g_lits);
+  g_lits[g_lits_n++] = n;
+  return lean_box(0);
+}
+
+#ifdef BASALT_CMP_WRAP
+extern void __real___sanitizer_cov_trace_cmp8(uint64_t, uint64_t);
+extern void __real___sanitizer_cov_trace_const_cmp8(uint64_t, uint64_t);
+extern void __real___sanitizer_cov_trace_cmp4(uint32_t, uint32_t);
+extern void __real___sanitizer_cov_trace_const_cmp4(uint32_t, uint32_t);
+void __wrap___sanitizer_cov_trace_cmp8(uint64_t a, uint64_t b) {
+  basalt_pool_cmp(a, b, 0); __real___sanitizer_cov_trace_cmp8(a, b);
+}
+void __wrap___sanitizer_cov_trace_const_cmp8(uint64_t a, uint64_t b) {
+  basalt_pool_cmp(a, b, 1); __real___sanitizer_cov_trace_const_cmp8(a, b);
+}
+void __wrap___sanitizer_cov_trace_cmp4(uint32_t a, uint32_t b) {
+  basalt_pool_cmp(a, b, 0); __real___sanitizer_cov_trace_cmp4(a, b);
+}
+void __wrap___sanitizer_cov_trace_const_cmp4(uint32_t a, uint32_t b) {
+  basalt_pool_cmp(a, b, 1); __real___sanitizer_cov_trace_const_cmp4(a, b);
+}
+#endif
+
+enum { OP_RAND, OP_DELTA, OP_BOUND, OP_BITS, OP_CONST, OP_TRUNC, OP_RANDRUN, OP_DELETE, OP_DUP,
+       OP_HAVOC, OP_SPLICE, OP_INSERT, OP_CROSS, OP_N };
+static const char *g_op_name[OP_N] = {"rand", "delta", "bound", "bits", "const", "trunc", "randrun",
+                                      "delete", "dup", "havoc", "splice", "insert", "cross"};
+static struct {
+  int on[OP_N], bandit, init;
+  uint64_t n[OP_N], wins[OP_N], fails[OP_N];
+  int pending;                       /* the operator that made the input now running, or -1       */
+  uint64_t misses, lookups, mutations, noops;
+} g_cops;
+
+static void basalt_cops_init(void) {
+  g_cops.init = 1;
+  g_cops.pending = -1;
+  const char *ops = getenv("BASALT_CHOICE_OPS");
+  for (int i = 0; i < OP_N; i++) g_cops.on[i] = ops == NULL;
+  if (ops) {
+    char buf[512]; snprintf(buf, sizeof buf, "%s", ops);
+    for (char *t = strtok(buf, ","); t; t = strtok(NULL, ","))
+      for (int i = 0; i < OP_N; i++) if (!strcmp(t, g_op_name[i])) g_cops.on[i] = 1;
+  }
+  const char *b = getenv("BASALT_CHOICE_BANDIT");
+  g_cops.bandit = !(b && !strcmp(b, "0"));
+}
+
+/* Pick an operator: in proportion to its smoothed success rate (prior: one win in 100), with a
+   tenth of the picks uniform so no operator starves. */
+static int basalt_pick_op(int have_donor, int know_bounds) {
+  double w[OP_N], tot = 0;
+  for (int i = 0; i < OP_N; i++) {
+    int ok = g_cops.on[i] && (have_donor || i < OP_SPLICE) &&
+             (know_bounds || i == OP_TRUNC || i == OP_DELETE || i == OP_DUP || i >= OP_SPLICE);
+    w[i] = ok ? (g_cops.bandit ? (g_cops.wins[i] + 1.0) / (g_cops.n[i] + 100.0) : 1.0) : 0;
+    tot += w[i];
+  }
+  if (tot == 0) return OP_TRUNC;
+  int uniform = g_cops.bandit && crand_below(10) == 0;
+  if (uniform) {
+    int k = 0, cand[OP_N];
+    for (int i = 0; i < OP_N; i++) if (w[i] > 0) cand[k++] = i;
+    return cand[crand_below(k)];
+  }
+  double x = (double)(crand() >> 11) / 9007199254740992.0 * tot;
+  for (int i = 0; i < OP_N; i++) { if (x < w[i]) return i; x -= w[i]; }
+  return OP_TRUNC;
+}
+
+/* A record whose value an operator can change, or -1. */
+static long basalt_pick_value(const crecs *a) {
+  if (!a->n) return -1;
+  for (int t = 0; t < 16; t++) {
+    size_t k = crand_below(a->n);
+    if (!a->r[k].wide && a->r[k].known && a->r[k].hi > a->r[k].lo) return (long)k;
+  }
+  for (size_t k = 0; k < a->n; k++)
+    if (!a->r[k].wide && a->r[k].known && a->r[k].hi > a->r[k].lo) return (long)k;
+  return -1;
+}
+
+static int basalt_set(crec *r, uint64_t v) {
+  if (v == r->v) return 0;
+  r->v = v; r->fill = 0;
+  return 1;
+}
+
+static int basalt_value_op(crecs *a, int op);
+
+/* One operator on `a`, using `d` as the donor where it needs one. Returns whether it changed `a`. */
+static crecs g_tmp;
+static int basalt_apply_op(crecs *a, const crecs *d, int op) {
+  size_t n = a->n;
+  switch (op) {
+  case OP_RAND: case OP_DELTA: case OP_BOUND: case OP_BITS: case OP_CONST:
+    return basalt_value_op(a, op);
+  case OP_TRUNC: {                       /* keep a prefix; the rest is drawn afresh                */
+    if (!n) return 0;
+    a->n = crand_below(n);
+    return 1;
+  }
+  case OP_RANDRUN: {                     /* redraw a run of values within their bounds             */
+    if (!n) return 0;
+    size_t k = crand_below(n), m = crand_geom(n - k), changed = 0;
+    for (size_t i = k; i < k + m; i++) {
+      crec *r = &a->r[i];
+      if (r->wide || !r->known) continue;
+      changed |= basalt_set(r, crand_in(r->lo, r->hi));
+    }
+    return changed != 0;
+  }
+  case OP_DELETE: {                      /* drop a run of records; what follows shifts up          */
+    if (!n) return 0;
+    size_t k = crand_below(n), m = crand_geom(n - k);
+    memmove(a->r + k, a->r + k + m, (n - k - m) * sizeof *a->r);
+    a->n -= m;
+    return 1;
+  }
+  case OP_DUP: {                         /* repeat a run of records after itself                   */
+    if (!n) return 0;
+    size_t k = crand_below(n), m = crand_geom(n - k);
+    g_tmp.n = 0;
+    for (size_t i = 0; i < k + m; i++) crecs_push(&g_tmp, a->r[i]);
+    for (size_t i = k; i < n; i++) crecs_push(&g_tmp, a->r[i]);
+    a->n = 0;
+    for (size_t i = 0; i < g_tmp.n; i++) crecs_push(a, g_tmp.r[i]);
+    return 1;
+  }
+  case OP_HAVOC: {                       /* several of the above at once                           */
+    int k = 2 + (int)crand_below(5), changed = 0;
+    for (int i = 0; i < k; i++) {
+      static const int sub[] = {OP_RAND, OP_DELTA, OP_BOUND, OP_RANDRUN, OP_DELETE, OP_DUP};
+      changed |= basalt_apply_op(a, d, sub[crand_below(6)]);
+    }
+    return changed;
+  }
+  case OP_SPLICE: {                      /* overwrite a run with a donor's, value by value, where
+                                            the donor's values are permitted by these bounds       */
+    if (!n || !d->n) return 0;
+    for (int t = 0; t < 8; t++) {
+      size_t i = crand_below(n), j = crand_below(d->n);
+      size_t m = crand_geom(n - i < d->n - j ? n - i : d->n - j);
+      int fits = 1, diff = 0;
+      for (size_t q = 0; q < m && fits; q++) {
+        const crec *x = &a->r[i + q], *y = &d->r[j + q];
+        if (y->wide || x->wide || (x->known && (y->v < x->lo || y->v > x->hi))) fits = 0;
+        diff |= x->v != y->v;
+      }
+      if (!fits || !diff) continue;
+      for (size_t q = 0; q < m; q++) { a->r[i + q].v = d->r[j + q].v; a->r[i + q].fill = 0; }
+      return 1;
+    }
+    return 0;
+  }
+  case OP_INSERT: {                      /* insert a run of a donor's records                      */
+    if (!d->n) return 0;
+    size_t i = crand_below(n + 1), j = crand_below(d->n), m = crand_geom(d->n - j);
+    g_tmp.n = 0;
+    for (size_t q = 0; q < i; q++) crecs_push(&g_tmp, a->r[q]);
+    for (size_t q = 0; q < m; q++) crecs_push(&g_tmp, d->r[j + q]);
+    for (size_t q = i; q < n; q++) crecs_push(&g_tmp, a->r[q]);
+    a->n = 0;
+    for (size_t q = 0; q < g_tmp.n; q++) crecs_push(a, g_tmp.r[q]);
+    return 1;
+  }
+  case OP_CROSS: {                       /* this input's prefix, then a donor's suffix             */
+    if (!d->n) return 0;
+    size_t i = crand_below(n + 1), j = crand_below(d->n);
+    a->n = i;
+    for (size_t q = j; q < d->n; q++) crecs_push(a, d->r[q]);
+    return 1;
+  }
+  }
+  return 0;
+}
+
+static int basalt_value_op(crecs *a, int op) {
+  long k = basalt_pick_value(a);
+  if (k < 0) return 0;
+  crec *r = &a->r[k];
+  uint64_t lo = r->lo, hi = r->hi, span = hi - lo;
+  switch (op) {
+  case OP_RAND:
+    for (int t = 0; t < 4; t++) if (basalt_set(r, crand_in(lo, hi))) return 1;
+    return 0;
+  case OP_DELTA: {
+    uint64_t d = 1;
+    while (d < span && (crand() & 1)) d <<= 1;
+    d = 1 + crand_below(d);
+    uint64_t v = r->v;
+    if (crand() & 1) v = (hi - v < d) ? hi : v + d;
+    else v = (v - lo < d) ? lo : v - d;
+    return basalt_set(r, v);
+  }
+  case OP_BOUND: {
+    uint64_t c[5] = {lo, hi, lo + 1, hi - 1, 0};
+    for (int t = 0; t < 4; t++) {
+      uint64_t v = c[crand_below(5)];
+      if (v >= lo && v <= hi && basalt_set(r, v)) return 1;
+    }
+    return 0;
+  }
+  case OP_BITS: {
+    int bits = 0;
+    while (bits < 64 && (span >> bits)) bits++;
+    uint64_t off = (r->v - lo) ^ (1ULL << crand_below(bits ? bits : 1));
+    if (off > span) off %= span + 1;
+    return basalt_set(r, lo + off);
+  }
+  case OP_CONST: {
+    if (g_lits_n && (!g_pool_n || (crand() & 1))) {   /* a literal, half the time            */
+      size_t start = crand_below(g_lits_n);
+      for (size_t q = 0; q < g_lits_n; q++) {
+        uint64_t c = g_lits[(start + q) % g_lits_n];
+        if (c >= lo && c <= hi && c != r->v) { r->v = c; r->fill = 0; return 1; }
+      }
+    }
+    if (!g_pool_n) return 0;
+    size_t start = crand_below(BASALT_POOL);
+    for (size_t q = 0; q < BASALT_POOL; q++) {
+      size_t i = (start + q) & (BASALT_POOL - 1);
+      if (g_pool_used[i] && g_pool[i] >= lo && g_pool[i] <= hi && g_pool[i] != r->v) {
+        r->v = g_pool[i]; r->fill = 0;
+        return 1;
+      }
+    }
+    return 0;
+  }
+  }
+  return 0;
+}
+
+static crecs g_cw, g_cd;
+
+/* The trace of `Data`: the last run's, or the cache's. 0 if unknown. */
+static int basalt_choice_trace(const uint8_t *Data, size_t Size, const uint8_t **rz, size_t *rn,
+                               const uint8_t **bd, size_t *bn) {
+  if (g_last.run && Size == g_last.size && (!Size || memcmp(Data, g_last.buf, Size) == 0)) {
+    *rz = g_ch.rz; *rn = g_ch.rzn; *bd = g_ch.bd; *bn = g_ch.bdn;
+    return 1;
+  }
+  basalt_tentry *e = basalt_tc_find(basalt_hash_buf(Data, Size), Data, Size);
+  if (!e) return 0;
+  *rz = e->rz; *rn = e->rzn; *bd = e->bd; *bn = e->bdn;
+  return 1;
+}
+
+/* Load a donor's records into `g_cd`: `Donor` if given, else a random cached input. */
+static int basalt_load_donor(const uint8_t *Donor, size_t DSize) {
+  const uint8_t *rz, *bd; size_t rn, bn;
+  if (Donor) {
+    if (basalt_choice_trace(Donor, DSize, &rz, &rn, &bd, &bn)) basalt_parse(&g_cd, rz, rn, bd, bn);
+    else basalt_parse(&g_cd, Donor, DSize, NULL, 0);
+    return g_cd.n > 0;
+  }
+  if (!g_tc.n) return 0;
+  for (int t = 0; t < 8; t++) {
+    basalt_tentry *e = &g_tc.e[crand_below(g_tc.cap)];
+    if (e->key) { basalt_parse(&g_cd, e->rz, e->rzn, e->bd, e->bdn); return g_cd.n > 0; }
+  }
+  return 0;
+}
+
+/* The choice mutator: materialize `Data`'s realized records, apply one operator, write `Out`. */
+static size_t basalt_choice_mutate(const uint8_t *Data, size_t Size, const uint8_t *Donor,
+                                   size_t DSize, uint8_t *Out, size_t MaxSize, unsigned Seed) {
+  if (!g_cops.init) basalt_cops_init();
+  g_crng ^= (uint64_t)Seed << 32;
+  const uint8_t *rz, *bd; size_t rn, bn;
+  g_cops.lookups++;
+  int known = basalt_choice_trace(Data, Size, &rz, &rn, &bd, &bn);
+  if (known) basalt_parse(&g_cw, rz, rn, bd, bn);
+  else { g_cops.misses++; basalt_parse(&g_cw, Data, Size, NULL, 0); }
+  int have_donor = basalt_load_donor(Donor, DSize);
+  for (int t = 0; t < 8; t++) {
+    int op = basalt_pick_op(have_donor, known);
+    crecs save = g_cw;                   /* a failed operator must leave `g_cw` as it was          */
+    static crecs back;
+    back.n = 0;
+    for (size_t i = 0; i < save.n; i++) crecs_push(&back, save.r[i]);
+    if (basalt_apply_op(&g_cw, &g_cd, op)) {
+      size_t n = basalt_encode(&g_cw, Out, MaxSize);
+      if (n == 0 && Size == 0) { g_cops.fails[op]++; continue; }
+      g_cops.pending = op;
+      g_cops.mutations++;
+      if (n) return n;
+      Out[0] = 0;                        /* an empty record list as a lone 0 byte, which parses to
+                                            no records: libFuzzer discards a mutation of size 0   */
+      return 1;
+    }
+    g_cops.fails[op]++;
+    g_cw.n = 0;
+    for (size_t i = 0; i < back.n; i++) crecs_push(&g_cw, back.r[i]);
+  }
+  g_cops.noops++;
+  for (size_t i = 0; i < 8 && i < MaxSize; i++) Out[i] = (uint8_t)crand();
+  g_cops.pending = -1;
+  return MaxSize < 8 ? MaxSize : 8;
+}
+
+/* After a choice run: reward the operator that made it, keep the trace of a run that reached a new
+   feature (or was a queued seed, whose features the random phase already counted), and remember the
+   run as the last one. */
+static uint32_t *g_smallest;           /* per feature, the size of the smallest input reaching it  */
+static void basalt_choice_after(const uint8_t *Data, size_t Size, size_t fresh, size_t nf) {
+  /* libFuzzer also admits an input that reaches an existing unit's features in fewer bytes, so a
+     run that is the smallest yet for any of its features may be a corpus unit too. */
+  int smaller = 0;
+  if (!g_smallest) {
+    g_smallest = malloc(g_hy.ncntrs * 8 * sizeof *g_smallest);
+    if (!g_smallest) basalt_fuzz_die("out of memory for the choice campaign's feature sizes");
+    memset(g_smallest, 0xff, g_hy.ncntrs * 8 * sizeof *g_smallest);
+  }
+  for (size_t i = 0; i < nf; i++)
+    if (Size < g_smallest[g_hy.scratch[i]]) { g_smallest[g_hy.scratch[i]] = (uint32_t)Size; smaller = 1; }
+  if (fresh || smaller || g_ch_seeded) basalt_tc_put(Data, Size);
+  g_ch_seeded = 0;
+  g_last.buf = basalt_grow_buf(g_last.buf, &g_last.cap, Size ? Size : 1, 1);
+  if (Size) memcpy(g_last.buf, Data, Size);
+  g_last.size = Size;
+  g_last.run = g_run_idx;
+  if (g_cops.pending >= 0) {
+    g_cops.n[g_cops.pending]++;
+    if (fresh) g_cops.wins[g_cops.pending]++;
+  }
+  g_cops.pending = -1;
+}
+
+static void basalt_choice_report(void) {
+  if (!g_choice) return;
+  fprintf(stderr, "[basalt] choice: %llu mutations, %llu trace lookups, %llu missed, %llu no-ops; "
+          "%zu traces cached (%.1f MB); %zu pool constants, %zu literals\n",
+          (unsigned long long)g_cops.mutations, (unsigned long long)g_cops.lookups,
+          (unsigned long long)g_cops.misses, (unsigned long long)g_cops.noops, g_tc.n,
+          (double)g_tc.bytes / 1e6, g_pool_n, g_lits_n);
+  for (int i = 0; i < OP_N; i++)
+    if (g_cops.n[i] || g_cops.fails[i])
+      fprintf(stderr, "[basalt] op %-8s runs %10llu  new-feature %8llu (%.4f%%)  failed %llu\n",
+              g_op_name[i], (unsigned long long)g_cops.n[i], (unsigned long long)g_cops.wins[i],
+              g_cops.n[i] ? 100.0 * (double)g_cops.wins[i] / (double)g_cops.n[i] : 0.0,
+              (unsigned long long)g_cops.fails[i]);
+}
+
+__attribute__((visibility("default")))
+size_t LLVMFuzzerCustomCrossOver(const uint8_t *Data1, size_t Size1, const uint8_t *Data2,
+                                 size_t Size2, uint8_t *Out, size_t MaxOutSize, unsigned Seed) {
+  if (!g_choice) return 0;               /* not ours: libFuzzer picks its other mutator instead    */
+  size_t n = Size1 < MaxOutSize ? Size1 : MaxOutSize;
+  memcpy(Out, Data1, n);
+  size_t hybrid = basalt_hybrid_mutate(Out, n, MaxOutSize);
+  g_ch_seeded = hybrid != 0;
+  if (hybrid) { g_cops.pending = -1; return hybrid; }
+  return basalt_choice_mutate(Data1, Size1, Data2, Size2, Out, MaxOutSize, Seed);
+}
+
 /* Apply a Lean `ByteArray -> IO UInt8` callback to a copy of libFuzzer's buffer; the code it returns. */
 static uint8_t basalt_apply(lean_object *f, const uint8_t *Data, size_t Size) {
   lean_object *arr = lean_alloc_sarray(1, Size, Size);
@@ -807,18 +1332,20 @@ int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
   /* If there was a deficit, save the offending buffer. Will be checked by the custom mutator. */
   if (g_last_run_deficit) basalt_fuzz_record_short(Data, Size);
   if (g_cov_first) basalt_cov_accumulate();
-  size_t fresh = 0;
-  if (g_hy.on || g_probe || g_diag) { size_t nf; fresh = basalt_hybrid_scan(&nf); }
+  size_t fresh = 0, nf = 0;
+  if (g_hy.on || g_probe || g_diag || g_choice) fresh = basalt_hybrid_scan(&nf);
   if (g_hy.on) {
     g_hy.total++;
     if (g_hy.started) basalt_phase_step(fresh);
   }
-  if (g_probe || g_diag) basalt_trace_after(Data, Size, fresh);
+  if (g_choice) basalt_choice_after(Data, Size, fresh, nf);
+  else if (g_probe || g_diag) basalt_trace_after(Data, Size, fresh);
 
   if (code == 1) {
     basalt_cov_dump();                                /* abort() skips this atexit handler too  */
     basalt_fuzz_report_stats();                       /* abort() skips the atexit handler      */
     basalt_trace_report();
+    basalt_choice_report();
     fflush(NULL);                                     /* the Lean side flushed its own handles */
     abort();                                          /* property failed → libFuzzer saves it */
   }
@@ -835,9 +1362,10 @@ LEAN_EXPORT lean_object *basalt_fuzz_go(lean_object *run, lean_object *argv, uin
   g_fill_random = (modes & 1) != 0;
   g_probe = (modes & 2) != 0;
   g_diag = (modes & 4) != 0;
+  g_choice = (modes & 8) != 0;
   if (basalt_mix64(1) != 6238072747940578789ULL)
     basalt_fuzz_die("basalt_mix64 disagrees with Basalt.Fuzz.mix64");
-  if ((g_probe || g_diag) && !g_hy.on) {
+  if ((g_probe || g_diag || g_choice) && !g_hy.on) {
     /* The new-feature scan is the hybrid's; a plain campaign needs its maps too. */
     if (!basalt_have_counters()) basalt_fuzz_die("--trace-probe: no SanitizerCoverage counters");
     g_hy.ncntrs = (size_t)(__stop___sancov_cntrs - __start___sancov_cntrs);
@@ -847,6 +1375,7 @@ LEAN_EXPORT lean_object *basalt_fuzz_go(lean_object *run, lean_object *argv, uin
     if (!g_hy.seen || !g_hy.fresh || !g_hy.scratch) basalt_fuzz_die("out of memory for the coverage map");
   }
   atexit(basalt_trace_report);
+  atexit(basalt_choice_report);
   atexit(basalt_fuzz_report_stats);   /* the `-runs`-exhausted path exits here, not through Lean */
   basalt_cov_init();
 

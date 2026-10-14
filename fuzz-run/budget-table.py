@@ -19,7 +19,8 @@ out = sys.argv[1]
 arms = []
 for a in sys.argv[2:]:
     name, _, be = a.partition(":")
-    arms.append((name, be or ("io-libfuzzer" if name == "random" else "fuzz")))
+    arms.append((name, be or ("io-libfuzzer" if name.startswith("random") else
+                         "choice" if name.startswith("choice") else "fuzz")))
 
 addrs, names = [], []
 for line in open(f"{out}/syms.txt"):
