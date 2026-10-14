@@ -129,6 +129,11 @@ arm64 (M-series), 3 trials × 5M tests per arm, one trial per core so that time 
 | 30 min | 7,061 | 7,107 | **7,144** | 7,130 |
 | 55 min (random done) | 7,098 | **7,186** ±31 | **7,182** ±6 | **7,176** ±15 |
 
+- **The hybrid is the best of both worlds**: random's fast start, then fuzzing's higher plateau,
+  reached sooner than by fuzzing alone. A Linux x86_64 rerun (5 trials × 5M, 8 cores) agrees:
+  random 7,104, `fuzz-noramp` 7,167, `auto-1` 7,170, `back-1` 7,175 at 5M tests, `auto-1` leading at
+  1M (7,071 against 7,029 and 6,991); `reports/2026-10-hybrid-fuzzing/REPORT.md` §3.5 has its tables
+  and charts, including linear-axis ones that show the first 100 seconds.
 - **Until it switches the hybrid *is* random, and after it leads both.** The rule switched at 430k–530k
   tests of the 5M budget (at 115k–128k of a 1M one, in all of 6 trials), and the hybrid led both pure
   arms from there to ~3M tests, ~8 to ~50 minutes. At 1M tests, 6 trials: `auto-1` 7,089 ±9 against
@@ -151,7 +156,7 @@ arm64 (M-series), 3 trials × 5M tests per arm, one trial per core so that time 
 plus where each trial switched — into one directory; it takes ~75 minutes on 12 cores. Time is from
 `BASALT_COV_OUT`'s `.time` file (milliseconds at every 1000th test);
 `fuzz-run/budget-table.py` gives both tables, with standard errors, and `fuzz-run/coverage-curves.py`
-draws both, with zoomed panels for the tail.
+draws both, with zoomed panels for the tail, and with `--linear` on linear axes plus the first 100 s.
 
 - **Draw order matters to `FuzzGen`.** Its draw order is byte order, so a property must generate the
   thing under test first. With the request and entity store drawn before the expression, their bytes

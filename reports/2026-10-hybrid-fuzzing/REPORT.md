@@ -1,17 +1,26 @@
 # Hybrid random/coverage-guided generation for Basalt: a report
 
-October 2026, branch `hybrid-fuzz` (off `cedar-experiments`). All measurements are on macOS arm64
-(M-series, 12 cores), on Cedar's `gen-traced` property unless stated otherwise.
+October 2026, branch `hybrid-fuzz` (off `cedar-experiments`). Measurements are on macOS arm64
+(M-series, 12 cores) unless stated otherwise; §3.5 replicates the 5M round on Linux x86_64 (8 cores).
+All are on Cedar's `gen-traced` property.
 
-Charts: [`curves-5M-3trials.html`](curves-5M-3trials.html) (with time-based panels) and
-[`curves-1M-6trials.html`](curves-1M-6trials.html); PNG snapshots of each sit beside them. Compact raw
-data (coverage dumps, timestamps, distinct-input series, switch events) is under `data/`.
+Charts: [`curves-5M-3trials.html`](curves-5M-3trials.html) (with time-based panels),
+[`curves-1M-6trials.html`](curves-1M-6trials.html), and the Linux round's
+[`curves-5M-5trials-linux.html`](curves-5M-5trials-linux.html) with its linear-axis twin
+[`curves-5M-5trials-linux-linear.html`](curves-5M-5trials-linux-linear.html) (which adds the first
+100 seconds); PNG snapshots of each sit beside them, and the Linux round's script output is
+[`tables-5M-5trials-linux.txt`](tables-5M-5trials-linux.txt). The raw dumps (several GB per round)
+are not checked in; §7 regenerates them.
 
 ## Summary
 
 - **The question.** On Cedar, random generation (`IO`) covers more code early and coverage-guided
   fuzzing (`FuzzGen` under libFuzzer) overtakes it late, past ~10⁵–10⁶ tests. Can one campaign get
   both?
+- **The short answer: the hybrid is the best of both worlds.** It climbs as fast as random — it *is*
+  random until it switches — and then reaches fuzzing's higher plateau, sooner than fuzzing alone.
+  Pure fuzzing starts far behind (at 10 s, ~800–950 edges short of the hybrid); pure random levels
+  off ~65–100 edges short of the fuzzing arms. Replicated on Linux with 5 trials (§3.5).
 - **Yes, for code coverage at mid-range budgets.** Random first, then fuzzing seeded with what random
   found. Until it switches the hybrid *is* random, so it matches random's early lead; after the switch
   it leads both pure arms. With a 5M budget that lead runs from the switch (~500k tests) to ~3M tests,
@@ -206,6 +215,40 @@ made one more burst at 3.9M.
 
 The second Cedar generator (`wide-traced`) shows the same ordering.
 
+### 3.5 Replication on Linux x86_64, 5M tests, 5 trials (time is not fair)
+
+Amazon Linux 2023, 8 cores, the same four arms and binary build recipe as §3.1; 20 trials ran 8 at a
+time, so the time columns compare trials under somewhat different loads. Mean ± SE:
+
+| tests | random | fuzz-noramp | auto-1 | back-1 |
+|---|---|---|---|---|
+| 10k | 6,428 ±17 | 5,703 ±32 | 6,439 ±21 | 6,428 ±21 |
+| 100k | 6,784 ±9 | 6,519 ±46 | 6,765 ±14 | 6,778 ±4 |
+| 1M | 6,991 ±5 | 7,029 ±13 | **7,071 ±5** | 7,064 ±6 |
+| 5M | 7,104 ±5 | 7,167 ±10 | 7,170 ±7 | **7,175 ±5** |
+
+| time | random | fuzz-noramp | auto-1 | back-1 |
+|---|---|---|---|---|
+| 10 s | 6,356 | 5,696 | 6,493 | **6,503** |
+| 100 s | 6,812 | 6,557 | 6,797 | **6,815** |
+| 15 min | 7,019 | 7,034 | **7,076** | 7,069 |
+| 58 min (random done) | 7,104 | **7,152** | 7,143 | 7,150 |
+
+- **The picture of §3.1 holds**: the hybrids track random until their switch (427k–590k tests),
+  lead both pure arms from there to past 1M, and finish level with pure fuzzing at 5M, ~65 edges
+  ahead of random.
+- **The first 100 seconds** (linear chart) show the gap the hybrid avoids: pure fuzzing needs about
+  a minute to reach what random and the hybrids cover in ~10 s. Within it, the hybrids' random phase
+  is slightly ahead of the `random` arm (~140 edges at 10 s, ~6% more distinct expressions at 100 s),
+  as on macOS (§3.1, 10 s); the two run different random paths (`RecordGen` in the `fuzz` backend
+  against `io-libfuzzer`), and the gap is gone by 5 minutes.
+- **Edge-set diversity again favours pure fuzzing**: union over 5 trials 7,266 (58 edges no other arm
+  reached) against 7,216 for `auto-1`, 7,222 for `back-1`, 7,152 for random.
+- **Switching back** happened 1–3 times per trial (first back to random at 1.2M–1.6M) and ends within
+  noise of `auto-1`, as in §3.1.
+- **Distinct expressions at 5M tests**: random 3.54M, `back-1` 2.73M, `auto-1` 2.72M, `fuzz-noramp`
+  2.44M.
+
 ### 3.4 Bug-finding on the depth benchmarks (300 trials each, fixed run budget)
 
 | property, budget | off | fixed warm-up (10%) | `--warmup-stall=0` | `--switch-back` |
@@ -248,8 +291,8 @@ budget on random (two-thirds on `chain-3`), which is why it helps there and does
 
 ## 5. Caveats
 
-- **One machine, one benchmark family.** Two Cedar generators, one macOS machine. `φ = 1` is
-  calibrated on Cedar.
+- **Two machines, one benchmark family.** Two Cedar generators; macOS arm64, with the 5M round
+  replicated on Linux x86_64 (§3.5). `φ = 1` is calibrated on Cedar.
 - **Few trials at 5M.** Three per arm: enough for the 100-edge gap to random and for the variance
   difference, not for distinguishing the three fuzzing arms at 5M.
 - **Time at 1M is contended.** The 1M runs put 30 trials on 12 cores; only the 5M runs (12 trials on
@@ -275,6 +318,7 @@ budget on random (two-thirds on `chain-3`), which is why it helps there and does
 
 ```sh
 fuzz-run/hybrid-experiment.sh            # §3.1: build, 4 arms × 3 trials × 5M tests, every table
+TRIALS=5 fuzz-run/hybrid-experiment.sh   # §3.5
 RUNS=1000000 TRIALS=6 ARMS="random fuzz-noramp warm-100000 auto-1 back-1" \
   fuzz-run/hybrid-experiment.sh          # §3.2
 TRIALS=300 SETTINGS="off --warmup=100 --warmup-stall=0 --switch-back" \
@@ -282,7 +326,6 @@ TRIALS=300 SETTINGS="off --warmup=100 --warmup-stall=0 --switch-back" \
 BASALT_PHASE_TRACE=1 fuzz-run/basalt-fuzz gen-traced --warmup-stall=0 -runs=1000000   # the rule, live
 ```
 
-`hybrid-experiment.sh` writes `tables.txt` and `curves.html` into `$OUT` (default
+`hybrid-experiment.sh` writes `tables.txt`, `curves.html` and `curves-linear.html` into `$OUT` (default
 `/tmp/hybrid-exp-gen-traced`). For the time tables to be fair it needs a core per trial — 12 for the
-default — and warns when it has fewer. The raw data behind this report is under `data/` but not
-checked in.
+default — and warns when it has fewer. The raw data behind this report is not checked in.

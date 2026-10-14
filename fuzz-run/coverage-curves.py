@@ -9,9 +9,10 @@ Reads `fuzz-run/compare-coverage.sh` output directories whose property printed `
 that hit it, so coverage after n tests is the number of package edges with first-hit index <= n; each
 `<arm>.<t>.log` gives the hash of every test's expression, in order. Where `<arm>.<t>.cov.time` exists
 (milliseconds at every 1000th test), the same two curves are also drawn against elapsed time. The
-page's subtitle names `$PROP`, which `cedar-experiment.sh` exports.
+page's subtitle names `$PROP`, which `cedar-experiment.sh` exports. `--linear` draws the same panels
+on a linear x axis, plus the first 100 seconds of each time panel.
 
-  fuzz-run/coverage-curves.py OUT.html LABEL=DIR:ARM [LABEL=DIR:ARM ...]
+  fuzz-run/coverage-curves.py [--linear] OUT.html LABEL=DIR:ARM [LABEL=DIR:ARM ...]
 """
 import bisect, html, json, math, os, re, sys
 
@@ -19,17 +20,25 @@ PREFIX = "lp_Cedar_"
 # The traced properties hash `reprStr` of each input, which runs the package's derived printing code;
 # that is measurement machinery, not code under test, so it is excluded from the coverage count.
 EXCLUDE = re.compile(r"[Rr]epr|[Ff]ormat|[Tt]oString")
-out_path = sys.argv[1]
+args = sys.argv[1:]
+LINEAR = args[0] == "--linear"
+if LINEAR: args = args[1:]
+out_path = args[0]
 specs = []
-for a in sys.argv[2:]:
+for a in args[1:]:
     label, rest = a.split("=", 1)
     d, arm = rest.rsplit(":", 1)
     specs.append((label, d, arm))
 
-def points(maxn):
+def points(maxn, steps=()):
+    """Geometric sample points up to `maxn`, plus every multiple of `step` below `bound` for each
+    `(step, bound)`, so that a linear axis is not drawn from a handful of points. The steps must not
+    depend on the trial: the mean over trials pairs their points by index."""
     xs, x = [], 1.0
     while x < maxn:
         xs.append(int(x)); x *= 1.25
+    for step, bound in steps:
+        xs += range(step, min(maxn, bound), step)
     xs.append(maxn)
     return sorted(set(xs))
 
@@ -52,6 +61,7 @@ def trials(d, arm):
             return ts
         ts.append(t); t += 1
 
+RUNS = int(os.environ.get("RUNS", 0)) or 10 ** 6
 series = []
 for label, d, arm in specs:
     addrs, names = symbols(d)
@@ -71,7 +81,7 @@ for label, d, arm in specs:
             if line.startswith("BASALT_H "):
                 seen.add(line.split()[1]); uniq.append(len(seen))
         n = len(uniq)
-        xs = points(n)
+        xs = points(n, [(max(1, RUNS // 500), n)])
         cov_curves.append([(x, bisect.bisect_right(firsts, x)) for x in xs])
         uniq_curves.append([(x, uniq[x - 1]) for x in xs])
         try:
@@ -84,7 +94,7 @@ for label, d, arm in specs:
             if i >= len(ticks) - 1: return min(ticks[-1][0], n)
             (n0, t0), (n1, t1) = ticks[i], ticks[i + 1]
             return min(n, n0 + (n1 - n0) * (sec * 1000 - t0) // max(t1 - t0, 1))
-        secs = points(max(1, tms[-1] // 1000))
+        secs = points(max(1, tms[-1] // 1000), [(1, 100), (10, 10 ** 9)])
         covt_curves.append([(x, bisect.bisect_right(firsts, tests_by(x))) for x in secs])
         uniqt_curves.append([(x, uniq[max(tests_by(x), 1) - 1]) for x in secs])
     def mean(curves):
@@ -110,20 +120,38 @@ def compact(v):
     if v >= 1e4: return f"{v / 1e3:.0f}k"
     return f"{int(v):,}"
 
-def chart(key, title, ylabel, cid, xlabel="tests run (log scale)", xmin=1):
-    """A log-x chart of `key`. With `xmin` above 1 it is a zoom on the tail: only points from `xmin`
-    on, and a y axis fitted to them rather than starting at 0, which is where the arms differ."""
-    curves = [[(x, y) for x, y in s[key] if x >= xmin] for s in series]
+def axis_ticks(lo, hi, seconds):
+    """Linear x ticks: round numbers of tests, or of minutes once a time axis passes 5 minutes."""
+    if seconds and hi > 300:
+        step = next(m * 60 for m in (1, 2, 5, 10, 15, 20, 30, 60) if m * 60 >= (hi - lo) / 6)
+        label = lambda v: f"{v // 60:g} min"
+    else:
+        raw = (hi - lo) / 6
+        step = next(m * 10 ** e for e in range(0, 12) for m in (1, 2, 5) if m * 10 ** e >= raw)
+        label = lambda v: f"{v:g} s" if seconds else compact(v)
+    v = math.ceil(lo / step) * step
+    while v <= hi + 1e-9:
+        yield v, label(v); v += step
+
+def chart(key, title, ylabel, cid, xlabel="tests run", xmin=1, xmax=None):
+    """A chart of `key`, log-x unless `--linear`. With `xmin` above 1 it is a zoom on the tail: only
+    points from `xmin` on, and a y axis fitted to them rather than starting at 0, which is where the
+    arms differ. `xmax` cuts it off at the other end, with the y axis fitted the same way."""
+    seconds = key.endswith("t")
+    curves = [[(x, y) for x, y in s[key] if x >= xmin and (xmax is None or x <= xmax)] for s in series]
     maxx = max(c[-1][0] for c in curves)
     ys = [y for c in curves for _, y in c]
-    lo_y, hi_y = (0, max(ys)) if xmin <= 1 else (min(ys), max(ys))
+    fit = xmin > 1 or xmax is not None
+    lo_y, hi_y = (min(ys), max(ys)) if fit else (0, max(ys))
     raw = (hi_y - lo_y) / 5 or 1
     step = next(m * 10 ** e for e in range(0, 12) for m in (1, 2, 5) if m * 10 ** e >= raw)
-    bot = (lo_y // step) * step if xmin > 1 else 0
+    bot = (lo_y // step) * step if fit else 0
     top = bot + step * math.ceil((hi_y - bot) / step + 1e-9)
-    lx0, lx1 = math.log10(xmin), math.log10(maxx)
+    tf = (lambda x: x) if LINEAR else math.log10
+    x0 = (0 if xmin <= 1 else xmin) if LINEAR else xmin
+    lx0, lx1 = tf(x0), tf(maxx)
     pw, ph = W - ML - MR, H - MT - MB
-    sx = lambda x: ML + (math.log10(x) - lx0) / (lx1 - lx0) * pw
+    sx = lambda x: ML + (tf(x) - lx0) / (lx1 - lx0) * pw
     sy = lambda y: MT + ph - (y - bot) / (top - bot) * ph
     g = [f'<svg viewBox="0 0 {W} {H}" role="img" aria-labelledby="{cid}-t" class="chart" id="{cid}">',
          f'<title id="{cid}-t">{html.escape(title)}</title>']
@@ -133,12 +161,15 @@ def chart(key, title, ylabel, cid, xlabel="tests run (log scale)", xmin=1):
         g.append(f'<line class="grid" x1="{ML}" x2="{ML+pw}" y1="{sy(y):.1f}" y2="{sy(y):.1f}"/>')
         g.append(f'<text class="tick" x="{ML-8}" y="{sy(y)+4:.1f}" text-anchor="end">{compact(y)}</text>')
         k += 1
-    e = math.ceil(lx0 - 1e-9)
-    while 10 ** e <= maxx:
-        x = 10 ** e
-        g.append(f'<text class="tick" x="{sx(x):.1f}" y="{MT+ph+18}" text-anchor="middle">'
-                 f'{"1" if e == 0 else ("10" if e == 1 else f"1e{e}")}</text>')
-        e += 1
+    if LINEAR:
+        xticks = list(axis_ticks(x0, maxx, seconds))
+    else:
+        xticks, e = [], math.ceil(lx0 - 1e-9)
+        while 10 ** e <= maxx:
+            xticks.append((10 ** e, "1" if e == 0 else ("10" if e == 1 else f"1e{e}"))); e += 1
+    for x, text in xticks:
+        g.append(f'<text class="tick" x="{sx(x):.1f}" y="{MT+ph+18}" text-anchor="middle">{text}</text>')
+    xlabel = f"{xlabel} ({'linear' if LINEAR else 'log'} scale)"
     g.append(f'<line class="axis" x1="{ML}" x2="{ML+pw}" y1="{MT+ph}" y2="{MT+ph}"/>')
     g.append(f'<text class="axis-label" x="{ML+pw/2}" y="{H-6}" text-anchor="middle">{xlabel}</text>')
     g.append(f'<text class="axis-label" transform="translate(12,{MT+ph/2}) rotate(-90)" text-anchor="middle">{html.escape(ylabel)}</text>')
@@ -158,7 +189,7 @@ def chart(key, title, ylabel, cid, xlabel="tests run (log scale)", xmin=1):
     g.append(f'<line class="crosshair" id="{cid}-x" x1="0" x2="0" y1="{MT}" y2="{MT+ph}" visibility="hidden"/>')
     g.append(f'<rect class="hit" x="{ML}" y="{MT}" width="{pw}" height="{ph}" '
              f'data-chart="{cid}" data-key="{key}" data-ml="{ML}" data-pw="{pw}" data-lx0="{lx0}" '
-             f'data-lx1="{lx1}" data-unit="{"s" if key.endswith("t") else "tests"}"/>')
+             f'data-lx1="{lx1}" data-xmin="{xmin}" data-xmax="{maxx}" data-unit="{"s" if seconds else "tests"}"/>')
     g.append('</svg>')
     return "\n".join(g)
 
@@ -175,9 +206,52 @@ def table(key, ylabel):
 
 legend = "".join(f'<span class="key"><span class="swatch" style="background:{COLORS[i]}"></span>'
                  f'{html.escape(s["label"])} ({s["trials"]} trials)</span>' for i, s in enumerate(series))
-timed_figs = (f'''<figure><figcaption>Cedar code coverage, by time</figcaption>{chart("covt", "Cedar edges covered vs. seconds elapsed", "Cedar edges covered", "c3", "seconds elapsed (log scale)")}<div class="tip" id="c3-tip"></div></figure>
-<figure><figcaption>Distinct expressions, by time</figcaption>{chart("uniqt", "Distinct expressions vs. seconds elapsed", "distinct expressions", "c4", "seconds elapsed (log scale)")}<div class="tip" id="c4-tip"></div></figure>
-<figure><figcaption>Cedar code coverage, by time, from {ZOOM_SECS} s on (zoomed)</figcaption>{chart("covt", "Cedar edges covered vs. seconds elapsed, tail", "Cedar edges covered", "c6", "seconds elapsed (log scale)", xmin=ZOOM_SECS)}<div class="tip" id="c6-tip"></div></figure>''' if timed else "")
+timed_figs = (f'''<figure><figcaption>Cedar code coverage, by time</figcaption>{chart("covt", "Cedar edges covered vs. seconds elapsed", "Cedar edges covered", "c3", "time elapsed")}<div class="tip" id="c3-tip"></div></figure>
+<figure><figcaption>Distinct expressions, by time</figcaption>{chart("uniqt", "Distinct expressions vs. seconds elapsed", "distinct expressions", "c4", "time elapsed")}<div class="tip" id="c4-tip"></div></figure>
+<figure><figcaption>Cedar code coverage, by time, from {ZOOM_SECS} s on (zoomed)</figcaption>{chart("covt", "Cedar edges covered vs. seconds elapsed, tail", "Cedar edges covered", "c6", "time elapsed", xmin=ZOOM_SECS)}<div class="tip" id="c6-tip"></div></figure>''' if timed else "")
+if timed and LINEAR:
+    timed_figs += f'''
+<figure><figcaption>Cedar code coverage, first 100 s</figcaption>{chart("covt", "Cedar edges covered vs. seconds elapsed, first 100 s", "Cedar edges covered", "c7", "time elapsed", xmax=100)}<div class="tip" id="c7-tip"></div></figure>
+<figure><figcaption>Distinct expressions, first 100 s</figcaption>{chart("uniqt", "Distinct expressions vs. seconds elapsed, first 100 s", "distinct expressions", "c8", "time elapsed", xmax=100)}<div class="tip" id="c8-tip"></div></figure>'''
+
+# One entry per arm `cedar-experiment.sh` runs, keyed by its label or label prefix.
+ARMS = [
+    ("random", "uniform random choices inside libFuzzer's loop (<code>--backend=io-libfuzzer</code>), so "
+               "coverage is counted identically: the control."),
+    ("fuzz-noramp", "coverage-guided <code>FuzzGen</code> from a cold start, with "
+                    "<code>-max_len=65536 -len_control=0</code>."),
+    ("fuzz-grow", "coverage-guided <code>FuzzGen</code> with Basalt's <code>--grow</code>."),
+    ("fuzz", "coverage-guided <code>FuzzGen</code> with libFuzzer's defaults (its input-length ramp on)."),
+    ("warm-", "a fixed random warm-up of N tests (<code>--warmup=N</code>), then coverage-guided fuzzing "
+              "seeded with the warm-up runs that reached new coverage, with fuzz-noramp's settings."),
+    ("auto-", "a hybrid: random first, switching once to coverage-guided fuzzing when random's coverage "
+              "levels off (<code>--warmup-stall=0 --level=φ</code>). The random runs that reached new "
+              "coverage seed the fuzzer's corpus; it then fuzzes, with fuzz-noramp's settings, for the "
+              "rest of the budget."),
+    ("back-", "the same, but the level-off rule applies in both directions (<code>--switch-back "
+              "--level=φ</code>): when fuzzing levels off it returns to random, and may switch again. "
+              "libFuzzer's corpus stays in memory, so returning to fuzzing loses nothing."),
+]
+def describe(label):
+    return next((d for k, d in ARMS if label == k or (k.endswith("-") and label.startswith(k))), None)
+arm_items = "".join(f"<li><b>{html.escape(s['label'])}</b> — {describe(s['label'])}</li>"
+                    for s in series if describe(s["label"]))
+level_note = ("<p><b>φ</b> is <code>--level</code> (default 1). With <i>F</i> the tests so far that "
+              "reached a new feature and <i>H</i> the tests left in the budget, a mode has levelled off "
+              "when, over a window of tests, it finds new coverage more slowly than "
+              "min(φ·<i>F</i>/<i>H</i>, <i>r</i><sub>other</sub>), where <i>r</i><sub>other</sub> is the "
+              "other mode's find rate when it was last left. φ = 1: staying for the rest of the budget "
+              "would only about double the finds so far. The <i>r</i><sub>other</sub> term hands over "
+              "only to a mode that was doing better, which keeps the campaign from flip-flopping. The "
+              "rule is owned by <code>fuzz-run/README.md</code>, “Random warm-up → When to switch”.</p>"
+              if any(s["label"].startswith(("auto-", "back-")) for s in series) else "")
+arms_block = (f"<details><summary>What the arms are</summary><p>Every arm runs the same instrumented "
+              f"binary; only the source of the generator's choices differs.</p><ul>{arm_items}</ul>"
+              f"{level_note}</details>" if arm_items else "")
+jobs = int(os.environ.get("JOBS", 0))
+contended = jobs and sum(s["trials"] for s in series) > jobs
+time_note = (f"time elapsed, with trials run {jobs} at a time, so the time panels compare trials "
+             f"that ran under different loads" if contended else "time elapsed, each trial on a core of its own")
 data = json.dumps({s["label"]: {"cov": s["cov"], "uniq": s["uniq"], "covt": s["covt"],
                                 "uniqt": s["uniqt"]} for s in series})
 
@@ -219,7 +293,7 @@ caption {{ text-align:left; font-weight:600; color:var(--text-primary); padding-
 th, td {{ border-bottom:1px solid var(--grid); padding:3px 10px; text-align:right; }}
 </style></head><body><div class="viz-root">
 <h1>Cedar coverage and input diversity vs. tests run</h1>
-<p class="sub">Property <code>{html.escape(os.environ.get("PROP", "?"))}</code>. Mean of trials; the x axis is tests run, or (bottom row) seconds elapsed, each trial on a core of its own.</p>
+<p class="sub">Property <code>{html.escape(os.environ.get("PROP", "?"))}</code>. Mean of trials; the x axis is tests run, or (bottom rows) {time_note}.</p>
 <div class="legend">{legend}</div>
 <div class="charts">
 <figure><figcaption>Cedar code coverage</figcaption>{chart("cov", "Cedar edges covered vs. tests run", "Cedar edges covered", "c1")}<div class="tip" id="c1-tip"></div></figure>
@@ -228,26 +302,29 @@ th, td {{ border-bottom:1px solid var(--grid); padding:3px 10px; text-align:righ
 {timed_figs}
 </div>
 <details><summary>Table view</summary>{table("cov", "Cedar edges covered")}{table("uniq", "Distinct expressions")}</details>
+{arms_block}
 </div>
 <script>
 const DATA = {data};
+const LIN = {json.dumps(LINEAR)}, tf = LIN ? (v => v) : Math.log10, itf = LIN ? (v => v) : (v => Math.pow(10, v));
 const COLORS = {json.dumps(COLORS)};
 document.querySelectorAll('.hit').forEach(r => {{
   const cid = r.dataset.chart, key = r.dataset.key, svg = document.getElementById(cid);
   const tip = document.getElementById(cid + '-tip'), cross = document.getElementById(cid + '-x');
   const ml = +r.dataset.ml, pw = +r.dataset.pw, lx0 = +r.dataset.lx0, lx1 = +r.dataset.lx1;
+  const xmin = +r.dataset.xmin, xmax = +r.dataset.xmax;
   r.addEventListener('mousemove', ev => {{
     const pt = svg.createSVGPoint(); pt.x = ev.clientX; pt.y = ev.clientY;
     const p = pt.matrixTransform(svg.getScreenCTM().inverse());
-    const x = Math.pow(10, lx0 + Math.max(0, Math.min(1, (p.x - ml) / pw)) * (lx1 - lx0));
+    const x = itf(lx0 + Math.max(0, Math.min(1, (p.x - ml) / pw)) * (lx1 - lx0));
     let rows = '', near = null;
     Object.entries(DATA).forEach(([label, s], i) => {{
-      const c = s[key].filter(q => q[0] >= Math.pow(10, lx0) * 0.999); let best = c[0];
-      for (const q of c) if (Math.abs(Math.log(q[0]) - Math.log(x)) < Math.abs(Math.log(best[0]) - Math.log(x))) best = q;
+      const c = s[key].filter(q => q[0] >= xmin * 0.999 && q[0] <= xmax * 1.001); let best = c[0];
+      for (const q of c) if (Math.abs(tf(q[0]) - tf(x)) < Math.abs(tf(best[0]) - tf(x))) best = q;
       near = best[0];
       rows += `<div><span class="swatch" style="background:${{COLORS[i]}}"></span>${{label}}: <b>${{Math.round(best[1]).toLocaleString()}}</b></div>`;
     }});
-    const sx = ml + (Math.log10(near) - lx0) / (lx1 - lx0) * pw;
+    const sx = ml + (tf(near) - lx0) / (lx1 - lx0) * pw;
     cross.setAttribute('x1', sx); cross.setAttribute('x2', sx); cross.setAttribute('visibility', 'visible');
     tip.innerHTML = `<div>${{near.toLocaleString()}} ${{r.dataset.unit}}</div>` + rows;
     tip.style.display = 'block';

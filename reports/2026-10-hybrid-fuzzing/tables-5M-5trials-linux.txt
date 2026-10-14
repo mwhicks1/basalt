@@ -1,0 +1,66 @@
+# gen-traced, 5 trials × 5000000 tests per arm, Linux x86_64, 8 parallel on 8 cores
+# arms: random fuzz-noramp auto-1 back-1
+
+Cedar edges at a budget of tests
+                            random           fuzz-noramp                auto-1                back-1
+         100             4,911 ±30            2,644 ±132             4,894 ±25             4,890 ±31
+       1,000             5,898 ±28             4,303 ±92             5,902 ±36             5,947 ±47
+      10,000             6,428 ±17             5,703 ±32             6,439 ±21             6,428 ±21
+     100,000              6,784 ±9             6,519 ±46             6,765 ±14              6,778 ±4
+   1,000,000              6,991 ±5             7,029 ±13              7,071 ±5              7,064 ±6
+   5,000,000              7,104 ±5             7,167 ±10              7,170 ±7              7,175 ±5
+
+Cedar edges at a budget of time (* = when the fastest trial finished)
+                            random           fuzz-noramp                auto-1                back-1
+        10 s              6,356 ±9             5,696 ±39             6,493 ±23             6,503 ±18
+       1 min              6,749 ±6             6,411 ±47             6,745 ±10              6,748 ±5
+       5 min              6,912 ±4             6,871 ±29              6,912 ±4              6,913 ±9
+      15 min              7,019 ±5             7,034 ±12              7,076 ±6              7,069 ±6
+      30 min              7,071 ±3              7,111 ±9              7,113 ±9              7,116 ±3
+     58 min*              7,104 ±5             7,152 ±10             7,143 ±13             7,150 ±13
+
+Distinct expressions at a budget of tests
+                            random           fuzz-noramp                auto-1                back-1
+         100                 97 ±1                 37 ±6                 95 ±1                 97 ±1
+       1,000                928 ±3               304 ±30                926 ±2                917 ±5
+      10,000             8,604 ±11            3,763 ±105             8,583 ±22             8,584 ±17
+     100,000            78,411 ±36           42,304 ±733            78,477 ±46            78,373 ±63
+   1,000,000          731,435 ±150        474,197 ±4,318        599,068 ±6,897        603,133 ±4,970
+   5,000,000        3,539,136 ±480     2,442,306 ±15,339      2,720,625 ±6,496     2,730,988 ±19,665
+
+Distinct expressions at a budget of time
+                            random           fuzz-noramp                auto-1                back-1
+        10 s            6,273 ±118             3,723 ±70            11,564 ±35             11,534 ±6
+       1 min           57,893 ±120           27,983 ±497            64,616 ±91           64,522 ±101
+       5 min          306,416 ±501        155,376 ±2,198          305,203 ±974          305,308 ±415
+      15 min          917,722 ±816        491,081 ±7,052        615,612 ±8,935        627,982 ±9,279
+      30 min        1,826,543 ±602       979,339 ±18,729       979,648 ±59,008     1,034,968 ±47,186
+     58 min*      3,535,862 ±1,098    1,809,179 ±110,380    1,613,231 ±199,888    1,666,975 ±192,012
+
+Edge sets, pooled over trials
+random         trials 5  mean   7104.4  union 7152
+fuzz-noramp    trials 5  mean   7167.2  union 7266
+auto-1         trials 5  mean   7170.0  union 7216
+back-1         trials 5  mean   7175.2  union 7222
+
+random         only here     2   missed, reached elsewhere   137
+fuzz-noramp    only here    58   missed, reached elsewhere    23
+auto-1         only here     1   missed, reached elsewhere    73
+back-1         only here     6   missed, reached elsewhere    67
+
+Switches (test at which each trial switched, and to what)
+  fuzz-noramp trial 1: none
+  fuzz-noramp trial 2: none
+  fuzz-noramp trial 3: none
+  fuzz-noramp trial 4: none
+  fuzz-noramp trial 5: none
+  auto-1 trial 1: fuzzing@539322 
+  auto-1 trial 2: fuzzing@530485 
+  auto-1 trial 3: fuzzing@590107 
+  auto-1 trial 4: fuzzing@431651 
+  auto-1 trial 5: fuzzing@427824 
+  back-1 trial 1: fuzzing@549475 random@1293286 fuzzing@1313390 random@3926936 fuzzing@4038627 
+  back-1 trial 2: fuzzing@489696 random@1520411 fuzzing@1557223 
+  back-1 trial 3: fuzzing@556475 random@1604795 fuzzing@1646396 
+  back-1 trial 4: fuzzing@465079 random@1215391 fuzzing@1236234 random@1861530 fuzzing@1913639 random@3685362 fuzzing@3801161 
+  back-1 trial 5: fuzzing@583324 random@1233634 fuzzing@1257720 random@4027633 fuzzing@4178172 

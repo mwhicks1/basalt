@@ -11,7 +11,7 @@
 #   RUNS=1000000 TRIALS=6 fuzz-run/hybrid-experiment.sh    # the 1M round
 #   PROP=wide-traced fuzz-run/hybrid-experiment.sh
 #
-# Everything goes to $OUT: the tables in tables.txt (also printed), the charts in curves.html, and
+# Everything goes to $OUT: the tables in tables.txt (also printed), the charts in curves.html and curves-linear.html, and
 # the raw per-trial dumps. A time budget is only fair if every trial has a core to itself, so the
 # script warns when there are more trials than cores; the test-budget tables are fair regardless.
 set -euo pipefail
@@ -64,4 +64,4 @@ mv "$OUT.experiment.log" "$OUT/experiment.log"
   done
 } | tee "$OUT/tables.txt"
 echo
-echo "tables: $OUT/tables.txt   charts: $OUT/curves.html"
+echo "tables: $OUT/tables.txt   charts: $OUT/curves.html $OUT/curves-linear.html"
