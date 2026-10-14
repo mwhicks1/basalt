@@ -135,6 +135,10 @@ instance : LawfulMonad (WP m) := LawfulMonad.mk' _
 instance : RandomChoice (WP m) where
   choose lo hi _ := fun post => m.mix lo hi post
 
+/-- A specification monad does not tell draws' kinds apart. -/
+theorem chooseAs_eq {k : ChoiceKind} {lo hi : Nat} {h : lo ≤ hi} :
+    (RandomChoice.chooseAs k lo hi h : WP m _) = RandomChoice.choose lo hi h := rfl
+
 theorem choose_bind_apply {lo hi : Nat} {h : lo ≤ hi}
     (k : ULift.{u} {x : Nat // lo ≤ x ∧ x ≤ hi} → WP m α) (post : α → Ω) :
     (RandomChoice.choose lo hi h >>= k) post = m.mix lo hi fun a => k a post := rfl
@@ -200,6 +204,10 @@ instance : LawfulMonad (WPC m) := LawfulMonad.mk' _
 
 instance : RandomChoice (WPC m) where
   choose lo hi _ := fun post => m.mix lo hi fun a => post a 1
+
+/-- A specification monad does not tell draws' kinds apart. -/
+theorem chooseAs_eq {k : ChoiceKind} {lo hi : Nat} {h : lo ≤ hi} :
+    (RandomChoice.chooseAs k lo hi h : WPC m _) = RandomChoice.choose lo hi h := rfl
 
 theorem choose_bind_apply {lo hi : Nat} {h : lo ≤ hi}
     (k : ULift.{u} {x : Nat // lo ≤ x ∧ x ≤ hi} → WPC m α) (post : α → Nat → Ω) :

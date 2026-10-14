@@ -62,11 +62,16 @@ theorem mass_chooseNat (lo hi : Nat) (h : lo ≤ hi) :
   exact mass_choose lo hi h
 
 @[simp]
+theorem mass_chooseNatAs (k : ChoiceKind) (lo hi : Nat) (h : lo ≤ hi) :
+    (chooseNatAs k lo hi h : SPMF Nat).mass = 1 :=
+  mass_chooseNat lo hi h
+
+@[simp]
 theorem mass_chooseInt (lo hi : Int) (h : lo ≤ hi) :
     (chooseInt lo hi h : SPMF Int).mass = 1 := by
   unfold chooseInt
   rw [mass_bind_pure]
-  exact mass_chooseNat _ _ _
+  exact mass_chooseNatAs _ _ _ _
 
 theorem mass_bind_ge_mul {x : SPMF α} {f : α → SPMF β} {c d : ℝ≥0∞}
     (hx : x.mass ≥ c) (hf : ∀ a, (f a).mass ≥ d) : (x >>= f).mass ≥ c * d := by

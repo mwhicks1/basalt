@@ -95,6 +95,10 @@ noncomputable instance instRandomChoice : RandomChoice SPMF.Cost where
     exact SPMF.bind (choose lo hi h : SPMF (ULift {x : Nat // lo ≤ x ∧ x ≤ hi}))
       fun n => SPMF.pure (n, 1)
 
+/-- `SPMF.Cost` does not tell draws' kinds apart. -/
+@[simp] theorem chooseAs_eq {k : ChoiceKind} {lo hi : Nat} {h : lo ≤ hi} :
+    (RandomChoice.chooseAs k lo hi h : SPMF.Cost _) = RandomChoice.choose lo hi h := rfl
+
 instance instLawfulMonad : LawfulMonad SPMF.Cost := LawfulMonad.mk' _
   (id_map := fun x => by
     show SPMF.bind x (fun p => SPMF.bind (SPMF.pure (p.1, 0)) fun q => SPMF.pure (q.1, p.2 + q.2)) = x

@@ -274,4 +274,9 @@ theorem below_choose (lo hi : Nat) (h : lo ≤ hi) :
     (src.below_bind (fun _ => src.below_go src.below_word _ _) src.below_word) _))
     fun _ => src.below_pure _
 
+@[gen_rule]
+theorem below_chooseAs (k : ChoiceKind) (lo hi : Nat) (h : lo ≤ hi) :
+    src.Below (RandomChoice.chooseAs k lo hi h) (RandomChoice.chooseAs k lo hi h) :=
+  src.below_choose lo hi h
+
 end IdealSource

@@ -280,4 +280,9 @@ theorem approx_choose (lo hi : Nat) (h : lo ≤ hi) :
     rw [ha]
     exact PartialOrder.rel_refl
 
+@[gen_rule]
+theorem approx_chooseAs (k : ChoiceKind) (lo hi : Nat) (h : lo ≤ hi) :
+    Approx (RandomChoice.chooseAs k lo hi h) (RandomChoice.chooseAs k lo hi h) :=
+  approx_choose lo hi h
+
 end IOModel

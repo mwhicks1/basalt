@@ -25,18 +25,22 @@ theorem map_chooseNat (lo hi : Nat) (h : lo ≤ hi) :
     O.spec (chooseNat lo hi h) = (·.down.val) <$> choose lo hi h := by
   simp only [chooseNat, O.map_map, O.map_choose]
 
+theorem map_chooseNatAs (k : ChoiceKind) (lo hi : Nat) (h : lo ≤ hi) :
+    O.spec (chooseNatAs k lo hi h) = (·.down.val) <$> choose lo hi h := by
+  simp only [chooseNatAs, O.map_map, O.map_chooseAs]
+
 @[gen_map]
 theorem map_chooseInt (lo hi : Int) (h : lo ≤ hi) :
     O.spec (chooseInt lo hi h) = rangeInt lo hi h Pure.pure := by
   unfold chooseInt rangeInt
-  rw [O.map_bind, O.map_chooseNat, bind_map_left]
+  rw [O.map_bind, O.map_chooseNatAs, bind_map_left]
   simp only [O.map_pure]
 
 @[gen_map]
 theorem map_elements (xs : List α) (hne : xs ≠ []) :
     O.spec (elements xs hne) = element xs hne := by
   unfold elements element index
-  rw [O.map_bind, O.map_map, O.map_choose, bind_map_left]
+  rw [O.map_bind, O.map_map, O.map_chooseAs, bind_map_left]
   congr 1
   funext ⟨i, h1, h2⟩
   exact O.map_pure _
@@ -61,7 +65,7 @@ theorem map_frequencyAux (gs : List (Nat × (Unit → G α))) (n : Nat)
 theorem map_frequency (gs : List (Nat × (Unit → G α))) (h : 0 < (gs.map Prod.fst).sum) :
     O.spec (frequency gs h) = select gs h (fun g => O.spec (g ())) (O.spec default) := by
   unfold frequency select
-  rw [O.map_bind, O.map_chooseNat, bind_map_left]
+  rw [O.map_bind, O.map_chooseNatAs, bind_map_left]
   congr 1
   funext ⟨i, h1, h2⟩
   have hi : i < (gs.map Prod.fst).sum := by omega
@@ -75,7 +79,7 @@ theorem map_oneOf {G : Type u → Type v} {W : Type u → Type w} [Gen G] [Monad
     (O : Obs G W) {α : Type u} (gs : List (Unit → G α)) (hne : gs ≠ []) :
     O.spec (oneOf gs hne) = index gs hne fun g => O.spec (g ()) := by
   unfold oneOf index
-  rw [O.map_bind, O.map_choose]
+  rw [O.map_bind, O.map_chooseAs]
 
 @[gen_map]
 theorem map_oneOfWith {G : Type u → Type v} {W : Type u → Type w} [Gen G] [Monad W]

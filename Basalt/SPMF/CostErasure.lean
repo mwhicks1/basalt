@@ -94,6 +94,11 @@ theorem erasedLe_choose (lo hi : Nat) (h : lo ≤ hi) :
     ErasedLe (choose lo hi h : SPMF.Cost _) (choose lo hi h) := fun f =>
   (expect_erased_choose lo hi h f).le
 
+@[gen_rule]
+theorem erasedLe_chooseAs (k : ChoiceKind) (lo hi : Nat) (h : lo ≤ hi) :
+    ErasedLe (chooseAs k lo hi h : SPMF.Cost _) (chooseAs k lo hi h) :=
+  erasedLe_choose lo hi h
+
 /-- Fixpoint induction on the `SPMF.Cost` side: `expect` is continuous. -/
 theorem ErasedLe.admissible (x : SPMF α) :
     Lean.Order.admissible fun y : SPMF.Cost α => ErasedLe y x := by
@@ -144,6 +149,11 @@ theorem leErased_default (y : SPMF.Cost α) : LeErased default y := fun f => by
 theorem leErased_choose (lo hi : Nat) (h : lo ≤ hi) :
     LeErased (choose lo hi h : SPMF _) (choose lo hi h : SPMF.Cost _) := fun f =>
   (expect_erased_choose lo hi h f).ge
+
+@[gen_rule]
+theorem leErased_chooseAs (k : ChoiceKind) (lo hi : Nat) (h : lo ≤ hi) :
+    LeErased (chooseAs k lo hi h : SPMF _) (chooseAs k lo hi h : SPMF.Cost _) :=
+  leErased_choose lo hi h
 
 /-- Fixpoint induction on the `SPMF` side: `expect` is continuous. -/
 theorem LeErased.admissible (y : SPMF.Cost α) :

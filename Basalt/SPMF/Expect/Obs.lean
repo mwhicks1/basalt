@@ -260,7 +260,7 @@ theorem expect_coin {r : Rat} (h0 : 0 ≤ r) (h1 : r ≤ 1) (f : Bool → ℝ≥
         + ((r.den - r.num.toNat : ℕ) : ℝ≥0∞) / (r.den : ℝ≥0∞) * f false := by
   obtain ⟨hnum, hle⟩ := coin_num_bounds h0 h1
   refine (congrFun (expectObs.map_coin r) f).trans ?_
-  simp only [coin, WP.choose_bind_apply, WP.ite_apply]
+  simp only [coin, WP.chooseAs_eq, WP.choose_bind_apply, WP.ite_apply]
   exact Mix.threshold_average r.den_pos hnum hle (f true) (f false)
 
 theorem coin_apply_true {r : Rat} (h0 : 0 ≤ r) (h1 : r ≤ 1) :

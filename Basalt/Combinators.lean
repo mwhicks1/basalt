@@ -40,15 +40,20 @@ generators: it hides `choose`'s `ULift` subtype from bodies and proofs. -/
 def chooseNat [Gen G] (lo hi : Nat) (h : lo ≤ hi := by gen_side_condition) : G Nat :=
   (·.down.val) <$> RandomChoice.choose lo hi h
 
+/-- `chooseNat`, tagged with what the draw is for (`RandomChoice.chooseAs`). -/
+def chooseNatAs [Gen G] (k : ChoiceKind) (lo hi : Nat) (h : lo ≤ hi := by gen_side_condition) :
+    G Nat :=
+  (·.down.val) <$> RandomChoice.chooseAs k lo hi h
+
 /-- Same as `chooseNat` but for signed `Int`s.  -/
 def chooseInt [Gen G] (lo hi : Int) (_h : lo ≤ hi := by gen_side_condition) : G Int := do
-  let k ← chooseNat 0 (hi - lo).toNat (Nat.zero_le _)
+  let k ← chooseNatAs .int 0 (hi - lo).toNat (Nat.zero_le _)
   return lo + (k : Int)
 
 /-- Generates an element of the list `xs` at random.  This combinator takes as input a proof that
 `xs` is non-empty, discharged by `gen_side_condition` when omitted. -/
 def elements [Gen G] (xs : List α) (hne : xs ≠ [] := by gen_side_condition) : G α := do
-  let ⟨i, ⟨ hge, hle ⟩⟩ ← ULift.down <$> RandomChoice.choose 0 (xs.length - 1) (by omega)
+  let ⟨i, ⟨ hge, hle ⟩⟩ ← ULift.down <$> RandomChoice.chooseAs .index 0 (xs.length - 1) (by omega)
   have hlen : 0 < xs.length := by
     apply length_pos_iff.mpr
     assumption
@@ -59,7 +64,7 @@ def elements [Gen G] (xs : List α) (hne : xs ≠ [] := by gen_side_condition) :
 is non-empty, discharged by `gen_side_condition` when omitted. -/
 def oneOf {G : Type u → Type v} {α : Type u} [Gen G] (gs : List (Unit → G α))
     (hne : gs ≠ [] := by gen_side_condition) : G α := do
-  let i ← RandomChoice.choose 0 (gs.length - 1) (Nat.zero_le _)
+  let i ← RandomChoice.chooseAs .branch 0 (gs.length - 1) (Nat.zero_le _)
   (gs[i.down.val]'(by
     have := i.down.property.2
     have : 0 < gs.length := length_pos_iff.mpr hne
@@ -82,7 +87,7 @@ combinators also takes an additional hypothesis that the sum of the weights in t
 (this is discharged by `gen_side_condition` when omitted). -/
 def frequency [Gen G] (gs : List (Nat × (Unit → G α)))
   (_h : 0 < List.sum (List.map Prod.fst gs) := by gen_side_condition) : G α := do
-  let n ← chooseNat 0 (List.sum (List.map Prod.fst gs) - 1) (Nat.zero_le _)
+  let n ← chooseNatAs .branch 0 (List.sum (List.map Prod.fst gs) - 1) (Nat.zero_le _)
   if hn : n < List.sum (List.map Prod.fst gs) then
     frequencyAux gs n hn
   else
@@ -105,7 +110,7 @@ theorem vectorOf_succ [Gen G] {n : Nat} {g : G α} :
 (i.e. the list may be empty and its maximum possible length is `n` inclusive). Each list element is
 produced by the generator `g`. -/
 def listOfMaxLength [Gen G] (n : Nat) (g : G α) : G (List α) := do
-  let ⟨k, _⟩ ← ULift.down <$> RandomChoice.choose 0 n (Nat.zero_le n)
+  let ⟨k, _⟩ ← ULift.down <$> RandomChoice.chooseAs .length 0 n (Nat.zero_le n)
   vectorOf k g
 
 /-- Generates a random permutation of the list `xs`, along with a proof
@@ -161,7 +166,7 @@ after it. The bound is `n` and not `gs.length - 1`, which would put `gs` into th
 value, where `partial_fixpoint`'s `monotone_bind` cannot have it. -/
 theorem oneOf_eq_chain {G : Type u → Type v} {α : Type u} [Gen G] (gs : List (Unit → G α))
     (hne : gs ≠ []) (n : Nat) (hn : gs.length - 1 = n) :
-    oneOf gs hne = RandomChoice.choose 0 n (Nat.zero_le _) >>= fun i =>
+    oneOf gs hne = RandomChoice.chooseAs .branch 0 n (Nat.zero_le _) >>= fun i =>
       oneOfChain gs 0 i.down.val := by
   subst hn
   unfold oneOf
@@ -211,7 +216,7 @@ theorem frequencyChain_eq {G : Type → Type v} {α : Type} [Gen G]
 theorem frequency_eq_chain {G : Type → Type v} {α : Type} [Gen G]
     (gs : List (Nat × (Unit → G α))) (h : 0 < (gs.map Prod.fst).sum) (m : Nat)
     (hm : (gs.map Prod.fst).sum - 1 = m) :
-    frequency gs h = chooseNat 0 m (Nat.zero_le _) >>= fun n => frequencyChain gs 0 n := by
+    frequency gs h = chooseNatAs .branch 0 m (Nat.zero_le _) >>= fun n => frequencyChain gs 0 n := by
   subst hm
   unfold frequency
   congr 1
@@ -482,8 +487,8 @@ private theorem sumOfWeights_le {α : Type u} [PartialOrder α] {l1 l2 : List (N
 type of the drawn value, so it can only be transported where it is a variable. -/
 private theorem bind_choose_congr {G : Type u → Type v} [Gen G] {β : Type u} {n n' : Nat}
     (hn : n = n') (f : (i : Nat) → i ≤ n → G β) :
-    (RandomChoice.choose 0 n (Nat.zero_le _) >>= fun i => f i.down.val i.down.property.2)
-      = (RandomChoice.choose 0 n' (Nat.zero_le _) >>= fun i =>
+    (RandomChoice.chooseAs .branch 0 n (Nat.zero_le _) >>= fun i => f i.down.val i.down.property.2)
+      = (RandomChoice.chooseAs .branch 0 n' (Nat.zero_le _) >>= fun i =>
           f i.down.val (by have := i.down.property.2; omega)) := by
   subst hn
   rfl
@@ -496,7 +501,7 @@ private theorem oneOf_le [Gen G] {l1 l2 : List (Unit → G α)} (h : l1 ⊑ l2) 
   have h1len : 0 < l1.length := List.length_pos_iff.mpr h1
   have h2len : 0 < l2.length := List.length_pos_iff.mpr h2
   rw [show oneOf l1 h1
-        = RandomChoice.choose 0 (l2.length - 1) (Nat.zero_le _) >>= fun i =>
+        = RandomChoice.chooseAs .branch 0 (l2.length - 1) (Nat.zero_le _) >>= fun i =>
             (l1[i.down.val]'(by have := i.down.property.2; omega)) ()
       from bind_choose_congr (by omega) (fun i hi => (l1[i]'(by omega)) ())]
   simp only [oneOf]
@@ -548,8 +553,8 @@ private theorem frequency_le [Gen G] {l1 l2 : List (Nat × (Unit → G α))} (h 
     (h2 : 0 < List.sum (List.map Prod.fst l2)) :
     frequency l1 h1 ⊑ frequency l2 h2 := by
   have hsum := sumOfWeights_le h
-  have hchoose : (chooseNat 0 ((map Prod.fst l1).sum - 1) (Nat.zero_le _) : G Nat)
-      = chooseNat 0 ((map Prod.fst l2).sum - 1) (Nat.zero_le _) := by
+  have hchoose : (chooseNatAs .branch 0 ((map Prod.fst l1).sum - 1) (Nat.zero_le _) : G Nat)
+      = chooseNatAs .branch 0 ((map Prod.fst l2).sum - 1) (Nat.zero_le _) := by
     congr 1
     omega
   simp only [frequency]

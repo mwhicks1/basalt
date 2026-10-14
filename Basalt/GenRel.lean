@@ -65,6 +65,11 @@ structure GenRel (M N : Type → Type) [Gen M] [Gen N] (R : ∀ {α : Type}, M �
   default : ∀ {α : Type} (x : N α), R Inhabited.default x
   choose : ∀ (lo hi : Nat) (h : lo ≤ hi),
     R (RandomChoice.choose lo hi h) (RandomChoice.choose lo hi h)
+  /-- Neither monad tells draws' kinds apart (`RandomChoice.chooseAs`). -/
+  chooseAs_left : ∀ k lo hi h, (RandomChoice.chooseAs k lo hi h : M _) = RandomChoice.choose lo hi h :=
+    by intros; rfl
+  chooseAs_right : ∀ k lo hi h, (RandomChoice.chooseAs k lo hi h : N _) = RandomChoice.choose lo hi h :=
+    by intros; rfl
   admissible : ∀ {α : Type} (x : N α), Lean.Order.admissible fun y : M α => R y x
 
 namespace GenRel
@@ -73,9 +78,13 @@ variable {M N : Type → Type} [Gen M] [Gen N] {α : Type} {R : ∀ {α : Type},
   (h : GenRel M N @R)
 include h
 
+theorem chooseAs (k : ChoiceKind) (lo hi : Nat) (hle : lo ≤ hi) :
+    R (RandomChoice.chooseAs k lo hi hle) (RandomChoice.chooseAs k lo hi hle) := by
+  rw [h.chooseAs_left, h.chooseAs_right]; exact h.choose lo hi hle
+
 theorem elements (xs : List α) (hne : xs ≠ []) : R (elements xs hne) (elements xs hne) := by
   unfold _root_.elements
-  exact h.bind (fun ⟨_, _, _⟩ => h.pure _) (h.map _ (h.choose _ _ _))
+  exact h.bind (fun ⟨_, _, _⟩ => h.pure _) (h.map _ (h.chooseAs _ _ _ _))
 
 theorem vectorOf {g' : M α} {g : N α} (n : Nat) (hg : R g' g) :
     R (vectorOf n g') (vectorOf n g) := by
@@ -102,7 +111,7 @@ theorem oneOf {gs' : List (Unit → M α)} {gs : List (Unit → N α)} {hne' : g
     (hs : List.Forall₂ (fun g' g => R (g' ()) (g ())) gs' gs) :
     R (oneOf gs' hne') (oneOf gs hne) := by
   rw [oneOf_eq_chain gs' hne' (gs.length - 1) (by rw [hs.length_eq]), oneOf_eq_chain gs hne _ rfl]
-  exact h.bind (fun _ => h.oneOfChain hs 0 _) (h.choose _ _ _)
+  exact h.bind (fun _ => h.oneOfChain hs 0 _) (h.chooseAs _ _ _ _)
 
 theorem listOf {g' : M α} {g : N α} (hg : R g' g) : R (listOf g') (listOf g) := by
   refine _root_.listOf.fixpoint_induct (G := M) g' (fun y => R y (_root_.listOf g))
@@ -148,7 +157,7 @@ theorem frequency {gs' : List (Nat × (Unit → M α))} {gs : List (Nat × (Unit
     (hs : Weighted @R gs' gs) : R (frequency gs' h') (frequency gs hw) := by
   rw [frequency_eq_chain gs' h' ((gs.map Prod.fst).sum - 1) (by rw [hs.weights]),
     frequency_eq_chain gs hw _ rfl]
-  unfold chooseNat
-  exact h.bind (fun _ => h.frequencyChain hs 0 _) (h.map _ (h.choose _ _ _))
+  unfold chooseNatAs
+  exact h.bind (fun _ => h.frequencyChain hs 0 _) (h.map _ (h.chooseAs _ _ _ _))
 
 end GenRel

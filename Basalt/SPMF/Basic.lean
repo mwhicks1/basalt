@@ -193,6 +193,10 @@ noncomputable instance : RandomChoice SPMF where
       _ = 1 := ENNReal.mul_div_cancel (Nat.cast_ne_zero.mpr hn) (ENNReal.natCast_ne_top n)
       _ ≤ 1 := le_rfl
 
+/-- `SPMF` does not tell draws' kinds apart. -/
+@[simp] theorem chooseAs_eq {k : ChoiceKind} {lo hi : Nat} {h : lo ≤ hi} :
+    (RandomChoice.chooseAs k lo hi h : SPMF _) = RandomChoice.choose lo hi h := rfl
+
 end operations
 
 section operation_uses
