@@ -9,20 +9,10 @@
 #   fuzz-run/cedar-experiment.sh                       # defaults below
 #   PROP=wide-traced RUNS=200000 TRIALS=3 fuzz-run/cedar-experiment.sh
 #
-# Arms (ARMS, space-separated):
-#   random       random choices inside libFuzzer's loop (`--backend=io-libfuzzer`): the control
-#   fuzz         coverage-guided `FuzzGen`, libFuzzer's defaults (its input-length ramp on)
-#   fuzz-noramp  coverage-guided, `-max_len=65536 -len_control=0` (the best-measured setting)
-#   fuzz-grow    coverage-guided with Basalt's `--grow`
-#   warm-<N>     a random warm-up of N tests (`--warmup=N`, e.g. `warm-10000`), then coverage-guided
-#                from its seeds, `-max_len=65536 -len_control=0` like `fuzz-noramp`
-#   auto-<φ>     the same, but the random phase ends when coverage levels off (`--warmup-stall=0
-#                --level=φ`)
-#   back-<φ>     the same rule in both directions, switching back to random (`--switch-back`)
+# Arms (ARMS, space-separated) are `fuzz-run/run-trial.sh`'s.
 #
 # Every arm runs the same binary, so instrumentation and counters are identical and only the source of
-# the choices differs. The binary is copied under a name without `basalt-fuzz` in it, so that another
-# session's `pkill basalt-fuzz` cannot interrupt a trial (one did). Trials run in parallel (JOBS).
+# the choices differs. Trials run in parallel (JOBS).
 # Output: $OUT/curves.html (log x axes), $OUT/curves-linear.html (linear, with the first 100 s), and a table of coverage and distinct expressions at 10..RUNS tests.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -45,28 +35,13 @@ for arm in $ARMS; do
   for t in $(seq 1 "$TRIALS"); do echo "$arm $t" >> "$jobs_file"; done
 done
 
-run_one() {
-  arm=$1; t=$2
-  case $arm in
-    random)      be=io-libfuzzer; flags=() ;;
-    fuzz)        be=fuzz; flags=() ;;
-    fuzz-noramp) be=fuzz; flags=(-max_len=65536 -len_control=0) ;;
-    fuzz-grow)   be=fuzz; flags=(--grow) ;;
-    warm-*)      be=fuzz; flags=(--warmup="${arm#warm-}" -max_len=65536 -len_control=0) ;;
-    auto-*)      be=fuzz; flags=(--warmup-stall=0 --level="${arm#auto-}" -max_len=65536 -len_control=0) ;;
-    back-*)      be=fuzz; flags=(--switch-back --level="${arm#back-}" -max_len=65536 -len_control=0) ;;
-    *) echo "unknown arm $arm" >&2; return 1 ;;
-  esac
-  BASALT_COV_OUT="$OUT/$arm/$be.$t.cov" "$BIN" --backend="$be" "$PROP" -runs="$RUNS" \
-    -artifact_prefix="$OUT/$arm/" "${flags[@]}" > "$OUT/$arm/$be.$t.log" 2>&1 || true
-  echo "[$arm trial $t] done"
-}
+run_one() { fuzz-run/run-trial.sh "$PROP" "$1" "$2" "$OUT" "$RUNS" "$BIN"; }
 export -f run_one; export OUT BIN PROP RUNS JOBS
 xargs -P "$JOBS" -L 1 bash -c 'run_one "$0" "$1"' < "$jobs_file"
 
 series=()
 for arm in $ARMS; do
-  case $arm in random) be=io-libfuzzer ;; *) be=fuzz ;; esac
+  case $arm in random*) be=io-libfuzzer ;; *) be=fuzz ;; esac
   series+=("$arm=$OUT/$arm:$be")
 done
 python3 fuzz-run/coverage-curves.py --linear "$OUT/curves-linear.html" "${series[@]}" > /dev/null

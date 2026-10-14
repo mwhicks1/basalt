@@ -659,4 +659,41 @@ def prop_soundness_traced [Gen G] : PropM G Unit := do
     check (CedarWide.soundOutcome e req es tx)
       s!"UNSOUND: {reprStr e} evaluated to {reprStr (evaluate e req es)}"
 
+/-- `prop_soundness_traced` drawing the expression *last*, after the request and the entities: the
+draw order that starves the expression under zero fill (CEDAR.md). -/
+def prop_soundness_traced_last [Gen G] : PropM G Unit := do
+  let req ← generate CedarWide.genRequest
+  let es ← generate CedarWide.genEntities
+  let r ← generate (genS 4)
+  let e := match r with | some j => j.e | none => .lit (.bool true)
+  let he := hash (reprStr e)
+  let hi := mixHash he (mixHash (hash (reprStr req)) (hash (reprStr es.toList)))
+  check (dbgTrace s!"BASALT_H {he} {hi}" fun _ => true)
+  assume (requestMatchesEnvironment env req)
+  assume (CedarWide.entitiesOk es)
+  match typeOf e ∅ env with
+  | .error _ => check false s!"ill-typed: {reprStr e}"
+  | .ok (tx, _) =>
+    check (CedarWide.soundOutcome e req es tx)
+      s!"UNSOUND: {reprStr e} evaluated to {reprStr (evaluate e req es)}"
+
+/-- `prop_soundness_traced`, also printing each expression (`BASALT_E <repr>`), for measuring how far
+a mutated input's expression is from its parent's (`fuzz-run/mutation-causes.py`). -/
+def prop_soundness_repr [Gen G] : PropM G Unit := do
+  let r ← generate (genS 4)
+  let req ← generate CedarWide.genRequest
+  let es ← generate CedarWide.genEntities
+  let e := match r with | some j => j.e | none => .lit (.bool true)
+  let re := (reprStr e).replace "\n" " "
+  let he := hash (reprStr e)
+  let hi := mixHash he (mixHash (hash (reprStr req)) (hash (reprStr es.toList)))
+  check (dbgTrace s!"BASALT_H {he} {hi}\nBASALT_E {re}" fun _ => true)
+  assume (requestMatchesEnvironment env req)
+  assume (CedarWide.entitiesOk es)
+  match typeOf e ∅ env with
+  | .error _ => check false s!"ill-typed: {reprStr e}"
+  | .ok (tx, _) =>
+    check (CedarWide.soundOutcome e req es tx)
+      s!"UNSOUND: {reprStr e} evaluated to {reprStr (evaluate e req es)}"
+
 end CedarGen

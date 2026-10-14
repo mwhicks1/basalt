@@ -40,7 +40,9 @@ def cedarProperties : List (String × Property) :=
     ("wide-traced",          fun _ => CedarWide.prop_soundness_traced),
     -- the wide fragment, correct by construction (`Cedar/Gen.lean`)
     ("gen-cbc",              fun _ => CedarGen.prop_correct_by_construction),
-    ("gen-traced",           fun _ => CedarGen.prop_soundness_traced) ]
+    ("gen-traced",           fun _ => CedarGen.prop_soundness_traced),
+    ("gen-traced-last",      fun _ => CedarGen.prop_soundness_traced_last),
+    ("gen-traced-repr",      fun _ => CedarGen.prop_soundness_repr) ]
 
 /-- The property registry, selected by the first non-flag CLI argument. `bst-*` are the worked BST
 demo (`BasaltFuzz/BuggyBST.lean`): the `-buggy-*` ones have real bugs every backend can find,

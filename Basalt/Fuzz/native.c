@@ -58,12 +58,27 @@ static int g_grow = 0;
    the to-be mutated buffer is the same as last one, in which case it will zero-extend that
    buffer before mutating it. */
 static uint32_t g_last_run_deficit = 0;
+static uint64_t g_last_run_seed = 0;   /* the run's fill seed, under `--fill=random`              */
 
 static struct {
   uint8_t *buf;
   size_t   cap;               /* allocated, never shrunk; see `basalt_fuzz_record_short`        */
   size_t   size;
+  uint64_t seed;              /* the fill seed the slot's run read past its end with            */
 } g_short;
+
+/* `--fill=random`: a read past the end is `basalt_fill_byte(seed, i)`, as `Basalt.Fuzz.fillByte`. */
+static int g_fill_random = 0;
+
+/* `Basalt.Fuzz.mix64`, which must agree with this: both pin `mix64 1` (`basalt_fuzz_go`). */
+static inline uint64_t basalt_mix64(uint64_t z) {
+  z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ULL;
+  z = (z ^ (z >> 27)) * 0x94d049bb133111ebULL;
+  return z ^ (z >> 31);
+}
+static inline uint8_t basalt_fill_byte(uint64_t seed, size_t i) {
+  return (uint8_t)basalt_mix64(seed + ((uint64_t)i + 1) * 0x9e3779b97f4a7c15ULL);
+}
 
 /* Stats about the fuzzing run. */
 static struct {
@@ -77,8 +92,9 @@ static struct {
 /* Called from Lean at the conclusion of a single property test run to note whether the run
    demanded more bytes than were available (so deficit is non-zero). Called while
    `LLVMFuzzerTestOneInput` is still on the stack, so `g_last_run_deficit` is the current run's. */
-LEAN_EXPORT lean_object *basalt_fuzz_note_deficit(uint32_t deficit) {
+LEAN_EXPORT lean_object *basalt_fuzz_note_deficit(uint32_t deficit, uint64_t seed) {
   g_stats.runs++;
+  g_last_run_seed = seed;
   if (deficit) {
     g_stats.starved++;
     if (deficit > g_stats.max_deficit) g_stats.max_deficit = deficit;
@@ -106,6 +122,7 @@ static void basalt_fuzz_record_short(const uint8_t *Data, size_t Size) {
   }
   if (Size) memcpy(g_short.buf, Data, Size);
   g_short.size = Size;
+  g_short.seed = g_last_run_seed;
 }
 
 /* Whether `Data` is the input the slot's deficit was measured on. */
@@ -144,10 +161,13 @@ static void basalt_fuzz_report_stats(void) {
    exports it. */
 static size_t basalt_hybrid_mutate(uint8_t *Data, size_t Size, size_t MaxSize);
 
+static void basalt_diag_parent(const uint8_t *Data, size_t Size, int seeded);
+
 __attribute__((visibility("default")))
 size_t LLVMFuzzerCustomMutator(uint8_t *Data, size_t Size, size_t MaxSize, unsigned Seed) {
   (void)Seed;
   size_t hybrid = basalt_hybrid_mutate(Data, Size, MaxSize);
+  basalt_diag_parent(Data, Size, hybrid != 0);
   if (hybrid) return hybrid;
   size_t want = g_last_run_deficit;
   if (g_grow && want && basalt_fuzz_slot_matches(Data, Size)) {
@@ -156,7 +176,10 @@ size_t LLVMFuzzerCustomMutator(uint8_t *Data, size_t Size, size_t MaxSize, unsig
       g_stats.cap_blocked++;                      /* -max_len is the ceiling on structure size   */
     } else {
       if (want > MaxSize - Size) want = MaxSize - Size;
-      memset(Data + Size, 0, want);
+      if (g_fill_random)                         /* the bytes the run read, materialized          */
+        for (size_t i = 0; i < want; i++) Data[Size + i] = basalt_fill_byte(g_short.seed, Size + i);
+      else
+        memset(Data + Size, 0, want);
       g_stats.grew++;
       Size += want;
     }
@@ -532,6 +555,209 @@ LEAN_EXPORT lean_object *basalt_hybrid_config(lean_object *run_random, uint64_t 
   return lean_io_result_mk_ok(lean_box(0));             /* `IO`, unlike the `BaseIO` externs here */
 }
 
+/* ---------------------------------------------------------------------------------------------
+   Recorded draws (`--trace-probe`, `--diag-mutations`, off by default)
+
+   The Lean side records each run's draws (`Basalt.Fuzz.FuzzState.trace`: `lo`, `hi`, value, and the
+   cursor before the draw) and hands them over once, after the run. The probe keeps the traces of
+   runs that reached a new feature in a table keyed by the buffer, and does nothing else with them:
+   it is the bookkeeping a choice-sequence mutator would need, measured on its own. The mutation log
+   adds, for every mutated input, a `BASALT_M` line on stderr comparing the run with its parent's:
+
+     BASALT_M <run> <parent run> <class> <first draw changed> <draw edit distance> <new feature>
+              <draws> <bytes read> <first byte changed> <parent's bytes read>
+
+   `<run>` counts every call of the callback, so it is also the index of the run's `BASALT_H` line.
+   `<class>` is `a` (same draws, and the bytes the parent read unchanged), `b` (same draws, though
+   bytes it read changed), `v` (different draws), `m` (the parent's trace is unknown), `s` (a queued
+   hybrid seed, not a mutation) or `n` (no mutation, e.g. libFuzzer's initial inputs). Assumes zero
+   fill: under random fill a parent's unread tail is not what `a` compares.
+   --------------------------------------------------------------------------------------------- */
+
+static int g_probe = 0, g_diag = 0;
+static uint64_t g_run_idx;           /* every call of the callback, random phases included          */
+
+static struct { uint64_t *w; size_t n, cap; uint64_t cursor; } g_tr;   /* the last run's trace      */
+
+static void *basalt_grow_buf(void *p, size_t *cap, size_t need, size_t elt) {
+  if (need <= *cap) return p;
+  size_t c = *cap ? *cap : 64;
+  while (c < need) c *= 2;
+  void *q = realloc(p, c * elt);
+  if (!q) basalt_fuzz_die("out of memory recording draws");
+  *cap = c;
+  return q;
+}
+
+LEAN_EXPORT lean_object *basalt_fuzz_note_trace(uint64_t cursor, b_lean_obj_arg arr) {
+  size_t n = lean_array_size(arr);
+  g_tr.w = basalt_grow_buf(g_tr.w, &g_tr.cap, n, sizeof *g_tr.w);
+  for (size_t i = 0; i < n; i++) g_tr.w[i] = lean_unbox_uint64(lean_array_get_core(arr, i));
+  g_tr.n = n;
+  g_tr.cursor = cursor;
+  return lean_box(0);
+}
+
+static uint64_t basalt_hash_buf(const uint8_t *d, size_t n) {
+  uint64_t h = 0xcbf29ce484222325ULL;
+  for (size_t i = 0; i < n; i++) h = (h ^ d[i]) * 0x100000001b3ULL;
+  return basalt_mix64(h) | 1;          /* never 0, which marks an empty slot                         */
+}
+
+typedef struct {
+  uint64_t key, run, cursor;
+  uint64_t *w;
+  size_t    n;
+  uint8_t  *buf;
+  size_t    size;
+} basalt_tentry;
+
+static struct {
+  basalt_tentry *e;
+  size_t cap, n, bytes;
+  uint64_t lookups, misses, draws;
+} g_tc;
+
+static basalt_tentry *basalt_tc_find(uint64_t key, const uint8_t *d, size_t size) {
+  if (!g_tc.cap) return NULL;
+  for (size_t i = key & (g_tc.cap - 1);; i = (i + 1) & (g_tc.cap - 1)) {
+    basalt_tentry *e = &g_tc.e[i];
+    if (!e->key) return NULL;
+    if (e->key == key && e->size == size && (!size || memcmp(e->buf, d, size) == 0)) return e;
+  }
+}
+
+static void basalt_tc_put(const uint8_t *d, size_t size) {
+  if (2 * (g_tc.n + 1) > g_tc.cap) {
+    size_t cap = g_tc.cap ? 2 * g_tc.cap : 4096;
+    basalt_tentry *old = g_tc.e;
+    size_t oldcap = g_tc.cap;
+    g_tc.e = calloc(cap, sizeof *g_tc.e);
+    if (!g_tc.e) basalt_fuzz_die("out of memory caching traces");
+    g_tc.cap = cap;
+    for (size_t i = 0; i < oldcap; i++)
+      if (old[i].key) {
+        size_t j = old[i].key & (cap - 1);
+        while (g_tc.e[j].key) j = (j + 1) & (cap - 1);
+        g_tc.e[j] = old[i];
+      }
+    free(old);
+  }
+  uint64_t key = basalt_hash_buf(d, size);
+  if (basalt_tc_find(key, d, size)) return;
+  size_t j = key & (g_tc.cap - 1);
+  while (g_tc.e[j].key) j = (j + 1) & (g_tc.cap - 1);
+  basalt_tentry *e = &g_tc.e[j];
+  e->w = malloc((g_tr.n ? g_tr.n : 1) * sizeof *e->w);
+  e->buf = malloc(size ? size : 1);
+  if (!e->w || !e->buf) basalt_fuzz_die("out of memory caching traces");
+  memcpy(e->w, g_tr.w, g_tr.n * sizeof *e->w);
+  memcpy(e->buf, d, size);
+  e->key = key; e->n = g_tr.n; e->size = size; e->cursor = g_tr.cursor; e->run = g_run_idx;
+  g_tc.n++;
+  g_tc.bytes += g_tr.n * sizeof *e->w + size + sizeof *e;
+}
+
+enum { PAR_NONE = 0, PAR_OK, PAR_MISS, PAR_SEED };
+static struct {
+  int kind;
+  uint64_t run, cursor;
+  uint64_t *w; size_t n, wcap;
+  uint8_t *buf; size_t size, bcap;
+} g_par;
+static struct { uint8_t *buf; size_t size, cap; uint64_t run; } g_last;   /* the last run's buffer */
+
+/* From the custom mutator, before it mutates: find the parent's trace. */
+static void basalt_diag_parent(const uint8_t *Data, size_t Size, int seeded) {
+  if (!g_diag) return;
+  g_par.kind = PAR_NONE;
+  if (g_hy.on && g_hy.mode == BASALT_RANDOM) return;
+  if (seeded) { g_par.kind = PAR_SEED; return; }
+  const uint64_t *w; size_t n; uint64_t run, cursor;
+  g_tc.lookups++;
+  if (g_last.run && Size == g_last.size && (!Size || memcmp(Data, g_last.buf, Size) == 0)) {
+    w = g_tr.w; n = g_tr.n; run = g_last.run; cursor = g_tr.cursor;
+  } else {
+    basalt_tentry *e = basalt_tc_find(basalt_hash_buf(Data, Size), Data, Size);
+    if (!e) { g_tc.misses++; g_par.kind = PAR_MISS; return; }
+    w = e->w; n = e->n; run = e->run; cursor = e->cursor;
+  }
+  g_par.w = basalt_grow_buf(g_par.w, &g_par.wcap, n, sizeof *g_par.w);
+  memcpy(g_par.w, w, n * sizeof *w);
+  g_par.n = n;
+  g_par.buf = basalt_grow_buf(g_par.buf, &g_par.bcap, Size, 1);
+  if (Size) memcpy(g_par.buf, Data, Size);
+  g_par.size = Size;
+  g_par.run = run; g_par.cursor = cursor;
+  g_par.kind = PAR_OK;
+}
+
+/* Edit distance between the parent's and the child's sequences of drawn values (-1 if either is
+   long enough to make it slow). */
+static long basalt_draw_distance(const uint64_t *a, size_t na, const uint64_t *b, size_t nb) {
+  if (na > 4000 || nb > 4000) return -1;
+  static long *row; static size_t rowcap;
+  row = basalt_grow_buf(row, &rowcap, nb + 1, sizeof *row);
+  for (size_t j = 0; j <= nb; j++) row[j] = (long)j;
+  for (size_t i = 1; i <= na; i++) {
+    long diag = row[0];
+    row[0] = (long)i;
+    for (size_t j = 1; j <= nb; j++) {
+      long up = row[j];
+      long sub = diag + (a[4 * (i - 1) + 2] != b[4 * (j - 1) + 2]);
+      long best = up + 1 < row[j - 1] + 1 ? up + 1 : row[j - 1] + 1;
+      row[j] = sub < best ? sub : best;
+      diag = up;
+    }
+  }
+  return row[nb];
+}
+
+/* After a fuzz-mode run: log it against its parent, and keep its trace if it reached a new feature
+   (or was a queued seed, whose features the random phase already counted). */
+static void basalt_trace_after(const uint8_t *Data, size_t Size, size_t fresh) {
+  g_tc.draws += g_tr.n / 4;
+  int seeded = g_diag && g_par.kind == PAR_SEED;
+  if (fresh || seeded) basalt_tc_put(Data, Size);
+  if (!g_diag) return;
+  size_t nc = g_tr.n / 4;
+  switch (g_par.kind) {
+  case PAR_OK: {
+    size_t np = g_par.n / 4, k = 0;
+    while (k < np && k < nc && g_par.w[4 * k] == g_tr.w[4 * k] && g_par.w[4 * k + 1] == g_tr.w[4 * k + 1]
+           && g_par.w[4 * k + 2] == g_tr.w[4 * k + 2]) k++;
+    size_t off = 0, lim = Size > g_par.size ? Size : g_par.size;
+    while (off < lim && (off < Size ? Data[off] : 0) == (off < g_par.size ? g_par.buf[off] : 0)) off++;
+    char cls = (k == np && k == nc) ? (off >= g_par.cursor ? 'a' : 'b') : 'v';
+    long dist = cls == 'v' ? basalt_draw_distance(g_par.w, np, g_tr.w, nc) : 0;
+    fprintf(stderr, "BASALT_M %llu %llu %c %zu %ld %d %zu %llu %zu %llu\n",
+            (unsigned long long)g_run_idx, (unsigned long long)g_par.run, cls, k, dist, fresh ? 1 : 0,
+            nc, (unsigned long long)g_tr.cursor, off, (unsigned long long)g_par.cursor);
+    break;
+  }
+  case PAR_MISS: fprintf(stderr, "BASALT_M %llu - m 0 0 %d %zu %llu 0 0\n", (unsigned long long)g_run_idx,
+                         fresh ? 1 : 0, nc, (unsigned long long)g_tr.cursor); break;
+  case PAR_SEED: fprintf(stderr, "BASALT_M %llu - s 0 0 %d %zu %llu 0 0\n", (unsigned long long)g_run_idx,
+                         fresh ? 1 : 0, nc, (unsigned long long)g_tr.cursor); break;
+  default:       fprintf(stderr, "BASALT_M %llu - n 0 0 %d %zu %llu 0 0\n", (unsigned long long)g_run_idx,
+                         fresh ? 1 : 0, nc, (unsigned long long)g_tr.cursor); break;
+  }
+  g_par.kind = PAR_NONE;
+  g_last.buf = basalt_grow_buf(g_last.buf, &g_last.cap, Size, 1);
+  if (Size) memcpy(g_last.buf, Data, Size);
+  g_last.size = Size;
+  g_last.run = g_run_idx;
+}
+
+static void basalt_trace_report(void) {
+  if (!g_probe && !g_diag) return;
+  fprintf(stderr, "[basalt] traces: %llu draws over %llu runs (%.1f per run); %zu cached, %.1f MB; "
+          "%llu parent lookups, %llu missed\n",
+          (unsigned long long)g_tc.draws, (unsigned long long)g_stats.runs,
+          g_stats.runs ? (double)g_tc.draws / (double)g_stats.runs : 0.0, g_tc.n,
+          (double)g_tc.bytes / 1e6, (unsigned long long)g_tc.lookups, (unsigned long long)g_tc.misses);
+}
+
 /* Apply a Lean `ByteArray -> IO UInt8` callback to a copy of libFuzzer's buffer; the code it returns. */
 static uint8_t basalt_apply(lean_object *f, const uint8_t *Data, size_t Size) {
   lean_object *arr = lean_alloc_sarray(1, Size, Size);
@@ -554,6 +780,7 @@ static uint8_t basalt_apply(lean_object *f, const uint8_t *Data, size_t Size) {
    returns code 1, and we abort(). libFuzzer's signal handler then saves the crashing input as an
    artifact (reproduce with `basalt-fuzz replay`) and exits with its error code. */
 int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
+  g_run_idx++;
   if (g_hy.on && g_hy.mode == BASALT_RANDOM && g_hy.started) {
     /* A random test: the buffer is not its input, so libFuzzer must neither keep it nor learn from
        its coverage (-1). */
@@ -580,15 +807,18 @@ int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
   /* If there was a deficit, save the offending buffer. Will be checked by the custom mutator. */
   if (g_last_run_deficit) basalt_fuzz_record_short(Data, Size);
   if (g_cov_first) basalt_cov_accumulate();
+  size_t fresh = 0;
+  if (g_hy.on || g_probe || g_diag) { size_t nf; fresh = basalt_hybrid_scan(&nf); }
   if (g_hy.on) {
     g_hy.total++;
-    size_t nf, fresh = basalt_hybrid_scan(&nf);
     if (g_hy.started) basalt_phase_step(fresh);
   }
+  if (g_probe || g_diag) basalt_trace_after(Data, Size, fresh);
 
   if (code == 1) {
     basalt_cov_dump();                                /* abort() skips this atexit handler too  */
     basalt_fuzz_report_stats();                       /* abort() skips the atexit handler      */
+    basalt_trace_report();
     fflush(NULL);                                     /* the Lean side flushed its own handles */
     abort();                                          /* property failed → libFuzzer saves it */
   }
@@ -598,9 +828,25 @@ int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
 
 /* Called from Lean's `main` via @[extern]. Stores the closure and hands control to libFuzzer.
    Returns only if the campaign completes without a failure (a failure aborts the process). */
-LEAN_EXPORT lean_object *basalt_fuzz_go(lean_object *run, lean_object *argv, uint8_t grow) {
+LEAN_EXPORT lean_object *basalt_fuzz_go(lean_object *run, lean_object *argv, uint8_t grow,
+                                        uint32_t modes) {
   g_run = run;
   g_grow = grow;
+  g_fill_random = (modes & 1) != 0;
+  g_probe = (modes & 2) != 0;
+  g_diag = (modes & 4) != 0;
+  if (basalt_mix64(1) != 6238072747940578789ULL)
+    basalt_fuzz_die("basalt_mix64 disagrees with Basalt.Fuzz.mix64");
+  if ((g_probe || g_diag) && !g_hy.on) {
+    /* The new-feature scan is the hybrid's; a plain campaign needs its maps too. */
+    if (!basalt_have_counters()) basalt_fuzz_die("--trace-probe: no SanitizerCoverage counters");
+    g_hy.ncntrs = (size_t)(__stop___sancov_cntrs - __start___sancov_cntrs);
+    g_hy.seen = calloc(g_hy.ncntrs, 1);
+    g_hy.fresh = calloc(g_hy.ncntrs, 1);
+    g_hy.scratch = malloc(g_hy.ncntrs * sizeof *g_hy.scratch);
+    if (!g_hy.seen || !g_hy.fresh || !g_hy.scratch) basalt_fuzz_die("out of memory for the coverage map");
+  }
+  atexit(basalt_trace_report);
   atexit(basalt_fuzz_report_stats);   /* the `-runs`-exhausted path exits here, not through Lean */
   basalt_cov_init();
 

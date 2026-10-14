@@ -121,6 +121,45 @@ node, `genBST` recurses on both subtrees and each reads a `frequency` byte past 
 /-- info: pass (short 2) -/
 #guard_msgs in #eval IO.println (renderShort (runOne propBSTsizeNonneg (bytes [1, 5])))
 
+/-! ### Random fill
+
+Under `randomFill` a read past the end is a byte of the buffer's own seeded stream, so a run is
+still a function of its buffer, reads inside the buffer are unchanged, and materializing the bytes
+a run read past its end (what `--grow` does) preserves it. The bridge computes the same stream from
+the seed, so it pins the same `mix64 1`. -/
+
+/-- info: 6238072747940578789 -/
+#guard_msgs in #eval IO.println (mix64 1)
+
+private def rfill : FuzzConfig := { randomFill := true }
+
+/- Inside the buffer, the fill is never read. -/
+/-- info: fail: x=7, y=3 -/
+#guard_msgs in #eval IO.println (render (runOne propTwo (bytes [7, 3]) rfill))
+
+/- Past it, the second draw is the fill's, not `0`, and the same on every run of the buffer. -/
+/-- info: true -/
+#guard_msgs in #eval IO.println
+  (render (runOne propTwo (bytes [7]) rfill) == render (runOne propTwo (bytes [7]) rfill) &&
+   render (runOne propTwo (bytes [7]) rfill) != render (runOne propTwo (bytes [7])))
+
+/-- Materialize the `k` bytes a random-fill run of `b` read past its end, as the bridge's `--grow`
+does from the seed it is handed. -/
+private def grow (b : ByteArray) (k : Nat) : ByteArray := Id.run do
+  let seed := (runOne propBSTsizeNonneg b rfill).seed
+  let mut out := b
+  for i in [b.size:b.size + k] do out := out.push (fillByte seed i)
+  return out
+
+/- The grown buffer draws exactly what the short one did, with nothing left to fill. -/
+/-- info: true -/
+#guard_msgs in #eval IO.println <| Id.run do
+  let b := bytes [1, 5]
+  let r := runOne propBSTsizeNonneg b { randomFill := true, record := true }
+  let g := grow b r.deficit
+  let r' := runOne propBSTsizeNonneg g { randomFill := true, record := true }
+  return r.trace == r'.trace && r'.deficit == 0 && r.deficit > 0
+
 /-! ### One property, every backend
 
 `basalt-fuzz --backend=` rests on one registry entry (a `Basalt.PBT.Property`) running at `FuzzGen`,
@@ -168,7 +207,7 @@ private def agreeOn (bs : List UInt8) : String :=
   let hi := BuggyBST.hiKey
   let orig : FuzzGen String := showOrig <$> BST.Tree.genBST lo hi
   let copy : FuzzGen String := showCopy <$> BuggyBST.genBST lo hi
-  let run (g : FuzzGen String) : Option String := (g.run ⟨⟨bs.toArray⟩, 0⟩).map (·.1)
+  let run (g : FuzzGen String) : Option String := (g.run { buffer := ⟨bs.toArray⟩, cursor := 0 }).map (·.1)
   match run orig, run copy with
   | some a, some b => if a == b then s!"agree: {a}" else s!"DIFFER: example={a} fuzz={b}"
   | _, _ => "one generator failed to produce a value"
@@ -217,7 +256,7 @@ private def replayMismatches (n : Nat) (seed : UInt64) : Nat := Id.run do
     let (outcome, bytes, g') := runRecord propRecorded g
     g := g'
     let r := runOne propRecorded bytes
-    let cursor := ((runProp propRecorded : FuzzGen _).run ⟨bytes, 0⟩).map (·.2.cursor)
+    let cursor := ((runProp propRecorded : FuzzGen _).run { buffer := bytes, cursor := 0 }).map (·.2.cursor)
     if renderOutcome r.outcome != renderOutcome outcome || cursor != some bytes.size then
       bad := bad + 1
   return bad

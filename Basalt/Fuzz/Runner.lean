@@ -25,12 +25,35 @@ Blocks in the fuzzing loop; libFuzzer parses its own flags from `argv`. `grow` a
 mutator's buffer extension. Returns only if the campaign completes without a failure (a failure
 aborts the process). -/
 @[extern "basalt_fuzz_go"]
-opaque goImpl (run : ByteArray → IO UInt8) (argv : Array String) (grow : Bool) : IO Unit
+opaque goImpl (run : ByteArray → IO UInt8) (argv : Array String) (grow : Bool) (modes : UInt32) :
+    IO Unit
 
 /-- Called at the conclusion of a run to report to the C code the deficit in the buffer,
-i.e., the difference N - S between requested bytes N and available bytes S. -/
+i.e., the difference N - S between requested bytes N and available bytes S, and the run's fill seed
+(`FuzzResult.seed`), which `--grow` needs to materialize a random fill. -/
 @[extern "basalt_fuzz_note_deficit"]
-opaque noteDeficitImpl (deficit : UInt32) : BaseIO Unit
+opaque noteDeficitImpl (deficit : UInt32) (seed : UInt64) : BaseIO Unit
+
+/-- Hand the C bridge a recorded run's draws (`FuzzState.trace`) and how many bytes it read. -/
+@[extern "basalt_fuzz_note_trace"]
+opaque noteTraceImpl (cursor : UInt64) (trace : @& Array UInt64) : BaseIO Unit
+
+/-- The `FuzzGen` variations Phase 0 of `DESIGN-choice-sequences.md` measures, each off by default:
+`randomFill` reads a seeded random byte past the end instead of `0`; `probe` records every draw and
+has the bridge keep the traces of runs that reached new coverage, discarding them (the cost probe);
+`mutations` logs, per mutated input, why it repeats its parent (`BASALT_M` lines). -/
+structure Diag where
+  randomFill : Bool := false
+  probe : Bool := false
+  mutations : Bool := false
+
+/-- The decoding `runOne` uses under `d`. -/
+def Diag.config (d : Diag) : FuzzConfig :=
+  { randomFill := d.randomFill, record := d.probe || d.mutations }
+
+/-- The bridge's mode bits: 1 random fill, 2 probe, 4 mutation log. -/
+def Diag.modes (d : Diag) : UInt32 :=
+  (if d.randomFill then 1 else 0) + (if d.probe then 2 else 0) + (if d.mutations then 4 else 0)
 
 /-- Run the property on one input, reporting the byte codes the C bridge expects: `0` = pass,
 `1` = failed (the bridge then aborts, so the report must already be flushed), `2` = discard.
@@ -38,10 +61,11 @@ opaque noteDeficitImpl (deficit : UInt32) : BaseIO Unit
 `counters` tallies executions and discards so a failing campaign can report the same run line the
 other backends do — libFuzzer's own `#N` markers count only corpus-worthy inputs, which is not the
 number of tests run. -/
-def runOneIO (counters : IO.Ref (Nat × Nat)) (T : PropM FuzzGen Unit)
+def runOneIO (counters : IO.Ref (Nat × Nat)) (T : PropM FuzzGen Unit) (cfg : FuzzConfig)
     (bytes : ByteArray) : IO UInt8 := do
-  let r := runOne T bytes -- run the property test
-  noteDeficitImpl (UInt32.ofNatClamp r.deficit) -- note any bytes deficit
+  let r := runOne T bytes cfg -- run the property test
+  noteDeficitImpl (UInt32.ofNatClamp r.deficit) r.seed -- note any bytes deficit
+  if cfg.record then noteTraceImpl r.cursor.toUInt64 r.trace
   match r.outcome with
   | Except.ok () => counters.modify (fun (runs, discards) => (runs + 1, discards)); pure 0
   | Except.error .discard => counters.modify (fun (r, d) => (r, d + 1)); pure 2
@@ -104,8 +128,9 @@ def runOneRecorded (counters : IO.Ref (Nat × Nat)) (T : PropM RecordGen Unit)
 `-runs`, `-max_len`, `-artifact_prefix`, …). A failure aborts the process, with the artifact saved and
 the exit code set by libFuzzer. -/
 def go (T : PropM FuzzGen Unit) (argv : Array String := #[]) (grow : Bool := false)
-    (counters? : Option (IO.Ref (Nat × Nat)) := none) : IO Unit := do
-  IO.println s!"[basalt] starting libFuzzer campaign (grow={grow}, {argv.toList})"
+    (counters? : Option (IO.Ref (Nat × Nat)) := none) (diag : Diag := {}) : IO Unit := do
+  IO.println s!"[basalt] starting libFuzzer campaign (grow={grow}, randomFill={diag.randomFill}, \
+    probe={diag.probe}, diag={diag.mutations}, {argv.toList})"
   -- libFuzzer announces that the linked custom mutator disables `-len_control` on every campaign,
   -- `--grow` or not; an explicit flag wins over that default (`splitFlags`), so say so.
   if let some lc := argv.find? (·.startsWith "-len_control=") then
@@ -114,7 +139,7 @@ def go (T : PropM FuzzGen Unit) (argv : Array String := #[]) (grow : Bool := fal
   let counters ← match counters? with | some c => pure c | none => IO.mkRef (0, 0)
   -- Report nothing after `goImpl`: libFuzzer `exit()`s when `-runs` is exhausted, so a line placed
   -- there silently never appears (the tally lives in `runOneIO`, the statistics in an `atexit`).
-  goImpl (fun bytes => runOneIO counters T bytes) argv grow
+  goImpl (fun bytes => runOneIO counters T diag.config bytes) argv grow diag.modes
 
 /-- Run the property once at `IO`, ignoring libFuzzer's buffer, with the byte codes `runOneIO` uses.
 A failure is reported the same way; its `input bytes` are meaningless, since the choices came from
@@ -136,18 +161,20 @@ counters as `go`, with only the source of the choices changed. -/
 def goRandom (T : PropM IO Unit) (argv : Array String := #[]) : IO Unit := do
   IO.println s!"[basalt] starting random campaign under libFuzzer ({argv.toList})"
   let counters ← IO.mkRef (0, 0)
-  goImpl (runOneRandom counters T) argv false
+  goImpl (runOneRandom counters T) argv false 0
 
 /-- Replay one saved input file against a property (no fuzzer): reproduces the outcome
 deterministically and prints it. This is how a saved artifact (`crash-…`) is consumed.
 
-The bytes alone are the whole reproduction: zero-extension is a property of `readByte`, not a
-campaign setting, so an artifact means the same thing however it was produced — including one grown
-by `--grow`, which is already whatever length the failing run read. -/
+The bytes plus the fill are the whole reproduction: an artifact means the same thing however it was
+produced — including one grown by `--grow`, which is already whatever length the failing run read.
+The fill is a campaign setting, and `replay` takes no flags, so a campaign run with `--fill=random`
+replays under `BASALT_FILL=random`. -/
 def replay (T : PropM FuzzGen Unit) (path : String) : IO Unit := do
   let bytes ← IO.FS.readBinFile path
-  IO.println s!"[basalt] replaying {path} ({bytes.size} bytes)"
-  let r := runOne T bytes
+  let randomFill := (← IO.getEnv "BASALT_FILL") == some "random"
+  IO.println s!"[basalt] replaying {path} ({bytes.size} bytes, {if randomFill then "random" else "zero"} fill)"
+  let r := runOne T bytes { randomFill }
   match r.outcome with
   | Except.ok () => IO.println s!"outcome: pass ({r.deficit} bytes short)"
   | Except.error .discard => IO.println s!"outcome: discard ({r.deficit} bytes short)"
@@ -157,6 +184,7 @@ def replay (T : PropM FuzzGen Unit) (path : String) : IO Unit := do
 what we consume must not be forwarded. `bad` collects the ones given malformed. -/
 structure FuzzFlags where
   grow : Bool := false
+  diag : Diag := {}
   hybrid : Option HybridConfig := none
   bad : Array String := #[]
 
@@ -172,7 +200,7 @@ private def decimal? (s : String) : Option Float :=
 
 /-- Basalt's flags, each `--name` or `--name=value`. -/
 private def ours : List String :=
-  ["--grow", "--warmup", "--warmup-stall", "--switch-back", "--level", "--confidence"]
+  ["--grow", "--fill", "--trace-probe", "--diag-mutations", "--warmup", "--warmup-stall", "--switch-back", "--level", "--confidence"]
 
 private def isOurs (a : String) : Bool :=
   ours.any fun f => a == f || a.startsWith (f ++ "=")
@@ -186,7 +214,12 @@ def splitFlags (argv : Array String) : FuzzFlags × Array String :=
   let grow := argv.contains "--grow"
   let nat (n : String) : Option (Option Nat) := (valueOf? argv n).map String.toNat?
   let dec (n : String) : Option (Option Float) := (valueOf? argv n).map decimal?
-  let bad := argv.filter (fun a => a.startsWith "--grow=" || a.startsWith "--switch-back=") ++
+  let fill := valueOf? argv "--fill"
+  let diag : Diag := { randomFill := fill == some "random", probe := argv.contains "--trace-probe",
+                       mutations := argv.contains "--diag-mutations" }
+  let bad := argv.filter (fun a => a.startsWith "--grow=" || a.startsWith "--switch-back=" ||
+      a.startsWith "--trace-probe=" || a.startsWith "--diag-mutations=" || a == "--fill") ++
+    (if fill.any (fun f => f != "random" && f != "zero") then #["--fill"] else #[]) ++
     #["--warmup", "--warmup-stall", "--level", "--confidence"].filter fun n =>
     (argv.contains n) ||
     (match nat n, dec n with
@@ -220,7 +253,7 @@ def splitFlags (argv : Array String) : FuzzFlags × Array String :=
   let rest := if !long && !rest.any (·.startsWith "-len_control=") then
                 rest.push "-len_control=100"
               else rest
-  ({ grow, hybrid, bad }, rest)
+  ({ grow, diag, hybrid, bad }, rest)
 
 /-- The value of libFuzzer's `-flag=V`, if given. -/
 private def strFlag? (argv : Array String) (flag : String) : Option String :=
@@ -228,7 +261,8 @@ private def strFlag? (argv : Array String) (flag : String) : Option String :=
 
 /-- A hybrid campaign: random and coverage-guided phases in one libFuzzer loop, switching as `cfg`
 says. Every phase's tests count against the one `-runs` budget. -/
-def goHybrid (T : Property) (cfg : HybridConfig) (grow : Bool) (argv : Array String) : IO Unit := do
+def goHybrid (T : Property) (cfg : HybridConfig) (grow : Bool) (argv : Array String)
+    (diag : Diag := {}) : IO Unit := do
   let budget := (strFlag? argv "-runs=" |>.bind String.toNat?).getD 0
   IO.println s!"[basalt] hybrid campaign: random first\
     {if cfg.firstMax == 0 then "" else s!" (at most {cfg.firstMax} tests)"}\
@@ -241,7 +275,7 @@ def goHybrid (T : Property) (cfg : HybridConfig) (grow : Bool) (argv : Array Str
   hybridConfigImpl (runOneRecorded counters (T RecordGen) gen artifactPrefix)
     cfg.firstMax.toUInt64 cfg.minWindow.toUInt64 cfg.level cfg.confidence budget.toUInt64
     cfg.adaptive cfg.switchBack
-  go (T FuzzGen) argv grow counters
+  go (T FuzzGen) argv grow counters diag
 
 /-- The coverage-guided backend, for `Basalt.PBT.dispatch`. `--grow` is Basalt's own
 (`fuzz-run/README.md`); the rest of `argv` goes to libFuzzer, and a saved artifact — which *is* a
@@ -253,10 +287,10 @@ def fuzzBackend : Backend where
     let (flags, rest) := splitFlags argv
     if !flags.bad.isEmpty then
       usageError s!"malformed: {flags.bad.toList}; --warmup=N and --warmup-stall=K take a number \
-        of tests, --level=φ and --confidence=c a decimal"
+        of tests, --level=φ and --confidence=c a decimal, --fill is random or zero"
     else match flags.hybrid with
-    | some cfg => goHybrid T cfg flags.grow rest
-    | none => go (T FuzzGen) rest flags.grow
+    | some cfg => goHybrid T cfg flags.grow rest flags.diag
+    | none => go (T FuzzGen) rest flags.grow none flags.diag
   replay? := some (fun T path => replay (T FuzzGen) path)
 
 /-- Random `IO` choices, run and coverage-counted by libFuzzer (`goRandom`): the baseline that
