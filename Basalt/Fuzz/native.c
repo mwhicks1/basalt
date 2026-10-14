@@ -92,9 +92,11 @@ static struct {
 /* Called from Lean at the conclusion of a single property test run to note whether the run
    demanded more bytes than were available (so deficit is non-zero). Called while
    `LLVMFuzzerTestOneInput` is still on the stack, so `g_last_run_deficit` is the current run's. */
-LEAN_EXPORT lean_object *basalt_fuzz_note_deficit(uint32_t deficit, uint64_t seed) {
+static uint64_t g_last_run_cursor;
+LEAN_EXPORT lean_object *basalt_fuzz_note_deficit(uint32_t deficit, uint64_t seed, uint64_t cursor) {
   g_stats.runs++;
   g_last_run_seed = seed;
+  g_last_run_cursor = cursor;
   if (deficit) {
     g_stats.starved++;
     if (deficit > g_stats.max_deficit) g_stats.max_deficit = deficit;
@@ -162,6 +164,7 @@ static void basalt_fuzz_report_stats(void) {
 static size_t basalt_hybrid_mutate(uint8_t *Data, size_t Size, size_t MaxSize);
 
 static void basalt_diag_parent(const uint8_t *Data, size_t Size, int seeded);
+static size_t basalt_truncate(const uint8_t *Data, size_t Size);
 static void *basalt_grow_buf(void *p, size_t *cap, size_t need, size_t elt);
 static int g_choice;                   /* a choice-sequence campaign (`--backend=choice`)        */
 static int g_ch_seeded;                /* the input now running is a queued hybrid seed          */
@@ -175,6 +178,7 @@ size_t LLVMFuzzerCustomMutator(uint8_t *Data, size_t Size, size_t MaxSize, unsig
   basalt_diag_parent(Data, Size, hybrid != 0);
   g_ch_seeded = hybrid != 0;
   if (hybrid) return hybrid;
+  Size = basalt_truncate(Data, Size);
   if (g_choice) {
     static uint8_t *in; static size_t incap;
     in = basalt_grow_buf(in, &incap, Size ? Size : 1, 1);
@@ -773,7 +777,43 @@ static void basalt_trace_after(const uint8_t *Data, size_t Size, size_t fresh) {
   g_last.run = g_run_idx;
 }
 
+/* `--truncate`: cut an input to the bytes its run read before mutating it, so no mutation is spent
+   on bytes nothing reads. The run's cursor comes from the last run or, for a corpus unit, the cache
+   (kept for new-feature runs, with no trace). */
+static int g_trunc = 0;
+static uint64_t g_trunc_cut, g_trunc_bytes, g_trunc_miss;
+static size_t basalt_truncate(const uint8_t *Data, size_t Size) {
+  if (!g_trunc || (g_hy.on && g_hy.mode == BASALT_RANDOM)) return Size;
+  uint64_t cursor;
+  if (g_last.run && Size == g_last.size && (!Size || memcmp(Data, g_last.buf, Size) == 0))
+    cursor = g_last_run_cursor;
+  else {
+    basalt_tentry *e = basalt_tc_find(basalt_hash_buf(Data, Size), Data, Size);
+    if (!e) { g_trunc_miss++; return Size; }
+    cursor = e->cursor;
+  }
+  if (cursor >= Size) return Size;
+  if (cursor == 0) cursor = 1;
+  g_trunc_cut++; g_trunc_bytes += Size - cursor;
+  return (size_t)cursor;
+}
+
+static void basalt_trunc_after(const uint8_t *Data, size_t Size, size_t fresh) {
+  g_tr.n = 0;
+  g_tr.cursor = g_last_run_cursor;
+  if (fresh) basalt_tc_put(Data, Size);
+  g_last.buf = basalt_grow_buf(g_last.buf, &g_last.cap, Size ? Size : 1, 1);
+  if (Size) memcpy(g_last.buf, Data, Size);
+  g_last.size = Size;
+  g_last.run = g_run_idx;
+}
+
 static void basalt_trace_report(void) {
+  if (g_trunc)
+    fprintf(stderr, "[basalt] truncate: %llu inputs cut, %.1f bytes each on average; %llu cursors "
+            "unknown\n", (unsigned long long)g_trunc_cut,
+            g_trunc_cut ? (double)g_trunc_bytes / (double)g_trunc_cut : 0.0,
+            (unsigned long long)g_trunc_miss);
   if (!g_probe && !g_diag) return;
   fprintf(stderr, "[basalt] traces: %llu draws over %llu runs (%.1f per run); %zu cached, %.1f MB; "
           "%llu parent lookups, %llu missed\n",
@@ -975,14 +1015,18 @@ static void basalt_cops_init(void) {
   g_cops.bandit = !(b && !strcmp(b, "0"));
 }
 
-/* Pick an operator: in proportion to its smoothed success rate (prior: one win in 100), with a
-   tenth of the picks uniform so no operator starves. */
+/* Pick an operator: in proportion to its smoothed success rate, with a tenth of the picks uniform so
+   no operator starves. The prior is one win in 100, and two for the destructive operators: on Cedar
+   the mutations that reached new coverage were the ones that moved furthest from their parent
+   (DESIGN-choice-sequences.md, Phase 0.1). */
 static int basalt_pick_op(int have_donor, int know_bounds) {
   double w[OP_N], tot = 0;
   for (int i = 0; i < OP_N; i++) {
     int ok = g_cops.on[i] && (have_donor || i < OP_SPLICE) &&
              (know_bounds || i == OP_TRUNC || i == OP_DELETE || i == OP_DUP || i >= OP_SPLICE);
-    w[i] = ok ? (g_cops.bandit ? (g_cops.wins[i] + 1.0) / (g_cops.n[i] + 100.0) : 1.0) : 0;
+    double prior = (i == OP_TRUNC || i == OP_RANDRUN || i == OP_DELETE || i == OP_DUP ||
+                    i == OP_HAVOC) ? 2.0 : 1.0;
+    w[i] = ok ? (g_cops.bandit ? (g_cops.wins[i] + prior) / (g_cops.n[i] + 100.0) : 1.0) : 0;
     tot += w[i];
   }
   if (tot == 0) return OP_TRUNC;
@@ -1333,13 +1377,14 @@ int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
   if (g_last_run_deficit) basalt_fuzz_record_short(Data, Size);
   if (g_cov_first) basalt_cov_accumulate();
   size_t fresh = 0, nf = 0;
-  if (g_hy.on || g_probe || g_diag || g_choice) fresh = basalt_hybrid_scan(&nf);
+  if (g_hy.on || g_probe || g_diag || g_choice || g_trunc) fresh = basalt_hybrid_scan(&nf);
   if (g_hy.on) {
     g_hy.total++;
     if (g_hy.started) basalt_phase_step(fresh);
   }
   if (g_choice) basalt_choice_after(Data, Size, fresh, nf);
   else if (g_probe || g_diag) basalt_trace_after(Data, Size, fresh);
+  else if (g_trunc) basalt_trunc_after(Data, Size, fresh);
 
   if (code == 1) {
     basalt_cov_dump();                                /* abort() skips this atexit handler too  */
@@ -1363,9 +1408,10 @@ LEAN_EXPORT lean_object *basalt_fuzz_go(lean_object *run, lean_object *argv, uin
   g_probe = (modes & 2) != 0;
   g_diag = (modes & 4) != 0;
   g_choice = (modes & 8) != 0;
+  g_trunc = (modes & 16) != 0;
   if (basalt_mix64(1) != 6238072747940578789ULL)
     basalt_fuzz_die("basalt_mix64 disagrees with Basalt.Fuzz.mix64");
-  if ((g_probe || g_diag || g_choice) && !g_hy.on) {
+  if ((g_probe || g_diag || g_choice || g_trunc) && !g_hy.on) {
     /* The new-feature scan is the hybrid's; a plain campaign needs its maps too. */
     if (!basalt_have_counters()) basalt_fuzz_die("--trace-probe: no SanitizerCoverage counters");
     g_hy.ncntrs = (size_t)(__stop___sancov_cntrs - __start___sancov_cntrs);

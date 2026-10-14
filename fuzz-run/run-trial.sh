@@ -23,9 +23,11 @@
 #   +grow        `--grow`
 #   +probe       the trace cost probe (`--trace-probe`)
 #   +diag        the mutation log (`--diag-mutations`)
+#   +trunc       cut an input to the bytes its run read before mutating it (`--truncate`)
 #   +simplest    the choice backend's misfit fill is the least value (`--fill-policy=simplest`)
 #   +ops=a.b.c   the choice backend's operators restricted to a, b, c (`BASALT_CHOICE_OPS`)
 #   +uniform     the choice backend's operators chosen uniformly (`BASALT_CHOICE_BANDIT=0`)
+# NOCOV=1 skips the coverage dump, for bug-finding trials that only need the verdict.
 # BIN defaults to `$OUT/cedar-exp-bin`, a copy of the executable under a name without `basalt-fuzz`
 # in it, so that another session's `pkill basalt-fuzz` cannot interrupt a trial (one did).
 set -euo pipefail
@@ -53,6 +55,7 @@ for m in "${ms[@]}"; do
     grow)  flags+=(--grow) ;;
     probe) flags+=(--trace-probe) ;;
     diag)  flags+=(--diag-mutations) ;;
+    trunc) flags+=(--truncate) ;;
     simplest) flags+=(--fill-policy=simplest) ;;
     ops=*) envs+=(BASALT_CHOICE_OPS="$(tr . , <<<"${m#ops=}")") ;;
     uniform) envs+=(BASALT_CHOICE_BANDIT=0) ;;
@@ -60,6 +63,7 @@ for m in "${ms[@]}"; do
   esac
 done
 mkdir -p "$OUT/$arm"
-env "${envs[@]+"${envs[@]}"}" BASALT_COV_OUT="$OUT/$arm/$be.$t.cov" "$BIN" --backend="$be" "$PROP" -runs="$RUNS" \
+[ -n "${NOCOV:-}" ] || envs+=(BASALT_COV_OUT="$OUT/$arm/$be.$t.cov")
+env "${envs[@]+"${envs[@]}"}" "$BIN" --backend="$be" "$PROP" -runs="$RUNS" \
   -artifact_prefix="$OUT/$arm/" "${flags[@]}" > "$OUT/$arm/$be.$t.log" 2>&1 || true
 echo "[$PROP $arm trial $t] done $(date +%H:%M)"

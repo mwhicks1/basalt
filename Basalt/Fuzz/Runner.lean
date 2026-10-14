@@ -30,10 +30,11 @@ opaque goImpl (run : ByteArray → IO UInt8) (argv : Array String) (grow : Bool)
     IO Unit
 
 /-- Called at the conclusion of a run to report to the C code the deficit in the buffer,
-i.e., the difference N - S between requested bytes N and available bytes S, and the run's fill seed
-(`FuzzResult.seed`), which `--grow` needs to materialize a random fill. -/
+i.e., the difference N - S between requested bytes N and available bytes S, the run's fill seed
+(`FuzzResult.seed`), which `--grow` needs to materialize a random fill, and how many bytes it read,
+which `--truncate` cuts the next mutation's input to. -/
 @[extern "basalt_fuzz_note_deficit"]
-opaque noteDeficitImpl (deficit : UInt32) (seed : UInt64) : BaseIO Unit
+opaque noteDeficitImpl (deficit : UInt32) (seed : UInt64) (cursor : UInt64) : BaseIO Unit
 
 /-- Hand the C bridge a recorded run's draws (`FuzzState.trace`) and how many bytes it read. -/
 @[extern "basalt_fuzz_note_trace"]
@@ -42,19 +43,22 @@ opaque noteTraceImpl (cursor : UInt64) (trace : @& Array UInt64) : BaseIO Unit
 /-- The `FuzzGen` variations Phase 0 of `DESIGN-choice-sequences.md` measures, each off by default:
 `randomFill` reads a seeded random byte past the end instead of `0`; `probe` records every draw and
 has the bridge keep the traces of runs that reached new coverage, discarding them (the cost probe);
-`mutations` logs, per mutated input, why it repeats its parent (`BASALT_M` lines). -/
+`mutations` logs, per mutated input, why it repeats its parent (`BASALT_M` lines); `truncate` cuts
+an input to the bytes its run read before mutating it, as Zest's `gc()` does. -/
 structure Diag where
   randomFill : Bool := false
   probe : Bool := false
   mutations : Bool := false
+  truncate : Bool := false
 
 /-- The decoding `runOne` uses under `d`. -/
 def Diag.config (d : Diag) : FuzzConfig :=
   { randomFill := d.randomFill, record := d.probe || d.mutations }
 
-/-- The bridge's mode bits: 1 random fill, 2 probe, 4 mutation log. -/
+/-- The bridge's mode bits: 1 random fill, 2 probe, 4 mutation log, 16 truncate. -/
 def Diag.modes (d : Diag) : UInt32 :=
-  (if d.randomFill then 1 else 0) + (if d.probe then 2 else 0) + (if d.mutations then 4 else 0)
+  (if d.randomFill then 1 else 0) + (if d.probe then 2 else 0) + (if d.mutations then 4 else 0) +
+  (if d.truncate then 16 else 0)
 
 /-- Run the property on one input, reporting the byte codes the C bridge expects: `0` = pass,
 `1` = failed (the bridge then aborts, so the report must already be flushed), `2` = discard.
@@ -65,7 +69,7 @@ number of tests run. -/
 def runOneIO (counters : IO.Ref (Nat × Nat)) (T : PropM FuzzGen Unit) (cfg : FuzzConfig)
     (bytes : ByteArray) : IO UInt8 := do
   let r := runOne T bytes cfg -- run the property test
-  noteDeficitImpl (UInt32.ofNatClamp r.deficit) r.seed -- note any bytes deficit
+  noteDeficitImpl (UInt32.ofNatClamp r.deficit) r.seed r.cursor.toUInt64 -- note any bytes deficit
   if cfg.record then noteTraceImpl r.cursor.toUInt64 r.trace
   match r.outcome with
   | Except.ok () => counters.modify (fun (runs, discards) => (runs + 1, discards)); pure 0
@@ -202,7 +206,7 @@ private def decimal? (s : String) : Option Float :=
 
 /-- Basalt's flags, each `--name` or `--name=value`. -/
 private def ours : List String :=
-  ["--grow", "--fill", "--fill-policy", "--trace-probe", "--diag-mutations", "--warmup", "--warmup-stall", "--switch-back", "--level", "--confidence"]
+  ["--grow", "--fill", "--fill-policy", "--trace-probe", "--diag-mutations", "--truncate", "--warmup", "--warmup-stall", "--switch-back", "--level", "--confidence"]
 
 private def isOurs (a : String) : Bool :=
   ours.any fun f => a == f || a.startsWith (f ++ "=")
@@ -218,7 +222,8 @@ def splitFlags (argv : Array String) : FuzzFlags × Array String :=
   let dec (n : String) : Option (Option Float) := (valueOf? argv n).map decimal?
   let fill := valueOf? argv "--fill"
   let diag : Diag := { randomFill := fill == some "random", probe := argv.contains "--trace-probe",
-                       mutations := argv.contains "--diag-mutations" }
+                       mutations := argv.contains "--diag-mutations",
+                       truncate := argv.contains "--truncate" }
   let bad := argv.filter (fun a => a.startsWith "--grow=" || a.startsWith "--switch-back=" ||
       a.startsWith "--trace-probe=" || a.startsWith "--diag-mutations=" || a == "--fill") ++
     (if fill.any (fun f => f != "random" && f != "zero") then #["--fill"] else #[]) ++

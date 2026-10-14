@@ -27,4 +27,9 @@ done
 awk 'NF {print $4, $2}' "$JOBFILE" | sort -u | while read -r OUT arm; do
   mkdir -p "$OUT/$arm"; cp "$OUT/syms.txt" "$OUT/$arm/"
 done
-xargs -P "$JOBS" -L 1 fuzz-run/run-trial.sh < "$JOBFILE"
+# A snapshot of the trial script: bash reads a script as it runs, so editing `run-trial.sh` under a
+# running queue broke the trials then in flight at their last line.
+snap=$(mktemp "${TMPDIR:-/tmp}/run-trial.XXXXXX.sh")
+cp fuzz-run/run-trial.sh "$snap"
+xargs -P "$JOBS" -L 1 "$snap" < "$JOBFILE"
+rm -f "$snap"
