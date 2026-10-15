@@ -21,7 +21,7 @@ for t in $(seq 1 "$TRIALS"); do for arm in $ARMS; do echo "$PROP $arm $t $OUT $B
 NOCOV=1 fuzz-run/queue.sh "$jobs" > "$OUT/rate-queue.log"
 for arm in $ARMS; do
   case $arm in random*) be=io-libfuzzer ;; choice*) be=choice ;; *) be=fuzz ;; esac
-  hits=$(grep -la 'BASALT PROPERTY FAILED' "$OUT/$arm"/$be.*.log 2>/dev/null | wc -l)
+  hits=$( (grep -la 'BASALT PROPERTY FAILED' "$OUT/$arm"/$be.*.log 2>/dev/null || true) | wc -l)
   python3 -c "
 h,n=$hits,$TRIALS; p=h/n
 print(f'$PROP  {\"$arm\":28} budget $BUDGET  {h}/{n}  {p*100:5.1f}% ±{(p*(1-p)/n)**.5*100:.1f}')"
