@@ -374,3 +374,21 @@ and a close (flags 4) at the end; under `useKinds := false` there are none, and 
   renderOutcome r.outcome == "fail: 7 1" && r.realized == bytes [1, 7, 1, 1] &&
     !r.bounds.toList.any (· == 2)
 
+
+/-! ### Shrinking
+
+`shrinkChoice` lowers each value toward its least and drops records, keeping what still fails. -/
+
+private def propBelow50 [Gen G] : PropM G Unit := do
+  let x ← generate (chooseNat 0 100)
+  let _ ← generate (chooseNat 0 9)
+  check (x < 50) s!"x={x}"
+
+/- From `x = 90` and a second draw of `7`: the least failing `x` is `50`, and the second draw goes
+to its least, `0`. -/
+/-- info: [(1, 50), (1, 0)] -/
+#guard_msgs in #eval IO.println <|
+  let fails (b : ByteArray) : Option ChoiceResult :=
+    let r := runChoiceOn propBelow50 b
+    match r.outcome with | .error (.fail _) => some r | _ => none
+  recordList (shrinkChoice fails (bytes [1, 90, 1, 7])).1

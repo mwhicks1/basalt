@@ -159,4 +159,88 @@ def runChoiceOn (T : PropM ChoiceFuzz Unit) (bytes : ByteArray) (policy : FillPo
     (useKinds : Bool := true) : ChoiceResult :=
   runChoice T bytes (SplitMix.ofSeed (fillSeed bytes)) policy useKinds
 
+/-! ## Shrinking
+
+A failing input is shrunk on its realized records (`DESIGN-choice-sequences.md` §5, 3.2): delete a
+run of records, or lower one value toward its range's least, keeping a candidate when it still
+fails and its realized records are shortlex-smaller. Positional replay makes both edits local. -/
+
+/-- The records of a buffer as `(kind, value)` pairs. -/
+def recordList (b : ByteArray) : List (UInt8 × Nat) :=
+  let (ks, vs) := parseRecords b
+  (List.range vs.size).map fun i => (ks.get! i, vs[i]!)
+
+/-- Encode `(kind, value)` pairs as a buffer. -/
+def encodeRecords (rs : List (UInt8 × Nat)) : ByteArray :=
+  rs.foldl (fun b (k, v) => pushLEB (b.push k) v) ByteArray.empty
+
+/-- The draws' least values, in order, from a run's `bounds` (span events skipped). -/
+def boundsLows (b : ByteArray) : Array Nat := Id.run do
+  let mut out : Array Nat := #[]
+  let mut i := 0
+  let leb (i : Nat) : Nat × Nat := Id.run do
+    let mut v := 0; let mut shift := 1; let mut j := i
+    while j < b.size do
+      let x := b.get! j
+      v := v + (x.toNat % 128) * shift; shift := shift * 128; j := j + 1
+      if x < 128 then break
+    return (v, j)
+  while i < b.size do
+    let f := b.get! i
+    if f &&& 2 != 0 then i := (leb (i + 1)).2
+    else if f &&& 4 != 0 then i := i + 1
+    else
+      let (lo, j) := leb (i + 1)
+      out := out.push lo
+      i := (leb j).2
+  return out
+
+/-- Shortlex on realized records: fewer, then smaller values in order. -/
+def shortlexLt (a b : List (UInt8 × Nat)) : Bool :=
+  a.length < b.length || (a.length == b.length && (a.map (·.2)) < (b.map (·.2)))
+
+/-- Shrink a failing input to a fixpoint of the two passes, within `fuel` candidate runs. Returns
+the smallest failing buffer found (its realized records) and the candidates tried. -/
+def shrinkChoice (fails : ByteArray → Option ChoiceResult) (start : ByteArray) (fuel : Nat := 20000) :
+    ByteArray × Nat := Id.run do
+  let some r0 := fails start | return (start, 1)
+  let mut best := r0.realized
+  let mut lows := boundsLows r0.bounds
+  let mut tried := 1
+  let mut progress := true
+  while progress && tried < fuel do
+    progress := false
+    -- delete runs of records, longest first
+    for k in [8, 4, 2, 1] do
+      let mut i := 0
+      while i + k ≤ (recordList best).length && tried < fuel do
+        let cur := recordList best
+        let cand := encodeRecords (cur.take i ++ cur.drop (i + k))
+        tried := tried + 1
+        match fails cand with
+        | some r =>
+          if shortlexLt (recordList r.realized) cur then
+            best := r.realized; lows := boundsLows r.bounds; progress := true
+          else i := i + 1
+        | none => i := i + 1
+    -- lower each value: to its least, else halve the distance
+    let n := (recordList best).length
+    for i in [0:n] do
+      let cur := recordList best
+      if h : i < cur.length then
+        let (k, v) := cur[i]
+        let lo := lows[i]?.getD 0
+        let mut tgt := lo
+        let mut done := false
+        while !done && tgt < v && tried < fuel do
+          let cand := encodeRecords (cur.set i (k, tgt))
+          tried := tried + 1
+          match fails cand with
+          | some r =>
+            if shortlexLt (recordList r.realized) (recordList best) then
+              best := r.realized; lows := boundsLows r.bounds; progress := true
+            done := true
+          | none => tgt := tgt + (v - tgt + 1) / 2
+  return (best, tried)
+
 end Basalt.Fuzz

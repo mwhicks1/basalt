@@ -379,12 +379,24 @@ def goHybridChoice (T : Property) (cfg : HybridConfig) (argv : Array String) (po
   goChoice (T ChoiceFuzz) argv policy useKinds counters
 
 /-- Replay a choice-sequence input. The fill is seeded by the buffer, so it needs no flag; the fill
-policy does (`BASALT_FILL_POLICY=simplest`). -/
+policy does (`BASALT_FILL_POLICY=simplest`). Under `BASALT_SHRINK=1` a failing input is first
+shrunk (`shrinkChoice`), written beside it as `<path>.min`, and that is what is replayed. -/
 def replayChoice (T : PropM ChoiceFuzz Unit) (path : String) : IO Unit := do
   let bytes ← IO.FS.readBinFile path
   let policy := if (← IO.getEnv "BASALT_FILL_POLICY") == some "simplest" then .simplest else .fresh
   let useKinds := (← IO.getEnv "BASALT_CHOICE_KINDS") != some "0"
   IO.println s!"[basalt] replaying {path} ({bytes.size} bytes) as a choice sequence"
+  let bytes ← if (← IO.getEnv "BASALT_SHRINK") == some "1" then do
+      let fails (b : ByteArray) : Option ChoiceResult :=
+        let r := runChoiceOn T b policy useKinds
+        match r.outcome with | .error (.fail _) => some r | _ => none
+      let (small, tried) := shrinkChoice fails bytes
+      IO.FS.writeBinFile s!"{path}.min" small
+      IO.println s!"[basalt] shrunk to {(recordList small).length} records \
+        (from {(recordList (runChoiceOn T bytes policy useKinds).realized).length}) in {tried} runs: \
+        {path}.min"
+      pure small
+    else pure bytes
   let r := runChoiceOn T bytes policy useKinds
   match r.outcome with
   | Except.ok () => IO.println s!"outcome: pass"
