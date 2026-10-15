@@ -38,6 +38,11 @@ theorem genRel_leErased : GenRel SPMF SPMF.Cost @LeErased where
 section erasedLe
 
 @[gen_rule]
+theorem erasedLe_span {y : SPMF.Cost α} {x : SPMF α} (l : UInt64) (h : ErasedLe y x) :
+    ErasedLe (RandomChoice.span l y) (RandomChoice.span l x) :=
+  genRel_erasedLe.span l h
+
+@[gen_rule]
 theorem erasedLe_elements (xs : List α) (hne : xs ≠ []) :
     ErasedLe (elements xs hne) (elements xs hne) :=
   genRel_erasedLe.elements xs hne
@@ -83,6 +88,11 @@ theorem erasedLe_frequency {gs' : List (Nat × (Unit → SPMF.Cost α))}
 end erasedLe
 
 section leErased
+
+@[gen_rule]
+theorem leErased_span {x : SPMF α} {y : SPMF.Cost α} (l : UInt64) (h : LeErased x y) :
+    LeErased (RandomChoice.span l x) (RandomChoice.span l y) :=
+  genRel_leErased.span l h
 
 @[gen_rule]
 theorem leErased_elements (xs : List α) (hne : xs ≠ []) :

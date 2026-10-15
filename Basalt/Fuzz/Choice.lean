@@ -107,6 +107,8 @@ instance : RandomChoice ChoiceFuzz where
     let v ← modifyGet (choiceStep lo hi)
     pure (ULift.up ⟨max lo (min hi v), by omega, by omega⟩)
 
+instance : MonoSpan ChoiceFuzz := MonoSpan.ofId fun _ _ => rfl
+
 /-- `ChoiceFuzz` has everything a generator needs. -/
 example : Gen ChoiceFuzz := inferInstance
 

@@ -5,7 +5,7 @@ Authors: Harrison Goldstein
 -/
 import Mathlib.MeasureTheory.Measure.Dirac.Basic
 import Mathlib.Topology.Instances.ENNReal.Lemmas
-import Basalt.RandomChoice
+import Basalt.Gen
 
 /-!
 # Sub-Probability Mass Functions
@@ -196,6 +196,8 @@ noncomputable instance : RandomChoice SPMF where
 /-- `SPMF` does not tell draws' kinds apart. -/
 @[simp] theorem chooseAs_eq {k : ChoiceKind} {lo hi : Nat} {h : lo ≤ hi} :
     (RandomChoice.chooseAs k lo hi h : SPMF _) = RandomChoice.choose lo hi h := rfl
+
+instance : MonoSpan SPMF := MonoSpan.ofId fun _ _ => rfl
 
 end operations
 

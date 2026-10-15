@@ -26,6 +26,11 @@ theorem genRel : GenRel IOModel IO @Approx where
   admissible := Approx.admissible
 
 @[gen_rule]
+theorem approx_span {g' : IOModel α} {g : IO α} (l : UInt64) (hg : Approx g' g) :
+    Approx (RandomChoice.span l g') (RandomChoice.span l g) :=
+  genRel.span l hg
+
+@[gen_rule]
 theorem approx_elements (xs : List α) (hne : xs ≠ []) :
     Approx (elements xs hne) (elements xs hne) :=
   genRel.elements xs hne

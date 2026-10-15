@@ -3,7 +3,7 @@ Copyright (c) 2026 Harrison Goldstein. All rights reserved.
 Released under MIT license as described in the file LICENSE.
 Authors: Harrison Goldstein
 -/
-import Basalt.RandomChoice
+import Basalt.Gen
 import SplitMix.Native
 
 /-!
@@ -66,3 +66,5 @@ instance : Inhabited (WordModel σ α) := ⟨fun _ => none⟩
 /-- A draw is SplitMix's range reduction on the source's words. -/
 instance [WordSource σ] : RandomChoice (WordModel σ) where
   choose := chooseVia fun s => some (WordSource.next s)
+
+instance [WordSource σ] : MonoSpan (WordModel σ) := MonoSpan.ofId fun _ _ => rfl

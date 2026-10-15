@@ -23,3 +23,4 @@ instance instGenOptionT {G : Type → Type} [Gen G] : Gen (OptionT G) where
   instRandomChoice := instRandomChoiceOptionT
   instCCPO := fun _ => inferInstance
   instMonoBind := inferInstanceAs (MonoBind (OptionT G))
+  instMonoSpan := MonoSpan.ofId fun _ _ => rfl

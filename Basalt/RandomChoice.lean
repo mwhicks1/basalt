@@ -21,6 +21,10 @@ class RandomChoice (m : Type u → Type v) where
   observation sends it to `choose` (`Obs.map_chooseAs`). -/
   chooseAs : ChoiceKind → (lo hi : Nat) → (h : lo ≤ hi) → m (ULift {x : Nat // lo ≤ x ∧ x ≤ hi}) :=
     fun _ => choose
+  /-- `g`, marked as one structural unit of the draws (a branch's body) labelled `l`. Only a
+  choice-sequence fuzzer records it; everything else is `g` itself, and an observation sees `g`
+  (`Obs.map_span`). -/
+  span : {α : Type u} → UInt64 → m α → m α := fun _ g => g
 
 /-- A weighted binary choice. -/
 def RandomChoice.coin [Monad m] [RandomChoice m] (r : Rat) : m Bool := do

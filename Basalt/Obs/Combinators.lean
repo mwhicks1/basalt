@@ -68,6 +68,7 @@ theorem map_frequency (gs : List (Nat × (Unit → G α))) (h : 0 < (gs.map Prod
   rw [O.map_bind, O.map_chooseNatAs, bind_map_left]
   congr 1
   funext ⟨i, h1, h2⟩
+  rw [O.map_span]
   have hi : i < (gs.map Prod.fst).sum := by omega
   simp only [dite_eq_left hi]
   exact O.map_frequencyAux gs i hi _
@@ -80,6 +81,9 @@ theorem map_oneOf {G : Type u → Type v} {W : Type u → Type w} [Gen G] [Monad
     O.spec (oneOf gs hne) = index gs hne fun g => O.spec (g ()) := by
   unfold oneOf index
   rw [O.map_bind, O.map_chooseAs]
+  congr 1
+  funext i
+  exact O.map_span _ _
 
 @[gen_map]
 theorem map_oneOfWith {G : Type u → Type v} {W : Type u → Type w} [Gen G] [Monad W]

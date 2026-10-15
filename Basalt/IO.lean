@@ -27,6 +27,8 @@ instance : RandomChoice IO where
     let ⟨x, hx⟩ ← ioGen.randNat lo hi
     pure (ULift.up ⟨x, by omega⟩)
 
+instance : MonoSpan IO := MonoSpan.ofId fun _ _ => rfl
+
 /-- What running at `IO` means: `ioGen`'s state threaded purely, drawn from as `ioGen` is. -/
 abbrev IOModel := WordModel SplitMix
 

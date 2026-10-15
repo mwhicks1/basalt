@@ -134,6 +134,8 @@ instance : RandomChoice RecordGen where
     have := Nat.mod_lt raw (show range > 0 by omega)
     pure (ULift.up ⟨lo + raw % range, by omega⟩)
 
+instance : MonoSpan RecordGen := MonoSpan.ofId fun _ _ => rfl
+
 /-- `RecordGen` has everything a generator needs. -/
 example : Gen RecordGen := inferInstance
 

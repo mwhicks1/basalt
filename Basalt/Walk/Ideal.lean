@@ -28,6 +28,11 @@ theorem genRel : GenRel SPMF (WordModel σ) (@IdealSource.Below σ _ src) where
   admissible := IdealSource.Below.admissible src
 
 @[gen_rule]
+theorem below_span {g' : SPMF α} {g : WordModel σ α} (l : UInt64) (hg : src.Below g' g) :
+    src.Below (RandomChoice.span l g') (RandomChoice.span l g) :=
+  src.genRel.span l hg
+
+@[gen_rule]
 theorem below_elements (xs : List α) (hne : xs ≠ []) :
     src.Below (elements xs hne) (elements xs hne) :=
   src.genRel.elements xs hne

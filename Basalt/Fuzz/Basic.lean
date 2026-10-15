@@ -107,6 +107,8 @@ instance : RandomChoice FuzzGen where
     have := Nat.mod_lt raw (show hi - lo + 1 > 0 by omega)
     pure (ULift.up ⟨lo + raw % (hi - lo + 1), by omega⟩)
 
+instance : MonoSpan FuzzGen := MonoSpan.ofId fun _ _ => rfl
+
 /-- `FuzzGen` has everything a generator needs. -/
 example : Gen FuzzGen := inferInstance
 

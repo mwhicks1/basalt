@@ -25,6 +25,8 @@ structure Obs (G : Type u → Type v) (W : Type u → Type w)
   chooseAs_gen : ∀ k lo hi h, (chooseAs k lo hi h : G _) = choose lo hi h := by intros; rfl
   /-- …and nor does the specification monad. -/
   chooseAs_spec : ∀ k lo hi h, (chooseAs k lo hi h : W _) = choose lo hi h := by intros; rfl
+  /-- An observed monad's spans mark nothing (`RandomChoice.span`). -/
+  span_gen : ∀ {α} (l : UInt64) (g : G α), span l g = g := by intros; rfl
 
 namespace Obs
 
@@ -35,6 +37,10 @@ variable {G : Type u → Type v} {W : Type u → Type w}
 theorem map_chooseAs (k : ChoiceKind) (lo hi : Nat) (h : lo ≤ hi) :
     O.spec (chooseAs k lo hi h) = choose lo hi h := by
   rw [O.chooseAs_gen, O.map_choose]
+
+/-- An observation sees through a span. -/
+theorem map_span (l : UInt64) (g : G α) : O.spec (span l g) = O.spec g := by
+  rw [O.span_gen]
 
 theorem map_ite (p : Prop) [Decidable p] (x y : G α) :
     O.spec (if p then x else y) = if p then O.spec x else O.spec y := by

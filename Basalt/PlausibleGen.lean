@@ -58,5 +58,6 @@ instance : Gen Plausible.Gen where
   instRandomChoice := inferInstance
   instCCPO := inferInstance
   instMonoBind := inferInstance
+  instMonoSpan := MonoSpan.ofId fun _ _ => rfl
 
 end Basalt.PlausibleGen

@@ -72,6 +72,8 @@ instance : RandomChoice StatGen where
       set { rng := r.2, fuel := s.fuel - 1, choices := s.choices + 1 : StatState }
       pure (ULift.up ⟨r.1, stdChoose_mem s.rng h⟩)
 
+instance : MonoSpan StatGen := MonoSpan.ofId fun _ _ => rfl
+
 /-- `StatGen` has everything a generator needs. -/
 example : Gen StatGen := inferInstance
 

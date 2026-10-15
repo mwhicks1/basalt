@@ -64,12 +64,16 @@ instance instMonadLiftWithSize : MonadLift G (WithSize G) := ⟨WithSize.lift⟩
 instance instRandomChoiceWithSize [RandomChoice G] : RandomChoice (WithSize G) where
   choose lo hi h := fun _ => RandomChoice.choose lo hi h
 
+instance instCCPOWithSize [Gen G] (α : Type) : CCPO (WithSize G α) :=
+  inferInstanceAs (CCPO (Nat → G α))
+
 instance instGenWithSize [Gen G] : Gen (WithSize G) where
   instInhabited := fun α => inferInstanceAs (Inhabited (Nat → G α))
   instMonad := instMonadWithSize
   instRandomChoice := instRandomChoiceWithSize
-  instCCPO := fun α => inferInstanceAs (CCPO (Nat → G α))
+  instCCPO := instCCPOWithSize
   instMonoBind := inferInstanceAs (MonoBind (ReaderT Nat G))
+  instMonoSpan := ⟨fun _ _ _ h => h⟩
 
 instance instSizedWithSize [Monad G] : Sized (WithSize G) where
   sized f := fun n => f n n

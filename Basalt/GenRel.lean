@@ -70,6 +70,9 @@ structure GenRel (M N : Type → Type) [Gen M] [Gen N] (R : ∀ {α : Type}, M �
     by intros; rfl
   chooseAs_right : ∀ k lo hi h, (RandomChoice.chooseAs k lo hi h : N _) = RandomChoice.choose lo hi h :=
     by intros; rfl
+  /-- Neither monad's spans mark anything (`RandomChoice.span`). -/
+  span_left : ∀ {α} (l : UInt64) (g : M α), RandomChoice.span l g = g := by intros; rfl
+  span_right : ∀ {α} (l : UInt64) (g : N α), RandomChoice.span l g = g := by intros; rfl
   admissible : ∀ {α : Type} (x : N α), Lean.Order.admissible fun y : M α => R y x
 
 namespace GenRel
@@ -81,6 +84,10 @@ include h
 theorem chooseAs (k : ChoiceKind) (lo hi : Nat) (hle : lo ≤ hi) :
     R (RandomChoice.chooseAs k lo hi hle) (RandomChoice.chooseAs k lo hi hle) := by
   rw [h.chooseAs_left, h.chooseAs_right]; exact h.choose lo hi hle
+
+theorem span {g' : M α} {g : N α} (l : UInt64) (hg : R g' g) :
+    R (RandomChoice.span l g') (RandomChoice.span l g) := by
+  rw [h.span_left, h.span_right]; exact hg
 
 theorem elements (xs : List α) (hne : xs ≠ []) : R (elements xs hne) (elements xs hne) := by
   unfold _root_.elements
@@ -111,7 +118,7 @@ theorem oneOf {gs' : List (Unit → M α)} {gs : List (Unit → N α)} {hne' : g
     (hs : List.Forall₂ (fun g' g => R (g' ()) (g ())) gs' gs) :
     R (oneOf gs' hne') (oneOf gs hne) := by
   rw [oneOf_eq_chain gs' hne' (gs.length - 1) (by rw [hs.length_eq]), oneOf_eq_chain gs hne _ rfl]
-  exact h.bind (fun _ => h.oneOfChain hs 0 _) (h.chooseAs _ _ _ _)
+  exact h.bind (fun _ => h.span _ (h.oneOfChain hs 0 _)) (h.chooseAs _ _ _ _)
 
 theorem listOf {g' : M α} {g : N α} (hg : R g' g) : R (listOf g') (listOf g) := by
   refine _root_.listOf.fixpoint_induct (G := M) g' (fun y => R y (_root_.listOf g))
@@ -158,6 +165,6 @@ theorem frequency {gs' : List (Nat × (Unit → M α))} {gs : List (Nat × (Unit
   rw [frequency_eq_chain gs' h' ((gs.map Prod.fst).sum - 1) (by rw [hs.weights]),
     frequency_eq_chain gs hw _ rfl]
   unfold chooseNatAs
-  exact h.bind (fun _ => h.frequencyChain hs 0 _) (h.map _ (h.chooseAs _ _ _ _))
+  exact h.bind (fun _ => h.span _ (h.frequencyChain hs 0 _)) (h.map _ (h.chooseAs _ _ _ _))
 
 end GenRel
