@@ -851,7 +851,11 @@ typedef struct {
   const uint8_t *raw; uint32_t rawlen; /* the record's bytes, kind included                       */
 } crec;
 
-typedef struct { crec *r; size_t n, cap; } crecs;
+/* A span (`RandomChoice.span`): the records `[start, end)` it covers, its label, and the innermost
+span around it (-1 if none). */
+typedef struct { uint32_t start, end; int32_t parent; uint64_t label; } cspan;
+
+typedef struct { crec *r; size_t n, cap; cspan *s; size_t ns, scap; } crecs;
 
 static int basalt_leb(const uint8_t *b, size_t n, size_t *i, uint64_t *out, int *wide) {
   uint64_t v = 0; int shift = 0; *wide = 0;
@@ -870,15 +874,36 @@ static void crecs_push(crecs *a, crec r) {
   a->r[a->n++] = r;
 }
 
-/* Records of `rz`, with bounds from `bd` if given (`bd == NULL`: unknown). As `parseRecords`. */
+/* The span events at `bd[*j]`, before the next draw's bounds: open (flags 2, then the label) or
+   close (4). */
+static void basalt_span_events(crecs *a, const uint8_t *bd, size_t bn, size_t *j, int32_t *top) {
+  while (*j < bn && (bd[*j] & 6)) {
+    if (bd[(*j)++] & 2) {
+      uint64_t l = 0; int w;
+      if (!basalt_leb(bd, bn, j, &l, &w)) { *j = bn; return; }
+      a->s = basalt_grow_buf(a->s, &a->scap, a->ns + 1, sizeof *a->s);
+      a->s[a->ns] = (cspan){(uint32_t)a->n, UINT32_MAX, *top, l};
+      *top = (int32_t)a->ns++;
+    } else if (*top >= 0) {
+      a->s[*top].end = (uint32_t)a->n;
+      *top = a->s[*top].parent;
+    }
+  }
+}
+
+/* Records of `rz`, with bounds and spans from `bd` if given (`bd == NULL`: unknown). As
+   `parseRecords`. */
 static void basalt_parse(crecs *a, const uint8_t *rz, size_t rn, const uint8_t *bd, size_t bn) {
   a->n = 0;
+  a->ns = 0;
   size_t i = 0, j = 0;
+  int32_t top = -1;
   while (i < rn) {
+    if (bd) basalt_span_events(a, bd, bn, &j, &top);
     size_t start = i;
     crec r = {0};
     r.kind = rz[i++];
-    if (r.kind != 1) break;
+    if (r.kind == 0 || r.kind > 7) break;
     int wide;
     if (!basalt_leb(rz, rn, &i, &r.v, &wide)) break;
     r.wide = (uint8_t)wide;
@@ -894,6 +919,30 @@ static void basalt_parse(crecs *a, const uint8_t *rz, size_t rn, const uint8_t *
     }
     crecs_push(a, r);
   }
+  if (bd) basalt_span_events(a, bd, bn, &j, &top);
+  for (size_t k = 0; k < a->ns; k++) if (a->s[k].end == UINT32_MAX) a->s[k].end = (uint32_t)a->n;
+}
+
+enum { KIND_INDEX = 3, KIND_BRANCH = 4, KIND_BOOL = 5 };
+
+/* The records a span stands for: its own, and the branch draw that chose it, if one comes just
+   before. */
+static void basalt_unit(const crecs *a, const cspan *s, size_t *u0, size_t *u1) {
+  *u0 = (s->start > 0 && a->r[s->start - 1].kind == KIND_BRANCH) ? s->start - 1 : s->start;
+  *u1 = s->end;
+}
+
+static crecs g_tmp;
+
+/* `a` with its records `[x0, x1)` replaced by `b`'s `[y0, y1)` (`b` may be `a`). Spans are left
+   stale: an operator uses them only before it edits. */
+static void basalt_replace(crecs *a, size_t x0, size_t x1, const crecs *b, size_t y0, size_t y1) {
+  g_tmp.n = 0;
+  for (size_t q = 0; q < x0; q++) crecs_push(&g_tmp, a->r[q]);
+  for (size_t q = y0; q < y1; q++) crecs_push(&g_tmp, b->r[q]);
+  for (size_t q = x1; q < a->n; q++) crecs_push(&g_tmp, a->r[q]);
+  a->n = 0;
+  for (size_t q = 0; q < g_tmp.n; q++) crecs_push(a, g_tmp.r[q]);
 }
 
 static size_t basalt_put_leb(uint8_t *o, size_t cap, size_t at, uint64_t v) {
@@ -991,9 +1040,11 @@ void __wrap___sanitizer_cov_trace_const_cmp4(uint32_t a, uint32_t b) {
 #endif
 
 enum { OP_RAND, OP_DELTA, OP_BOUND, OP_BITS, OP_CONST, OP_TRUNC, OP_RANDRUN, OP_DELETE, OP_DUP,
-       OP_HAVOC, OP_SPLICE, OP_INSERT, OP_CROSS, OP_N };
+       OP_HAVOC, OP_FLIP, OP_FLIPREGEN, OP_REGEN, OP_SSPLICE, OP_HOIST, OP_EMBED,
+       OP_SPLICE, OP_INSERT, OP_CROSS, OP_N };
 static const char *g_op_name[OP_N] = {"rand", "delta", "bound", "bits", "const", "trunc", "randrun",
-                                      "delete", "dup", "havoc", "splice", "insert", "cross"};
+                                      "delete", "dup", "havoc", "flip", "flipregen", "regen",
+                                      "ssplice", "hoist", "embed", "splice", "insert", "cross"};
 static struct {
   int on[OP_N], bandit, init;
   uint64_t n[OP_N], wins[OP_N], fails[OP_N];
@@ -1019,13 +1070,15 @@ static void basalt_cops_init(void) {
    no operator starves. The prior is one win in 100, and two for the destructive operators: on Cedar
    the mutations that reached new coverage were the ones that moved furthest from their parent
    (DESIGN-choice-sequences.md, Phase 0.1). */
-static int basalt_pick_op(int have_donor, int know_bounds) {
+static int basalt_pick_op(int have_donor, int know_bounds, int have_spans) {
   double w[OP_N], tot = 0;
   for (int i = 0; i < OP_N; i++) {
-    int ok = g_cops.on[i] && (have_donor || i < OP_SPLICE) &&
+    int spans = i == OP_FLIPREGEN || i == OP_REGEN || i == OP_SSPLICE || i == OP_HOIST ||
+                i == OP_EMBED;
+    int ok = g_cops.on[i] && (have_donor || i < OP_SPLICE) && (have_spans || !spans) &&
              (know_bounds || i == OP_TRUNC || i == OP_DELETE || i == OP_DUP || i >= OP_SPLICE);
     double prior = (i == OP_TRUNC || i == OP_RANDRUN || i == OP_DELETE || i == OP_DUP ||
-                    i == OP_HAVOC) ? 2.0 : 1.0;
+                    i == OP_HAVOC || i == OP_REGEN || i == OP_FLIPREGEN || i == OP_HOIST) ? 2.0 : 1.0;
     w[i] = ok ? (g_cops.bandit ? (g_cops.wins[i] + prior) / (g_cops.n[i] + 100.0) : 1.0) : 0;
     tot += w[i];
   }
@@ -1062,7 +1115,6 @@ static int basalt_set(crec *r, uint64_t v) {
 static int basalt_value_op(crecs *a, int op);
 
 /* One operator on `a`, using `d` as the donor where it needs one. Returns whether it changed `a`. */
-static crecs g_tmp;
 static int basalt_apply_op(crecs *a, const crecs *d, int op) {
   size_t n = a->n;
   switch (op) {
@@ -1108,6 +1160,91 @@ static int basalt_apply_op(crecs *a, const crecs *d, int op) {
     }
     return changed;
   }
+  case OP_FLIP: {                        /* another branch, the rest kept where it is              */
+    for (int t = 0; t < 16 && n; t++) {
+      crec *r = &a->r[crand_below(n)];
+      if (r->wide || !r->known || r->hi <= r->lo ||
+          (r->kind != KIND_BRANCH && r->kind != KIND_BOOL && r->kind != KIND_INDEX)) continue;
+      for (int q = 0; q < 4; q++) if (basalt_set(r, crand_in(r->lo, r->hi))) return 1;
+    }
+    return 0;
+  }
+  case OP_FLIPREGEN: {                   /* another branch, its body drawn afresh                  */
+    for (int t = 0; t < 16 && a->ns; t++) {
+      cspan s = a->s[crand_below(a->ns)];
+      if (s.start == 0 || a->r[s.start - 1].kind != KIND_BRANCH) continue;
+      crec *r = &a->r[s.start - 1];
+      if (r->wide || !r->known || r->hi <= r->lo) continue;
+      int changed = 0;
+      for (int q = 0; q < 4 && !changed; q++) changed = basalt_set(r, crand_in(r->lo, r->hi));
+      if (!changed) continue;
+      basalt_replace(a, s.start, s.end, a, 0, 0);
+      return 1;
+    }
+    return 0;
+  }
+  case OP_REGEN: {                       /* a span's records drawn afresh                          */
+    for (int t = 0; t < 16 && a->ns; t++) {
+      cspan s = a->s[crand_below(a->ns)];
+      if (s.end <= s.start) continue;
+      basalt_replace(a, s.start, s.end, a, 0, 0);
+      return 1;
+    }
+    return 0;
+  }
+  case OP_SSPLICE: {                     /* a span replaced by another with its label, the donor's
+                                            if it has spans, else this input's                    */
+    const crecs *src = d->ns ? d : a;
+    for (int t = 0; t < 16 && a->ns; t++) {
+      cspan s = a->s[crand_below(a->ns)];
+      size_t off = crand_below(src->ns);
+      for (size_t q = 0; q < src->ns; q++) {
+        const cspan *u = &src->s[(off + q) % src->ns];
+        if (u->label != s.label || (src == a && u->start == s.start && u->end == s.end)) continue;
+        size_t x0, x1, y0, y1;
+        basalt_unit(a, &s, &x0, &x1);
+        basalt_unit(src, u, &y0, &y1);
+        basalt_replace(a, x0, x1, src, y0, y1);
+        return 1;
+      }
+    }
+    return 0;
+  }
+  case OP_HOIST: {                       /* a span replaced by a smaller one inside it, same label:
+                                            a list loses elements, a tree a level                  */
+    for (int t = 0; t < 16 && a->ns; t++) {
+      size_t si = crand_below(a->ns);
+      cspan s = a->s[si];
+      size_t cand[64], k = 0;
+      for (size_t q = si + 1; q < a->ns && a->s[q].start < s.end && k < 64; q++)
+        if (a->s[q].label == s.label && a->s[q].end <= s.end) cand[k++] = q;
+      if (!k) continue;
+      cspan u = a->s[cand[crand_below(k)]];
+      size_t x0, x1, y0, y1;
+      basalt_unit(a, &s, &x0, &x1);
+      basalt_unit(a, &u, &y0, &y1);
+      basalt_replace(a, x0, x1, a, y0, y1);
+      return 1;
+    }
+    return 0;
+  }
+  case OP_EMBED: {                       /* a span replaced by a copy of a larger one around it,
+                                            same label: nested self-embedding                      */
+    for (int t = 0; t < 16 && a->ns; t++) {
+      cspan s = a->s[crand_below(a->ns)];
+      int32_t cand[64]; size_t k = 0;
+      for (int32_t p = s.parent; p >= 0 && k < 64; p = a->s[p].parent)
+        if (a->s[p].label == s.label) cand[k++] = p;
+      if (!k) continue;
+      cspan u = a->s[cand[crand_below(k)]];
+      size_t x0, x1, y0, y1;
+      basalt_unit(a, &s, &x0, &x1);
+      basalt_unit(a, &u, &y0, &y1);
+      basalt_replace(a, x0, x1, a, y0, y1);
+      return 1;
+    }
+    return 0;
+  }
   case OP_SPLICE: {                      /* overwrite a run with a donor's, value by value, where
                                             the donor's values are permitted by these bounds       */
     if (!n || !d->n) return 0;
@@ -1117,7 +1254,8 @@ static int basalt_apply_op(crecs *a, const crecs *d, int op) {
       int fits = 1, diff = 0;
       for (size_t q = 0; q < m && fits; q++) {
         const crec *x = &a->r[i + q], *y = &d->r[j + q];
-        if (y->wide || x->wide || (x->known && (y->v < x->lo || y->v > x->hi))) fits = 0;
+        if (y->wide || x->wide || x->kind != y->kind ||
+            (x->known && (y->v < x->lo || y->v > x->hi))) fits = 0;
         diff |= x->v != y->v;
       }
       if (!fits || !diff) continue;
@@ -1247,7 +1385,7 @@ static size_t basalt_choice_mutate(const uint8_t *Data, size_t Size, const uint8
   else { g_cops.misses++; basalt_parse(&g_cw, Data, Size, NULL, 0); }
   int have_donor = basalt_load_donor(Donor, DSize);
   for (int t = 0; t < 8; t++) {
-    int op = basalt_pick_op(have_donor, known);
+    int op = basalt_pick_op(have_donor, known, g_cw.ns > 0);
     crecs save = g_cw;                   /* a failed operator must leave `g_cw` as it was          */
     static crecs back;
     back.n = 0;

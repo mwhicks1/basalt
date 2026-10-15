@@ -259,13 +259,16 @@ fi
 # bugs; what it loses is measured in fuzz-run/README.md, and only a staged benchmark would reveal it.
 instrumented() { [ "$(nm -u "$1" 2>/dev/null | grep -c __sanitizer_cov_8bit_counters_init || true)" -gt 0 ]; }
 first_party=0
+# Physical, as the link line's paths are: `.lake/packages` may be a symlink (a worktree sharing the
+# main checkout's dependencies).
+PKGS=$(cd "$ROOT/.lake/packages" && pwd -P)
 while IFS= read -r o; do
   case $o in
     # Cedar is a dependency but is the code under test (CEDAR.md): its library carries the coverage
     # flags in its own lakefile, and without them libFuzzer sees none of Cedar.
-    "$ROOT/.lake/packages/Cedar/"*)
+    "$PKGS/Cedar/"*)
       instrumented "$o" || die "${o##*/.lake/build/ir/} is not instrumented: Cedar is code under test" ;;
-    "$ROOT/.lake/packages/"*)
+    "$PKGS/"*)
       ! instrumented "$o" || die "${o##*/.lake/build/ir/} is instrumented: coverage over a dependency's PRNG is noise" ;;
     *)
       instrumented "$o" || die "${o#"$IR"/} is not instrumented: check for overlapping library globs"
