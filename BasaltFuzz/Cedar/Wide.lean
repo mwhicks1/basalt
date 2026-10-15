@@ -620,8 +620,17 @@ def prop_soundness [Gen G] : PropM G Unit := do
       check (soundOutcome e req es tx)
         s!"UNSOUND: {reprStr e} evaluated to {reprStr (evaluate e req es)}"
 
-/-- `prop_soundness`, printing `BASALT_H <hash of the expression> <hash of the whole input>` to stderr
-for every test, so the number of *distinct* inputs a campaign tried can be counted
+/-- The number of constructors in an expression: the input size the traced properties report. -/
+partial def exprSize : Expr → Nat
+  | .ite c t e => 1 + exprSize c + exprSize t + exprSize e
+  | .and a b | .or a b | .binaryApp _ a b => 1 + exprSize a + exprSize b
+  | .unaryApp _ e | .getAttr e _ | .hasAttr e _ | .extHasAttr e _ _ => 1 + exprSize e
+  | .set es | .call _ es => 1 + (es.map exprSize).sum
+  | .record m => 1 + (m.map (exprSize ·.2)).sum
+  | _ => 1
+
+/-- `prop_soundness`, printing `BASALT_H <hash of the expression> <hash of the whole input> <size>` to
+stderr for every test, so the number of *distinct* inputs a campaign tried can be counted
 (`fuzz-run/coverage-curves.py`). The print is inside `check`'s argument so it cannot be elided. -/
 def prop_soundness_traced [Gen G] : PropM G Unit := do
   let r ← generate (genS ∅ 4)
@@ -630,7 +639,7 @@ def prop_soundness_traced [Gen G] : PropM G Unit := do
   let e := match r with | some (e, _, _) => e | none => .lit (.bool true)
   let he := hash (reprStr e)
   let hi := mixHash he (mixHash (hash (reprStr req)) (hash (reprStr es.toList)))
-  check (dbgTrace s!"BASALT_H {he} {hi}" fun _ => true)
+  check (dbgTrace s!"BASALT_H {he} {hi} {exprSize e}" fun _ => true)
   assume (requestMatchesEnvironment env req)
   assume (entitiesOk es)
   match typeOf e ∅ env with

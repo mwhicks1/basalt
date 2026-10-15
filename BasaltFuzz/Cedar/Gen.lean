@@ -650,7 +650,7 @@ def prop_soundness_traced [Gen G] : PropM G Unit := do
   let e := match r with | some j => j.e | none => .lit (.bool true)
   let he := hash (reprStr e)
   let hi := mixHash he (mixHash (hash (reprStr req)) (hash (reprStr es.toList)))
-  check (dbgTrace s!"BASALT_H {he} {hi}" fun _ => true)
+  check (dbgTrace s!"BASALT_H {he} {hi} {CedarWide.exprSize e}" fun _ => true)
   assume (requestMatchesEnvironment env req)
   assume (CedarWide.entitiesOk es)
   match typeOf e ∅ env with
@@ -668,7 +668,7 @@ def prop_soundness_traced_last [Gen G] : PropM G Unit := do
   let e := match r with | some j => j.e | none => .lit (.bool true)
   let he := hash (reprStr e)
   let hi := mixHash he (mixHash (hash (reprStr req)) (hash (reprStr es.toList)))
-  check (dbgTrace s!"BASALT_H {he} {hi}" fun _ => true)
+  check (dbgTrace s!"BASALT_H {he} {hi} {CedarWide.exprSize e}" fun _ => true)
   assume (requestMatchesEnvironment env req)
   assume (CedarWide.entitiesOk es)
   match typeOf e ∅ env with
