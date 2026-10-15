@@ -1448,6 +1448,8 @@ static size_t basalt_choice_mutate(const uint8_t *Data, size_t Size, const uint8
       return 1;
     }
     g_cops.fails[op]++;
+    g_cops.n[op]++;                      /* a failed attempt is a trial too, or an operator that
+                                            cannot apply keeps its prior and is picked first     */
     g_cw.n = 0;
     for (size_t i = 0; i < back.n; i++) crecs_push(&g_cw, back.r[i]);
   }
