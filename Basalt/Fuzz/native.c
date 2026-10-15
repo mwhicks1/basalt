@@ -1131,6 +1131,34 @@ static int basalt_set(crec *r, uint64_t v) {
 
 static int basalt_value_op(crecs *a, int op);
 
+/* `BASALT_CHOICE_FLIPDIAG=1`: after a `flip`, does the rest of the input survive positional replay?
+   The parent's records after the flipped branch's span are compared with the child's after its
+   (DESIGN-choice-sequences.md §5, 3.1's trigger). */
+static struct {
+  int on, init, pending;
+  size_t at;                         /* the flipped record                                      */
+  uint64_t *suffix; size_t nsuf, cap;/* the parent's values after the flipped branch's span      */
+  uint64_t flips, wins, kept, changed_sum, compared_sum;
+} g_fd;
+
+static size_t basalt_span_end_after(const crecs *a, size_t k) {
+  for (size_t q = 0; q < a->ns; q++) if (a->s[q].start == k + 1) return a->s[q].end;
+  return k + 1;
+}
+
+static void basalt_flip_note(const crecs *a, size_t k) {
+  if (!g_fd.init) { g_fd.init = 1; const char *e = getenv("BASALT_CHOICE_FLIPDIAG"); g_fd.on = e && *e == '1'; }
+  if (!g_fd.on) return;
+  size_t e = basalt_span_end_after(a, k);
+  g_fd.nsuf = 0;
+  for (size_t q = e; q < a->n; q++) {
+    g_fd.suffix = basalt_grow_buf(g_fd.suffix, &g_fd.cap, g_fd.nsuf + 1, sizeof *g_fd.suffix);
+    g_fd.suffix[g_fd.nsuf++] = a->r[q].v;
+  }
+  g_fd.at = k;
+  g_fd.pending = 1;
+}
+
 /* One operator on `a`, using `d` as the donor where it needs one. Returns whether it changed `a`. */
 static int basalt_apply_op(crecs *a, const crecs *d, int op) {
   size_t n = a->n;
@@ -1179,10 +1207,12 @@ static int basalt_apply_op(crecs *a, const crecs *d, int op) {
   }
   case OP_FLIP: {                        /* another branch, the rest kept where it is              */
     for (int t = 0; t < 16 && n; t++) {
-      crec *r = &a->r[crand_below(n)];
+      size_t k = crand_below(n);
+      crec *r = &a->r[k];
       if (r->wide || !r->known || r->hi <= r->lo ||
           (r->kind != KIND_BRANCH && r->kind != KIND_BOOL && r->kind != KIND_INDEX)) continue;
-      for (int q = 0; q < 4; q++) if (basalt_set(r, crand_in(r->lo, r->hi))) return 1;
+      for (int q = 0; q < 4; q++)
+        if (basalt_set(r, crand_in(r->lo, r->hi))) { basalt_flip_note(a, k); return 1; }
     }
     return 0;
   }
@@ -1430,7 +1460,24 @@ static size_t basalt_choice_mutate(const uint8_t *Data, size_t Size, const uint8
 /* After a choice run: reward the operator that made it, keep the trace of a run that reached a new
    feature (or was a queued seed, whose features the random phase already counted), and remember the
    run as the last one. */
+static void basalt_flip_after(size_t fresh) {
+  if (!g_fd.pending) return;
+  g_fd.pending = 0;
+  static crecs c;
+  basalt_parse(&c, g_ch.rz, g_ch.rzn, g_ch.bd, g_ch.bdn);
+  if (g_fd.at >= c.n) return;
+  size_t e = basalt_span_end_after(&c, g_fd.at), m = c.n > e ? c.n - e : 0;
+  size_t cmp = m < g_fd.nsuf ? m : g_fd.nsuf, same = 0;
+  for (size_t q = 0; q < cmp; q++) same += c.r[e + q].v == g_fd.suffix[q];
+  g_fd.flips++;
+  g_fd.wins += fresh ? 1 : 0;
+  g_fd.kept += (m == g_fd.nsuf && same == cmp) ? 1 : 0;
+  g_fd.changed_sum += (cmp - same) + (m > g_fd.nsuf ? m - g_fd.nsuf : g_fd.nsuf - m);
+  g_fd.compared_sum += m > g_fd.nsuf ? m : g_fd.nsuf;
+}
+
 static void basalt_choice_after(const uint8_t *Data, size_t Size, size_t fresh, size_t nf) {
+  basalt_flip_after(fresh);
   if (basalt_may_be_unit(Size, fresh, nf)) basalt_tc_put(Data, Size);
   g_ch_seeded = 0;
   g_last.buf = basalt_grow_buf(g_last.buf, &g_last.cap, Size ? Size : 1, 1);
@@ -1446,6 +1493,12 @@ static void basalt_choice_after(const uint8_t *Data, size_t Size, size_t fresh, 
 
 static void basalt_choice_report(void) {
   if (!g_choice) return;
+  if (g_fd.on && g_fd.flips)
+    fprintf(stderr, "[basalt] flips: %llu, %llu reached a new feature; the suffix after the "
+            "flipped branch kept exactly in %.1f%%, %.1f%% of its records changed\n",
+            (unsigned long long)g_fd.flips, (unsigned long long)g_fd.wins,
+            100.0 * (double)g_fd.kept / (double)g_fd.flips,
+            g_fd.compared_sum ? 100.0 * (double)g_fd.changed_sum / (double)g_fd.compared_sum : 0.0);
   fprintf(stderr, "[basalt] choice: %llu mutations, %llu trace lookups, %llu missed, %llu no-ops; "
           "%zu traces cached (%.1f MB); %zu pool constants, %zu literals\n",
           (unsigned long long)g_cops.mutations, (unsigned long long)g_cops.lookups,
