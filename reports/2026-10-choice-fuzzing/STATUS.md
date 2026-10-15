@@ -6,16 +6,48 @@ at a time on this 8-core machine.
 
 ## Current
 
-- **Gate 1 + Gate 2, combined: running** since 07:15 UTC 2026-10-15 (100 trials, 5M tests, 7 at a
-  time, ETA ~01:00 UTC 2026-10-16). One binary from `choice-design-b`; arms `random`,
-  `fuzz-noramp`, `fuzz-noramp+trunc` (0.3's Cedar part), `auto-1`, `auto-1+trunc`,
-  `choice+nokinds` and `choice-auto-1+nokinds` (Gate 1: design A), `choice` and `choice-auto-1`
-  (Gate 2: kinds + spans), `choice+simplest` (fill policy); on `gen-traced` and `wide-traced`.
-  Queue log: `fuzz-data/g12/queue.log`. Bug-finding rates for these arms are done
-  (`fuzz-data/g12/rates/rates.txt`).
+- **Gate 1 + 2, baselines** (`fuzz-data/g12`): rounds 2–5 of `random`, `fuzz-noramp`,
+  `fuzz-noramp+trunc`, `auto-1`, `auto-1+trunc` on `gen-traced` and `wide-traced` running (the
+  old-binary choice arms are skipped after round 1: they are re-gated). ETA ~20:00 UTC 2026-10-15.
+- **Re-gate of the choice arms** (`fuzz-data/g12r`, 40 trials) with the fixed binary (`e532801`:
+  input cap, bandit fix): `choice`, `choice-auto-1`, `choice+nokinds`, `choice-auto-1+nokinds`;
+  starts when the baselines finish, ETA ~03:00 UTC 2026-10-16. Baseline arms are linked in, so
+  `gate-stats.py fuzz-data/g12r/<gen|wide> …` compares everything.
 - **Phase 0 done**: [`PHASE0.md`](PHASE0.md).
 
 ## Log
+
+- 2026-10-15 — **Gate round 1 complete (1 trial each)** — `gen-traced` / `wide-traced` edges:
+  `fuzz-noramp` 7,196 / 6,619; `random` 7,097 / 6,536; `+trunc` 7,164 / 6,638; `auto-1` 7,164 /
+  6,671; `auto-1+trunc` 7,208 / 6,664; design A 7,040 / 6,544, its hybrid 7,109 / 6,621; `choice`
+  7,142 / 6,573, its hybrid 7,143 / 6,631; `choice+simplest` 6,922 / 6,388 with a fifth of the
+  distinct inputs → **fresh fill stays `ChoiceFuzz`'s default**. **Throughput fix:** profiling
+  (`BASALT_CHOICE_PROFILE`) shows the mutator costs ~7 µs per test against ~900 µs for the Lean
+  run, and the run grows with the input (90 → 129 realized records, 858 → 1,102 µs by 1.5M):
+  nested self-embedding, the best-rewarded operator, grows inputs. libFuzzer's `-len_control=100`
+  holds it flat with the same coverage at 1M/2M, but its early limit would truncate the hybrid's
+  seeds, so the mutator now caps its output at 3× the generator's median realized size (`e532801` on
+  `choice-design-b`; 498 bytes on `gen-traced`). The kinds arms (and design A, for a like
+  comparison) will be re-gated with this binary after the current gate.
+
+- 2026-10-15 — **Gate round 1, first readings (1 trial each, `gen-traced`).** Edges at 5M:
+  `fuzz-noramp` 7,196; `random` 7,091; `choice+nokinds` (design A) 7,040; `choice` (kinds+spans)
+  7,142. **`choice`'s throughput is 0.69× `fuzz-noramp`** — under Gate 1's 0.8× bar, so its
+  coverage cannot be judged yet: it runs at ~950 tests/s for the first million and slows to ~640
+  after, while its corpus grows to 5× design A's (1,138 vs 212 KB). Profiling it now
+  (`BASALT_CHOICE_PROFILE`, on the spare core) before the fix and a re-gate of the kinds arms.
+  Cause logs (`fuzz-run/choice-causes.py`, 1M): new expressions 46% of children with kinds vs 32%
+  without (byte fuzzing: 46%); the span operators carry it (embed 89%, hoist 80% new). Most
+  record-level edits land in the request/entities, so 63–72% of their children repeat the
+  parent's expression. Bandit flaw found and fixed for later binaries (`cbb639b`): failed
+  attempts were not counted, so `flip`, which cannot apply under `--no-kinds`, kept its prior;
+  effect on the running gate is small (1.5–2% of design-A mutations became random bytes).
+
+- 2026-10-15 — **Phase 3.1 trigger checked (not met).** `BASALT_CHOICE_FLIPDIAG=1`, 50k tests on
+  `gen-traced`: 1.8% of flips reach a new feature (embed: 13%), and the records after the flipped
+  branch's span survive positional replay exactly in 67% of flips (21% of them change). Address
+  replay is for "flips often rewarded *and* suffixes scrambled"; neither holds. Re-checked at gate
+  scale later.
 
 - 2026-10-15 — **Phase 0 complete** ([`PHASE0.md`](PHASE0.md)). `wide-traced`: random fill
   6,643 vs 6,631 edges (p = 0.15), +23% distinct, 1.10× throughput; `--grow` worse (p = 0.008).
