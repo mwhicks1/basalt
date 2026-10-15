@@ -1,0 +1,28 @@
+chain-2  fuzz-noramp                  budget 500  69/300   23.0% ±2.4
+chain-2  fuzz-noramp+trunc            budget 500  109/300   36.3% ±2.8
+chain-2  choice                       budget 500  146/300   48.7% ±2.9
+chain-3  fuzz-noramp                  budget 1000  132/300   44.0% ±2.9
+chain-3  fuzz-noramp+trunc            budget 1000  180/300   60.0% ±2.8
+chain-3  choice                       budget 1000  176/300   58.7% ±2.8
+chain-4  fuzz-noramp                  budget 1200  139/300   46.3% ±2.9
+chain-4  fuzz-noramp+trunc            budget 1200  214/300   71.3% ±2.6
+chain-4  choice                       budget 1200  164/300   54.7% ±2.9
+chain-2  choice+simplest              budget 500  168/300   56.0% ±2.9
+chain-3  choice+simplest              budget 1000  191/300   63.7% ±2.8
+chain-4  choice+simplest              budget 1200  165/300   55.0% ±2.9
+needle    fuzz-noramp   budget 2000   0/100
+needle    choice        budget 2000  84/100
+needle-2  fuzz-noramp   budget 10000  0/100
+needle-2  choice        budget 10000 26/100
+chain-2  fuzz-noramp                  budget 500  67/300   22.3% ±2.4
+chain-2  fuzz-noramp+rfill            budget 500  21/300    7.0% ±1.5
+chain-2  fuzz-noramp+grow             budget 500  77/300   25.7% ±2.5
+chain-2  fuzz-noramp+rfill+grow       budget 500  23/300    7.7% ±1.5
+chain-3  fuzz-noramp                  budget 1000  119/300   39.7% ±2.8
+chain-3  fuzz-noramp+rfill            budget 1000  35/300   11.7% ±1.9
+chain-3  fuzz-noramp+grow             budget 1000  132/300   44.0% ±2.9
+chain-3  fuzz-noramp+rfill+grow       budget 1000  32/300   10.7% ±1.8
+chain-4  fuzz-noramp                  budget 1200  151/300   50.3% ±2.9
+chain-4  fuzz-noramp+rfill            budget 1200  37/300   12.3% ±1.9
+chain-4  fuzz-noramp+grow             budget 1200  143/300   47.7% ±2.9
+chain-4  fuzz-noramp+rfill+grow       budget 1200  28/300    9.3% ±1.7

@@ -1,0 +1,60 @@
+## /local/home/mwhicks/fuzz-data/p0/diag/fuzz-noramp+diag/fuzz.1.log
+runs 1,000,000; mutated children 863,088 (also: 136,910 with unknown parent, 0 queued seeds, 2 not mutations)
+  new expression            400,759   46.4%
+  (a) parent's, bytes read unchanged   91,175   10.6%  (19.7% of repeats)
+  (b) parent's, same draws            110,895   12.8%  (24.0% of repeats)
+  (c) parent's, draws changed         195,270   22.6%  (42.2% of repeats)
+  an earlier one, not parent's         64,989    7.5%  (14.1% of repeats)
+    of (c), the rest of the input (request, entities) changed: 154,084
+  draws per test: median 102, mean 214.1
+  all children: 863,088; draw edit distance (changed draws) median 12, p90 60; share with draws changed 76.2%
+  new-feature children: 2,796; draw edit distance (changed draws) median 26, p90 81; share with draws changed 99.7%
+  expression token distance, all children (sample 3000): median 1, mean 36.4, p90 115
+  expression token distance, new-feature children (sample 2796): median 65, mean 89.8, p90 206
+  expression size (tokens), median by test range: 10–100: 18; 100–1,000: 28; 1,000–10,000: 101; 10,000–100,000: 159; 100,000–1,000,000: 161; 1,000,000–10,000,000: 231
+
+## /local/home/mwhicks/fuzz-data/p0/diag/fuzz-noramp+diag/fuzz.2.log
+runs 1,000,000; mutated children 860,427 (also: 139,571 with unknown parent, 0 queued seeds, 2 not mutations)
+  new expression            393,310   45.7%
+  (a) parent's, bytes read unchanged   90,501   10.5%  (19.4% of repeats)
+  (b) parent's, same draws            110,439   12.8%  (23.6% of repeats)
+  (c) parent's, draws changed         201,143   23.4%  (43.1% of repeats)
+  an earlier one, not parent's         65,034    7.6%  (13.9% of repeats)
+    of (c), the rest of the input (request, entities) changed: 157,156
+  draws per test: median 102, mean 152.7
+  all children: 860,427; draw edit distance (changed draws) median 12, p90 59; share with draws changed 76.5%
+  new-feature children: 2,926; draw edit distance (changed draws) median 26, p90 83; share with draws changed 99.7%
+  expression token distance, all children (sample 3000): median 1, mean 39.6, p90 127
+  expression token distance, new-feature children (sample 2926): median 63, mean 90.3, p90 213
+  expression size (tokens), median by test range: 10–100: 22; 100–1,000: 31; 1,000–10,000: 95; 10,000–100,000: 154; 100,000–1,000,000: 163; 1,000,000–10,000,000: 18
+
+## /local/home/mwhicks/fuzz-data/p0/diag/auto-1+diag/fuzz.1.log
+runs 1,000,000; mutated children 745,914 (also: 143,686 with unknown parent, 853 queued seeds, 2 not mutations)
+  new expression            339,354   45.5%
+  (a) parent's, bytes read unchanged   98,872   13.3%  (24.3% of repeats)
+  (b) parent's, same draws             78,851   10.6%  (19.4% of repeats)
+  (c) parent's, draws changed         207,560   27.8%  (51.1% of repeats)
+  an earlier one, not parent's         21,277    2.9%  (5.2% of repeats)
+    of (c), the rest of the input (request, entities) changed: 172,485
+  draws per test: median 107, mean 134.6
+  all children: 745,914; draw edit distance (changed draws) median 17, p90 62; share with draws changed 76.1%
+  new-feature children: 1,214; draw edit distance (changed draws) median 41, p90 90; share with draws changed 100.0%
+  expression token distance, all children (sample 3000): median 0, mean 41.6, p90 138
+  expression token distance, new-feature children (sample 1214): median 84, mean 109.2, p90 251
+  expression size (tokens), median by test range: 10–100: 128; 100–1,000: 108; 1,000–10,000: 115; 10,000–100,000: 113; 100,000–1,000,000: 191; 1,000,000–10,000,000: 54
+
+## /local/home/mwhicks/fuzz-data/p0/diag/auto-1+diag/fuzz.2.log
+runs 1,000,000; mutated children 749,897 (also: 142,597 with unknown parent, 846 queued seeds, 2 not mutations)
+  new expression            342,966   45.7%
+  (a) parent's, bytes read unchanged   99,705   13.3%  (24.5% of repeats)
+  (b) parent's, same draws             79,312   10.6%  (19.5% of repeats)
+  (c) parent's, draws changed         206,473   27.5%  (50.7% of repeats)
+  an earlier one, not parent's         21,441    2.9%  (5.3% of repeats)
+    of (c), the rest of the input (request, entities) changed: 171,518
+  draws per test: median 106, mean 121.0
+  all children: 749,897; draw edit distance (changed draws) median 17, p90 62; share with draws changed 76.1%
+  new-feature children: 1,261; draw edit distance (changed draws) median 43, p90 90; share with draws changed 99.9%
+  expression token distance, all children (sample 3000): median 0, mean 43.8, p90 142
+  expression token distance, new-feature children (sample 1261): median 90, mean 114.1, p90 248
+  expression size (tokens), median by test range: 10–100: 132; 100–1,000: 119; 1,000–10,000: 115; 10,000–100,000: 114; 100,000–1,000,000: 189; 1,000,000–10,000,000: 299
+

@@ -1,0 +1,7 @@
+# /local/home/mwhicks/fuzz-data/p0/fill-gen: 5,000,000 tests; 71.8 min (the fastest trial's end)
+arm                       n  edges@tests      p  edges@time      p  tests/s  ratio   distinct  size
+fuzz-noramp               5        7,171              7,170           1,073   1.00  2,495,966     –
+fuzz-noramp+rfill         5        7,173  0.333       7,169  0.508    1,089   1.01  3,028,119     –
+fuzz-noramp+grow          5        7,113  0.016       7,102  0.008    1,049   0.98  1,408,778     –
+fuzz-noramp+rfill+grow    5        7,161  0.690       7,158  1.000    1,035   0.96  1,890,092     –
+fuzz-noramp+probe         5        7,164  0.841       7,142  0.381      963   0.90  2,459,073     –
