@@ -560,20 +560,21 @@ including one grown by `--grow`, which is already whatever length the failing ru
 
 ## Writing a fuzz target: what coverage guidance can and cannot see
 
-Coverage guidance is driven by **branch/structure** coverage, not by guessing wide scalars. Do not
-put a demo bug behind a magic-value `Nat` equality: a 32-bit needle (`x == 0xDEADBEEF` over
-`chooseNat 0 4294967295`) is not found in 5M runs, with or without `-use_cmp`. Design bugs to be
-reachable via new *branches* instead — like the equal-key arm of `insertBuggy`, or `chain-n`'s
-nesting — which the fuzzer explores well.
+Coverage guidance is driven by **branch/structure** coverage, not by guessing wide scalars. Under
+the `fuzz` backend, do not put a demo bug behind a magic-value `Nat` equality: a 32-bit needle
+(`x == 0xDEADBEEF` over `chooseNat 0 4294967295`, the `needle` property) is not found in 5M runs,
+with or without `-use_cmp`. Design bugs to be reachable via new *branches* instead — like the
+equal-key arm of `insertBuggy`, or `chain-n`'s nesting — which the fuzzer explores well. The
+`choice` backend does find `needle`, from the target's own literals (below).
 
-The reason is worth stating precisely, because the obvious explanation is wrong. `lean_nat_eq`/`_le`
-are `LEAN_ALWAYS_INLINE` with a small-scalar fast path, so they *do* inline into instrumented code
-and *do* emit `-trace-cmp` hooks (`__sanitizer_cov_trace_const_cmp8` is present in the BST object
-file). But the value the hook observes is a **tagged** Lean scalar, `2*n+1` — comparing
-`0x1BD5B7DDF`, not `0xDEADBEEF` — so the literals libFuzzer harvests into its table of recent
-compares never match the bytes `choose` reads out of the input buffer. The signal fires and is
-useless. (Only boxed `Nat`s above the scalar range reach the genuinely uninstrumented
-`lean_nat_big_*` in `libleanshared`.)
+The reason is that the comparison is invisible, not merely mis-encoded. `lean_nat_eq`/`_le` are
+`LEAN_ALWAYS_INLINE` with a small-scalar fast path, but that fast path compares two `lean_object*`
+*pointers* (a scalar is the tagged pointer `2*n+1`), and SanitizerCoverage's `trace-cmp` instruments
+only integer comparisons. In the needle's disassembly the equality is a bare `cmp` of two registers
+with no hook; the `__sanitizer_cov_trace_const_cmp8` calls around it are the scalar-tag tests. So no
+`Nat` comparison ever reaches libFuzzer's table of recent compares. Fixed-width integers (`UInt64`,
+`Int64`, Cedar's `Int64` arithmetic) do compare as integers and are traced. (Boxed `Nat`s above the
+scalar range reach the uninstrumented `lean_nat_big_*` in `libleanshared`.)
 
 ## Platforms
 
