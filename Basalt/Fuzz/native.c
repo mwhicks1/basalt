@@ -777,6 +777,22 @@ static void basalt_trace_after(const uint8_t *Data, size_t Size, size_t fresh) {
   g_last.run = g_run_idx;
 }
 
+/* Whether the run just finished may have become a corpus unit, so its trace is worth caching: it
+   reached a new feature; or it was a queued hybrid seed, whose features the random phase already
+   counted; or it is the smallest input yet for one of its features, which libFuzzer also admits. */
+static uint32_t *g_smallest;           /* per feature, the size of the smallest input reaching it  */
+static int basalt_may_be_unit(size_t Size, size_t fresh, size_t nf) {
+  int smaller = 0;
+  if (!g_smallest) {
+    g_smallest = malloc(g_hy.ncntrs * 8 * sizeof *g_smallest);
+    if (!g_smallest) basalt_fuzz_die("out of memory for the feature sizes");
+    memset(g_smallest, 0xff, g_hy.ncntrs * 8 * sizeof *g_smallest);
+  }
+  for (size_t i = 0; i < nf; i++)
+    if (Size < g_smallest[g_hy.scratch[i]]) { g_smallest[g_hy.scratch[i]] = (uint32_t)Size; smaller = 1; }
+  return fresh || smaller || g_ch_seeded;
+}
+
 /* `--truncate`: cut an input to the bytes its run read before mutating it, so no mutation is spent
    on bytes nothing reads. The run's cursor comes from the last run or, for a corpus unit, the cache
    (kept for new-feature runs, with no trace). */
@@ -798,10 +814,11 @@ static size_t basalt_truncate(const uint8_t *Data, size_t Size) {
   return (size_t)cursor;
 }
 
-static void basalt_trunc_after(const uint8_t *Data, size_t Size, size_t fresh) {
+static void basalt_trunc_after(const uint8_t *Data, size_t Size, size_t fresh, size_t nf) {
   g_tr.n = 0;
   g_tr.cursor = g_last_run_cursor;
-  if (fresh) basalt_tc_put(Data, Size);
+  if (basalt_may_be_unit(Size, fresh, nf)) basalt_tc_put(Data, Size);
+  g_ch_seeded = 0;
   g_last.buf = basalt_grow_buf(g_last.buf, &g_last.cap, Size ? Size : 1, 1);
   if (Size) memcpy(g_last.buf, Data, Size);
   g_last.size = Size;
@@ -1413,19 +1430,8 @@ static size_t basalt_choice_mutate(const uint8_t *Data, size_t Size, const uint8
 /* After a choice run: reward the operator that made it, keep the trace of a run that reached a new
    feature (or was a queued seed, whose features the random phase already counted), and remember the
    run as the last one. */
-static uint32_t *g_smallest;           /* per feature, the size of the smallest input reaching it  */
 static void basalt_choice_after(const uint8_t *Data, size_t Size, size_t fresh, size_t nf) {
-  /* libFuzzer also admits an input that reaches an existing unit's features in fewer bytes, so a
-     run that is the smallest yet for any of its features may be a corpus unit too. */
-  int smaller = 0;
-  if (!g_smallest) {
-    g_smallest = malloc(g_hy.ncntrs * 8 * sizeof *g_smallest);
-    if (!g_smallest) basalt_fuzz_die("out of memory for the choice campaign's feature sizes");
-    memset(g_smallest, 0xff, g_hy.ncntrs * 8 * sizeof *g_smallest);
-  }
-  for (size_t i = 0; i < nf; i++)
-    if (Size < g_smallest[g_hy.scratch[i]]) { g_smallest[g_hy.scratch[i]] = (uint32_t)Size; smaller = 1; }
-  if (fresh || smaller || g_ch_seeded) basalt_tc_put(Data, Size);
+  if (basalt_may_be_unit(Size, fresh, nf)) basalt_tc_put(Data, Size);
   g_ch_seeded = 0;
   g_last.buf = basalt_grow_buf(g_last.buf, &g_last.cap, Size ? Size : 1, 1);
   if (Size) memcpy(g_last.buf, Data, Size);
@@ -1522,7 +1528,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
   }
   if (g_choice) basalt_choice_after(Data, Size, fresh, nf);
   else if (g_probe || g_diag) basalt_trace_after(Data, Size, fresh);
-  else if (g_trunc) basalt_trunc_after(Data, Size, fresh);
+  else if (g_trunc) basalt_trunc_after(Data, Size, fresh, nf);
 
   if (code == 1) {
     basalt_cov_dump();                                /* abort() skips this atexit handler too  */
