@@ -168,6 +168,12 @@ static size_t basalt_truncate(const uint8_t *Data, size_t Size);
 static void *basalt_grow_buf(void *p, size_t *cap, size_t need, size_t elt);
 static int g_choice;                   /* a choice-sequence campaign (`--backend=choice`)        */
 static int g_ch_seeded;                /* the input now running is a queued hybrid seed          */
+/* `BASALT_CHOICE_PROFILE` (below, `basalt_prof_tick`). */
+static struct { int on, init; uint64_t n, mut_ns, run_ns, recs; struct timespec t; } g_prof;
+static inline uint64_t basalt_ns(void) {
+  struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t);
+  return (uint64_t)t.tv_sec * 1000000000ULL + (uint64_t)t.tv_nsec;
+}
 static size_t basalt_choice_mutate(const uint8_t *Data, size_t Size, const uint8_t *Donor,
                                    size_t DSize, uint8_t *Out, size_t MaxSize, unsigned Seed);
 
@@ -183,7 +189,11 @@ size_t LLVMFuzzerCustomMutator(uint8_t *Data, size_t Size, size_t MaxSize, unsig
     static uint8_t *in; static size_t incap;
     in = basalt_grow_buf(in, &incap, Size ? Size : 1, 1);
     memcpy(in, Data, Size);
-    return basalt_choice_mutate(in, Size, NULL, 0, Data, MaxSize, Seed);
+    if (!g_prof.init) { g_prof.init = 1; const char *e = getenv("BASALT_CHOICE_PROFILE"); g_prof.on = e && *e == '1'; }
+    uint64_t t0 = g_prof.on ? basalt_ns() : 0;
+    size_t r = basalt_choice_mutate(in, Size, NULL, 0, Data, MaxSize, Seed);
+    if (g_prof.on) g_prof.mut_ns += basalt_ns() - t0;
+    return r;
   }
   size_t want = g_last_run_deficit;
   if (g_grow && want && basalt_fuzz_slot_matches(Data, Size)) {
@@ -1542,7 +1552,21 @@ size_t LLVMFuzzerCustomCrossOver(const uint8_t *Data1, size_t Size1, const uint8
   size_t hybrid = basalt_hybrid_mutate(Out, n, MaxOutSize);
   g_ch_seeded = hybrid != 0;
   if (hybrid) { g_cops.pending = -1; return hybrid; }
-  return basalt_choice_mutate(Data1, Size1, Data2, Size2, Out, MaxOutSize, Seed);
+  if (!g_prof.init) { g_prof.init = 1; const char *e = getenv("BASALT_CHOICE_PROFILE"); g_prof.on = e && *e == '1'; }
+  uint64_t t0 = g_prof.on ? basalt_ns() : 0;
+  size_t r = basalt_choice_mutate(Data1, Size1, Data2, Size2, Out, MaxOutSize, Seed);
+  if (g_prof.on) g_prof.mut_ns += basalt_ns() - t0;
+  return r;
+}
+
+/* `BASALT_CHOICE_PROFILE=1`: every 500k tests, the mean time per test in the mutator and in the
+   Lean run, and the mean realized records per run, for finding where a choice campaign's time goes. */
+static void basalt_prof_tick(void) {
+  if (++g_prof.n % 500000) return;
+  fprintf(stderr, "[basalt] profile at %llu: mutate %.1f us, run %.1f us, %.1f records per run\n",
+          (unsigned long long)g_prof.n, g_prof.mut_ns / 5e5 / 1e3, g_prof.run_ns / 5e5 / 1e3,
+          g_prof.recs / 5e5);
+  g_prof.mut_ns = g_prof.run_ns = g_prof.recs = 0;
 }
 
 /* Apply a Lean `ByteArray -> IO UInt8` callback to a copy of libFuzzer's buffer; the code it returns. */
@@ -1589,7 +1613,13 @@ int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
   }
 
   g_last_run_deficit = 0;                    /* `basalt_fuzz_note_deficit` sets it if this run runs short */
+  uint64_t t0 = g_prof.on ? basalt_ns() : 0;
   uint8_t code = basalt_apply(g_run, Data, Size);
+  if (g_prof.on) {
+    g_prof.run_ns += basalt_ns() - t0;
+    g_prof.recs += g_ch.rzn / 2;                     /* about two bytes a record              */
+    basalt_prof_tick();
+  }
 
   /* If there was a deficit, save the offending buffer. Will be checked by the custom mutator. */
   if (g_last_run_deficit) basalt_fuzz_record_short(Data, Size);
