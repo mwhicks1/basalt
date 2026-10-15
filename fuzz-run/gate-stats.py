@@ -69,6 +69,7 @@ for name, be in arms:
         except FileNotFoundError: break
         t += 1
     data[name] = ts
+arms = [(n, be) for n, be in arms if data[n]]          # an arm with no finished trial yet
 
 ntests = min(len(tr[2]) or tr[1][-1][0] for n, _ in arms for tr in data[n])
 ms = min(tr[1][-1][1] for n, _ in arms for tr in data[n])
