@@ -27,6 +27,7 @@
 #   +simplest    the choice backend's misfit fill is the least value (`--fill-policy=simplest`)
 #   +ops=a.b.c   the choice backend's operators restricted to a, b, c (`BASALT_CHOICE_OPS`)
 #   +uniform     the choice backend's operators chosen uniformly (`BASALT_CHOICE_BANDIT=0`)
+#   +nokinds     the choice backend records every draw as `.nat` and no spans (`--no-kinds`)
 # NOCOV=1 skips the coverage dump, for bug-finding trials that only need the verdict.
 # BIN defaults to `$OUT/cedar-exp-bin`, a copy of the executable under a name without `basalt-fuzz`
 # in it, so that another session's `pkill basalt-fuzz` cannot interrupt a trial (one did).
@@ -59,6 +60,7 @@ for m in "${ms[@]}"; do
     simplest) flags+=(--fill-policy=simplest) ;;
     ops=*) envs+=(BASALT_CHOICE_OPS="$(tr . , <<<"${m#ops=}")") ;;
     uniform) envs+=(BASALT_CHOICE_BANDIT=0) ;;
+    nokinds) flags+=(--no-kinds) ;;
     *) echo "unknown modifier $m in $arm" >&2; exit 1 ;;
   esac
 done

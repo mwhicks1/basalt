@@ -31,5 +31,5 @@ done
 # running queue broke the trials then in flight at their last line.
 snap=$(mktemp "${TMPDIR:-/tmp}/run-trial.XXXXXX.sh")
 cp fuzz-run/run-trial.sh "$snap"
-xargs -P "$JOBS" -L 1 "$snap" < "$JOBFILE"
+xargs -P "$JOBS" -L 1 bash "$snap" < "$JOBFILE"
 rm -f "$snap"
