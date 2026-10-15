@@ -1420,6 +1420,10 @@ static int basalt_load_donor(const uint8_t *Donor, size_t DSize) {
   return 0;
 }
 
+/* `BASALT_CHOICE_DIAG=1`: per mutated input, `BASALT_C <run> <parent run> <operator> <same>`, where
+`same` says the child's realized records equal its parent's (the edit was undone in replay). */
+static struct { int on, init; uint64_t parent; uint8_t *rz; size_t rzn, cap; int pending; } g_cdg;
+
 /* The choice mutator: materialize `Data`'s realized records, apply one operator, write `Out`. */
 static size_t basalt_choice_mutate(const uint8_t *Data, size_t Size, const uint8_t *Donor,
                                    size_t DSize, uint8_t *Out, size_t MaxSize, unsigned Seed) {
@@ -1428,6 +1432,15 @@ static size_t basalt_choice_mutate(const uint8_t *Data, size_t Size, const uint8
   const uint8_t *rz, *bd; size_t rn, bn;
   g_cops.lookups++;
   int known = basalt_choice_trace(Data, Size, &rz, &rn, &bd, &bn);
+  if (!g_cdg.init) { g_cdg.init = 1; const char *e = getenv("BASALT_CHOICE_DIAG"); g_cdg.on = e && *e == '1'; }
+  g_cdg.pending = 0;
+  if (g_cdg.on && known) {
+    g_cdg.parent = (g_last.run && Size == g_last.size && (!Size || memcmp(Data, g_last.buf, Size) == 0))
+      ? g_last.run : basalt_tc_find(basalt_hash_buf(Data, Size), Data, Size)->run;
+    g_cdg.rz = basalt_grow_buf(g_cdg.rz, &g_cdg.cap, rn ? rn : 1, 1);
+    memcpy(g_cdg.rz, rz, rn); g_cdg.rzn = rn;
+    g_cdg.pending = 1;
+  }
   if (known) basalt_parse(&g_cw, rz, rn, bd, bn);
   else { g_cops.misses++; basalt_parse(&g_cw, Data, Size, NULL, 0); }
   int have_donor = basalt_load_donor(Donor, DSize);
@@ -1480,6 +1493,12 @@ static void basalt_flip_after(size_t fresh) {
 
 static void basalt_choice_after(const uint8_t *Data, size_t Size, size_t fresh, size_t nf) {
   basalt_flip_after(fresh);
+  if (g_cdg.pending && g_cops.pending >= 0) {
+    int same = g_ch.rzn == g_cdg.rzn && memcmp(g_ch.rz, g_cdg.rz, g_ch.rzn) == 0;
+    fprintf(stderr, "BASALT_C %llu %llu %s %d %d\n", (unsigned long long)g_run_idx,
+            (unsigned long long)g_cdg.parent, g_op_name[g_cops.pending], same, fresh ? 1 : 0);
+  }
+  g_cdg.pending = 0;
   if (basalt_may_be_unit(Size, fresh, nf)) basalt_tc_put(Data, Size);
   g_ch_seeded = 0;
   g_last.buf = basalt_grow_buf(g_last.buf, &g_last.cap, Size ? Size : 1, 1);
