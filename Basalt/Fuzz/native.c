@@ -168,6 +168,7 @@ static size_t basalt_truncate(const uint8_t *Data, size_t Size);
 static void *basalt_grow_buf(void *p, size_t *cap, size_t need, size_t elt);
 static int g_choice;                   /* a choice-sequence campaign (`--backend=choice`)        */
 static int g_ch_seeded;                /* the input now running is a queued hybrid seed          */
+static uint64_t g_run_ns;             /* the last choice run's time                               */
 /* `BASALT_CHOICE_PROFILE` (below, `basalt_prof_tick`). */
 static struct { int on, init; uint64_t n, mut_ns, run_ns, recs; struct timespec t; } g_prof;
 static inline uint64_t basalt_ns(void) {
@@ -551,7 +552,9 @@ static size_t basalt_hybrid_mutate(uint8_t *Data, size_t Size, size_t MaxSize) {
 
 /* Called from the `RecordGen` callback with the bytes the run recorded; held until the run's
    coverage has been judged. */
+static void basalt_size_note(size_t bytes);
 LEAN_EXPORT lean_object *basalt_hybrid_offer(lean_object *bytes) {
+  if (g_choice) basalt_size_note(lean_sarray_size(bytes));
   if (g_hy.offered) lean_dec(g_hy.offered);
   g_hy.offered = bytes;
   return lean_box(0);
@@ -866,6 +869,7 @@ LEAN_EXPORT lean_object *basalt_choice_note(b_lean_obj_arg rz, b_lean_obj_arg bd
   g_ch.rz = basalt_grow_buf(g_ch.rz, &g_ch.rzcap, rn, 1);
   g_ch.bd = basalt_grow_buf(g_ch.bd, &g_ch.bdcap, bn, 1);
   memcpy(g_ch.rz, lean_sarray_cptr(rz), rn); g_ch.rzn = rn;
+  basalt_size_note(rn);
   memcpy(g_ch.bd, lean_sarray_cptr(bd), bn); g_ch.bdn = bn;
   return lean_box(0);
 }
@@ -1073,8 +1077,10 @@ static const char *g_op_name[OP_N] = {"rand", "delta", "bound", "bits", "const",
                                       "delete", "dup", "havoc", "flip", "flipregen", "regen",
                                       "ssplice", "hoist", "embed", "splice", "insert", "cross"};
 static struct {
-  int on[OP_N], bandit, init;
+  int on[OP_N], bandit, init, costaware;
   uint64_t n[OP_N], wins[OP_N], fails[OP_N];
+  double cost[OP_N];                 /* trials weighted by their run's time over the mean        */
+  double mean_ns;                    /* running mean of a choice run's time                      */
   int pending;                       /* the operator that made the input now running, or -1       */
   uint64_t misses, lookups, mutations, noops;
 } g_cops;
@@ -1091,6 +1097,8 @@ static void basalt_cops_init(void) {
   }
   const char *b = getenv("BASALT_CHOICE_BANDIT");
   g_cops.bandit = !(b && !strcmp(b, "0"));
+  const char *c = getenv("BASALT_CHOICE_COSTAWARE");
+  g_cops.costaware = c && *c == '1';
 }
 
 /* Pick an operator: in proportion to its smoothed success rate, with a tenth of the picks uniform so
@@ -1106,7 +1114,8 @@ static int basalt_pick_op(int have_donor, int know_bounds, int have_spans) {
              (know_bounds || i == OP_TRUNC || i == OP_DELETE || i == OP_DUP || i >= OP_SPLICE);
     double prior = (i == OP_TRUNC || i == OP_RANDRUN || i == OP_DELETE || i == OP_DUP ||
                     i == OP_HAVOC || i == OP_REGEN || i == OP_FLIPREGEN || i == OP_HOIST) ? 2.0 : 1.0;
-    w[i] = ok ? (g_cops.bandit ? (g_cops.wins[i] + prior) / (g_cops.n[i] + 100.0) : 1.0) : 0;
+    double trials = g_cops.costaware ? g_cops.cost[i] : (double)g_cops.n[i];
+    w[i] = ok ? (g_cops.bandit ? (g_cops.wins[i] + prior) / (trials + 100.0) : 1.0) : 0;
     tot += w[i];
   }
   if (tot == 0) return OP_TRUNC;
@@ -1434,11 +1443,34 @@ static int basalt_load_donor(const uint8_t *Donor, size_t DSize) {
 `same` says the child's realized records equal its parent's (the edit was undone in replay). */
 static struct { int on, init; uint64_t parent; uint8_t *rz; size_t rzn, cap; int pending; } g_cdg;
 
+/* A cap on what a mutation may write: `BASALT_CHOICE_CAP` (default 3) times the median realized size
+   of the campaign's first 10,000 runs, the generator's own size, and at least 256 bytes. Without
+   it, nested self-embedding grew `gen-traced`'s inputs until a test cost 1.3× as much (gate round
+   1); libFuzzer's own length ramp would also cut the hybrid's seeds short. */
+static struct { uint32_t sizes[10000]; size_t n; size_t cap; } g_size;
+static void basalt_size_note(size_t bytes) {
+  if (g_size.n >= 10000) return;
+  g_size.sizes[g_size.n++] = (uint32_t)bytes;
+  if (g_size.n < 10000) return;
+  /* the median, by counting: sizes above 65536 cannot be written anyway */
+  static uint32_t hist[65537];
+  for (size_t i = 0; i < g_size.n; i++) hist[g_size.sizes[i] > 65536 ? 65536 : g_size.sizes[i]]++;
+  size_t acc = 0, med = 0;
+  while (med < 65536 && (acc += hist[med]) < g_size.n / 2) med++;
+  const char *f = getenv("BASALT_CHOICE_CAP");
+  double k = f ? atof(f) : 3.0;
+  size_t cap = (size_t)(k * (double)med);
+  g_size.cap = cap < 256 ? 256 : cap;
+  fprintf(stderr, "[basalt] choice: inputs capped at %zu bytes (%.1f x the median %zu)\n",
+          g_size.cap, k, med);
+}
+
 /* The choice mutator: materialize `Data`'s realized records, apply one operator, write `Out`. */
 static size_t basalt_choice_mutate(const uint8_t *Data, size_t Size, const uint8_t *Donor,
                                    size_t DSize, uint8_t *Out, size_t MaxSize, unsigned Seed) {
   if (!g_cops.init) basalt_cops_init();
   g_crng ^= (uint64_t)Seed << 32;
+  if (g_size.cap && g_size.cap < MaxSize) MaxSize = g_size.cap;
   const uint8_t *rz, *bd; size_t rn, bn;
   g_cops.lookups++;
   int known = basalt_choice_trace(Data, Size, &rz, &rn, &bd, &bn);
@@ -1471,7 +1503,8 @@ static size_t basalt_choice_mutate(const uint8_t *Data, size_t Size, const uint8
       return 1;
     }
     g_cops.fails[op]++;
-    g_cops.n[op]++;                      /* a failed attempt is a trial too, or an operator that
+    g_cops.n[op]++;
+    g_cops.cost[op] += 1.0;                      /* a failed attempt is a trial too, or an operator that
                                             cannot apply keeps its prior and is picked first     */
     g_cw.n = 0;
     for (size_t i = 0; i < back.n; i++) crecs_push(&g_cw, back.r[i]);
@@ -1518,7 +1551,11 @@ static void basalt_choice_after(const uint8_t *Data, size_t Size, size_t fresh, 
   if (g_cops.pending >= 0) {
     g_cops.n[g_cops.pending]++;
     if (fresh) g_cops.wins[g_cops.pending]++;
+    double rel = g_cops.mean_ns > 0 ? (double)g_run_ns / g_cops.mean_ns : 1.0;
+    g_cops.cost[g_cops.pending] += rel;
   }
+  g_cops.mean_ns = g_cops.mean_ns > 0 ? 0.999 * g_cops.mean_ns + 0.001 * (double)g_run_ns
+                                      : (double)g_run_ns;
   g_cops.pending = -1;
 }
 
@@ -1613,8 +1650,9 @@ int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
   }
 
   g_last_run_deficit = 0;                    /* `basalt_fuzz_note_deficit` sets it if this run runs short */
-  uint64_t t0 = g_prof.on ? basalt_ns() : 0;
+  uint64_t t0 = (g_prof.on || g_choice) ? basalt_ns() : 0;
   uint8_t code = basalt_apply(g_run, Data, Size);
+  if (g_choice) g_run_ns = basalt_ns() - t0;
   if (g_prof.on) {
     g_prof.run_ns += basalt_ns() - t0;
     g_prof.recs += g_ch.rzn / 2;                     /* about two bytes a record              */

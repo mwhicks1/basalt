@@ -410,7 +410,8 @@ which records every draw as `.nat` and no spans (design A; `BASALT_CHOICE_KINDS=
 def choiceBackend : Backend where
   name := "choice"
   campaign T argv :=
-    -- The mutator, not libFuzzer's length ramp, decides how long an input is (`splitFlags`).
+    -- The mutator caps input growth itself (`BASALT_CHOICE_CAP` in `native.c`), not libFuzzer's
+    -- length ramp, which would also cut the hybrid's seeds short.
     let argv := if argv.any (·.startsWith "-len_control=") then argv else argv.push "-len_control=0"
     let argv := if argv.any (·.startsWith "-max_len=") then argv else argv.push "-max_len=65536"
     let (flags, rest) := splitFlags argv

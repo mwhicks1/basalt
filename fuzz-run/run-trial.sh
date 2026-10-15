@@ -27,6 +27,8 @@
 #   +simplest    the choice backend's misfit fill is the least value (`--fill-policy=simplest`)
 #   +ops=a.b.c   the choice backend's operators restricted to a, b, c (`BASALT_CHOICE_OPS`)
 #   +uniform     the choice backend's operators chosen uniformly (`BASALT_CHOICE_BANDIT=0`)
+#   +costaware   the choice bandit charges an operator its children's run time (`BASALT_CHOICE_COSTAWARE=1`)
+#   +nocap       the choice mutator's input cap lifted (`BASALT_CHOICE_CAP=1000`)
 #   +nokinds     the choice backend records every draw as `.nat` and no spans (`--no-kinds`)
 # NOCOV=1 skips the coverage dump, for bug-finding trials that only need the verdict.
 # BIN defaults to `$OUT/cedar-exp-bin`, a copy of the executable under a name without `basalt-fuzz`
@@ -43,8 +45,8 @@ case $base in
   warm-*)      be=fuzz; flags=(--warmup="${base#warm-}" -max_len=65536 -len_control=0) ;;
   auto-*)      be=fuzz; flags=(--warmup-stall=0 --level="${base#auto-}" -max_len=65536 -len_control=0) ;;
   back-*)      be=fuzz; flags=(--switch-back --level="${base#back-}" -max_len=65536 -len_control=0) ;;
-  choice)      be=choice; flags=(-max_len=65536 -len_control=0) ;;
-  choice-auto-*) be=choice; flags=(--warmup-stall=0 --level="${base#choice-auto-}" -max_len=65536 -len_control=0) ;;
+  choice)      be=choice; flags=(-max_len=65536) ;;
+  choice-auto-*) be=choice; flags=(--warmup-stall=0 --level="${base#choice-auto-}" -max_len=65536) ;;
   *) echo "unknown arm $arm" >&2; exit 1 ;;
 esac
 IFS=+ read -r -a ms <<<"${mods#+}"
@@ -61,6 +63,8 @@ for m in "${ms[@]}"; do
     ops=*) envs+=(BASALT_CHOICE_OPS="$(tr . , <<<"${m#ops=}")") ;;
     uniform) envs+=(BASALT_CHOICE_BANDIT=0) ;;
     nokinds) flags+=(--no-kinds) ;;
+    costaware) envs+=(BASALT_CHOICE_COSTAWARE=1) ;;
+    nocap) envs+=(BASALT_CHOICE_CAP=1000) ;;
     *) echo "unknown modifier $m in $arm" >&2; exit 1 ;;
   esac
 done
