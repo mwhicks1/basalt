@@ -20,17 +20,29 @@ for a in sys.argv[2:]:
     arms.append((name, be or ("io-libfuzzer" if name.startswith("random") else
                          "choice" if name.startswith("choice") else "fuzz")))
 
-addrs, names = [], []
-for line in open(f"{out}/syms.txt"):
-    a, n = line.split()
-    n = n[1:] if n.startswith("_lp_") or n.startswith("__init_") else n
-    addrs.append(int(a, 16)); names.append(n)
+def symbols(path):
+    addrs, names = [], []
+    for line in open(path):
+        a, n = line.split()
+        n = n[1:] if n.startswith("_lp_") or n.startswith("__init_") else n
+        addrs.append(int(a, 16)); names.append(n)
+    return addrs, names
 
-def cedar(o):
-    n = names[bisect.bisect_right(addrs, o) - 1]
-    return (n.startswith(PREFIX) or n.startswith("_init_" + PREFIX)) and not EXCLUDE.search(n)
+# An arm's own symbol table if it has one (arms from different builds can share a directory), else
+# the directory's.
+tables = {}
+def cedar_of(arm):
+    path = f"{out}/{arm}/syms.txt"
+    try: open(path).close()
+    except FileNotFoundError: path = f"{out}/syms.txt"
+    if path not in tables: tables[path] = symbols(path)
+    addrs, names = tables[path]
+    def cedar(o):
+        n = names[bisect.bisect_right(addrs, o) - 1]
+        return (n.startswith(PREFIX) or n.startswith("_init_" + PREFIX)) and not EXCLUDE.search(n)
+    return cedar
 
-def trial(base):
+def trial(base, cedar):
     firsts = sorted(int(f) for o, f in (l.split() for l in open(f"{base}.cov"))
                     if f != "0" and cedar(int(o, 16)))
     ticks = [(0, 0)] + [tuple(map(int, l.split())) for l in open(f"{base}.cov.time")]
@@ -65,7 +77,7 @@ data = {}
 for name, be in arms:
     ts, t = [], 1
     while True:
-        try: ts.append(trial(f"{out}/{name}/{be}.{t}"))
+        try: ts.append(trial(f"{out}/{name}/{be}.{t}", cedar_of(name)))
         except FileNotFoundError: break
         t += 1
     data[name] = ts
