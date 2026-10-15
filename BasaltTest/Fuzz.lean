@@ -338,3 +338,39 @@ private def choiceMismatches (n : Nat) (seed : UInt64) : Nat := Id.run do
     if renderOutcome (runChoiceOn propRecorded r.realized).outcome != renderOutcome r.outcome then
       bad := bad + 1
   return bad
+
+/-! ### Kinds and spans
+
+A record is used only by a draw of its own kind, so a branch index is not read as an integer; a
+span is an event in the trace, not a record. -/
+
+/-- A `chooseInt` draw (kind `.int`) then a `oneOf` (kind `.branch`). -/
+private def propKinds [Gen G] : PropM G Unit := do
+  let x ← generate (chooseInt 0 9)
+  let b ← generate (oneOf [fun _ => pure 0, fun _ => pure 1])
+  check false s!"{x} {b}"
+
+/- Tags 2 (`.int`) and 4 (`.branch`) in order: both records are used. -/
+/-- info: fail: 7 1 -/
+#guard_msgs in #eval IO.println (renderOutcome (runChoiceOn propKinds (bytes [2, 7, 4, 1])).outcome)
+
+/- The same values with their tags swapped are both misfits, so both draws come from the fill and
+the realized records carry the draws' own tags. -/
+/-- info: true -/
+#guard_msgs in #eval IO.println <|
+  let r := runChoiceOn propKinds (bytes [4, 7, 2, 1])
+  r.realized.get! 0 == 2 && r.realized.get! 2 == 4 && r.bounds.get! 0 == 1
+
+/- `oneOf`'s span around the chosen branch is an open event (flags 2) after the branch draw's bounds
+and a close (flags 4) at the end; under `useKinds := false` there are none, and every tag is `.nat`. -/
+/-- info: [0, 0, 9, 0, 0, 1, 2, 4] -/
+#guard_msgs in #eval IO.println <|
+  ((runChoiceOn propKinds (bytes [2, 7, 4, 1])).bounds.toList.take 7 ++
+    [(runChoiceOn propKinds (bytes [2, 7, 4, 1])).bounds.toList.getLast!])
+
+/-- info: true -/
+#guard_msgs in #eval IO.println <|
+  let r := runChoiceOn propKinds (bytes [1, 7, 1, 1]) .fresh (useKinds := false)
+  renderOutcome r.outcome == "fail: 7 1" && r.realized == bytes [1, 7, 1, 1] &&
+    !r.bounds.toList.any (· == 2)
+
