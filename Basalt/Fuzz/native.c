@@ -1130,11 +1130,33 @@ static int basalt_pick_op(int have_donor, int know_bounds, int have_spans) {
   return OP_TRUNC;
 }
 
+/* Where an operator acts: uniformly over records, or under `BASALT_CHOICE_POS=bits` in proportion to
+   the width of each draw's range in bits, as a byte-level mutator spreads its edits. */
+static int g_pos_bits = -1;
+static size_t basalt_pick_pos(const crecs *a) {
+  if (g_pos_bits < 0) { const char *e = getenv("BASALT_CHOICE_POS"); g_pos_bits = e && !strcmp(e, "bits"); }
+  if (!g_pos_bits || a->n == 0) return crand_below(a->n);
+  static uint64_t *cum; static size_t cap;
+  cum = basalt_grow_buf(cum, &cap, a->n, sizeof *cum);
+  uint64_t tot = 0;
+  for (size_t i = 0; i < a->n; i++) {
+    const crec *r = &a->r[i];
+    uint64_t span = r->known && !r->wide ? r->hi - r->lo : 0, bits = 1;
+    while (bits < 64 && (span >> bits)) bits++;
+    tot += bits;
+    cum[i] = tot;
+  }
+  uint64_t x = crand_below(tot);
+  size_t lo = 0, hi = a->n - 1;
+  while (lo < hi) { size_t mid = (lo + hi) / 2; if (cum[mid] > x) hi = mid; else lo = mid + 1; }
+  return lo;
+}
+
 /* A record whose value an operator can change, or -1. */
 static long basalt_pick_value(const crecs *a) {
   if (!a->n) return -1;
   for (int t = 0; t < 16; t++) {
-    size_t k = crand_below(a->n);
+    size_t k = basalt_pick_pos(a);
     if (!a->r[k].wide && a->r[k].known && a->r[k].hi > a->r[k].lo) return (long)k;
   }
   for (size_t k = 0; k < a->n; k++)
@@ -1186,12 +1208,12 @@ static int basalt_apply_op(crecs *a, const crecs *d, int op) {
     return basalt_value_op(a, op);
   case OP_TRUNC: {                       /* keep a prefix; the rest is drawn afresh                */
     if (!n) return 0;
-    a->n = crand_below(n);
+    a->n = basalt_pick_pos(a);
     return 1;
   }
   case OP_RANDRUN: {                     /* redraw a run of values within their bounds             */
     if (!n) return 0;
-    size_t k = crand_below(n), m = crand_geom(n - k), changed = 0;
+    size_t k = basalt_pick_pos(a), m = crand_geom(n - k), changed = 0;
     for (size_t i = k; i < k + m; i++) {
       crec *r = &a->r[i];
       if (r->wide || !r->known) continue;
@@ -1201,14 +1223,14 @@ static int basalt_apply_op(crecs *a, const crecs *d, int op) {
   }
   case OP_DELETE: {                      /* drop a run of records; what follows shifts up          */
     if (!n) return 0;
-    size_t k = crand_below(n), m = crand_geom(n - k);
+    size_t k = basalt_pick_pos(a), m = crand_geom(n - k);
     memmove(a->r + k, a->r + k + m, (n - k - m) * sizeof *a->r);
     a->n -= m;
     return 1;
   }
   case OP_DUP: {                         /* repeat a run of records after itself                   */
     if (!n) return 0;
-    size_t k = crand_below(n), m = crand_geom(n - k);
+    size_t k = basalt_pick_pos(a), m = crand_geom(n - k);
     g_tmp.n = 0;
     for (size_t i = 0; i < k + m; i++) crecs_push(&g_tmp, a->r[i]);
     for (size_t i = k; i < n; i++) crecs_push(&g_tmp, a->r[i]);
@@ -1226,7 +1248,7 @@ static int basalt_apply_op(crecs *a, const crecs *d, int op) {
   }
   case OP_FLIP: {                        /* another branch, the rest kept where it is              */
     for (int t = 0; t < 16 && n; t++) {
-      size_t k = crand_below(n);
+      size_t k = basalt_pick_pos(a);
       crec *r = &a->r[k];
       if (r->wide || !r->known || r->hi <= r->lo ||
           (r->kind != KIND_BRANCH && r->kind != KIND_BOOL && r->kind != KIND_INDEX)) continue;

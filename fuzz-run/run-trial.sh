@@ -28,6 +28,7 @@
 #   +ops=a.b.c   the choice backend's operators restricted to a, b, c (`BASALT_CHOICE_OPS`)
 #   +uniform     the choice backend's operators chosen uniformly (`BASALT_CHOICE_BANDIT=0`)
 #   +costaware   the choice bandit charges an operator its children's run time (`BASALT_CHOICE_COSTAWARE=1`)
+#   +posbits     the choice mutator picks records in proportion to their ranges' bits (`BASALT_CHOICE_POS=bits`)
 #   +nocap       the choice mutator's input cap lifted (`BASALT_CHOICE_CAP=1000`)
 #   +nokinds     the choice backend records every draw as `.nat` and no spans (`--no-kinds`)
 # NOCOV=1 skips the coverage dump, for bug-finding trials that only need the verdict.
@@ -65,6 +66,7 @@ for m in "${ms[@]}"; do
     nokinds) flags+=(--no-kinds) ;;
     costaware) envs+=(BASALT_CHOICE_COSTAWARE=1) ;;
     nocap) envs+=(BASALT_CHOICE_CAP=1000) ;;
+    posbits) envs+=(BASALT_CHOICE_POS=bits) ;;
     *) echo "unknown modifier $m in $arm" >&2; exit 1 ;;
   esac
 done
