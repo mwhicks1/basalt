@@ -218,6 +218,7 @@ guided fuzzer or under a plain random sampler; `--backend=` picks the interpreta
 | backend | interpretation | choices come from |
 |---|---|---|
 | `fuzz` (default) | `Fuzz.FuzzGen` | libFuzzer's mutated byte buffer, guided by coverage |
+| `choice` | `Fuzz.ChoiceFuzz` | a choice sequence the bridge's own mutator edits, guided by coverage (below) |
 | `io` | `IO` | SplitMix (`ioGen`) |
 | `plausible` | `Plausible.Gen` | Plausible's `StdGen` |
 | `io-libfuzzer` | `IO` | SplitMix, but run inside libFuzzer's loop so libFuzzer still counts coverage: the control arm of a coverage comparison (`CEDAR.md`) |
@@ -227,7 +228,8 @@ so their campaigns are directly comparable. `fuzzBackend` is a `@[basalt_backend
 offers it alongside Basalt's own two without `BasaltFuzzMain` listing them. Adding the two random backends needed no new instance and
 no change to any property or generator: `Gen IO` and `Gen Plausible.Gen` already followed by
 `inferInstance`, and what it took was a registry type that keeps the monad open. `replay` is
-fuzz-only, because a saved artifact *is* a `FuzzGen` byte buffer and has no meaning as a PRNG state.
+for `fuzz` and `choice` only, because a saved artifact *is* a `FuzzGen` byte buffer or a
+`ChoiceFuzz` record sequence and has no meaning as a PRNG state.
 
 ### How fast each backend finds a bug
 
