@@ -508,6 +508,40 @@ helps there and does nothing for `long-16`. The one way to lose outright is a fi
 above `-runs`, which leaves the fuzzer nothing: `chain-3` scores 0/100 with `--warmup=1000` under
 `-runs=1000`.
 
+## The choice backend (`--backend=choice`)
+
+A second interpretation of the same generators, `ChoiceFuzz` (`Basalt/Fuzz/Choice.lean`), in which
+libFuzzer's buffer is a *choice sequence*: one record per non-unit draw, a kind byte (the draw's
+`ChoiceKind`: `.nat`, `.int`, `.index`, `.branch`, …) and its absolute value in LEB128. The design,
+the evidence behind it and the measurements are `DESIGN-choice-sequences.md` and
+`reports/2026-10-choice-fuzzing/`; what follows is how it behaves.
+
+- **Replay is positional.** A draw takes the record at the cursor if its kind matches and its value
+  is in the draw's range; otherwise, as past the end, it takes a value from the *fill*, a SplitMix
+  stream seeded by the buffer, so a saved input replays without flags. `--fill-policy=simplest`
+  takes the range's least instead. An empty buffer is random generation.
+- **Each run hands back what it did**: its realized records (every draw, fill values included) and
+  each draw's bounds, with `span` open/close events (`RandomChoice.span`, placed by `oneOf` and
+  `frequency` around the chosen branch). The bridge keeps the last run's and caches those of runs
+  that may have become corpus units.
+- **The mutator edits the realized records**, not the bytes libFuzzer saved, so a fill value a run
+  drew is an ordinary record to the next edit. One operator per call, chosen by a bandit rewarded
+  by new features (`[basalt] op …` lines at exit): value edits (random in range, ±δ, boundaries, bit
+  flips), constants, destructive edits (truncate, redraw a run, delete or duplicate records),
+  structural ones on kinds and spans (branch flip, regenerate a span, same-label span splice,
+  hoist a same-label descendant, nested self-embedding), and recombination with another corpus
+  unit through `LLVMFuzzerCustomCrossOver`. `BASALT_CHOICE_OPS=a,b,…` restricts the set and
+  `BASALT_CHOICE_BANDIT=0` makes the choice uniform.
+- **Constants** come from two places: the operands of fixed-width integer comparisons, read by
+  wrapping the runtime's `trace-cmp` hooks (GNU ld `--wrap`, so Linux only), and the targets' own
+  `Nat` literals, collected at elaboration time (`harvested_literals%` in `BasaltFuzzMain.lean`).
+- **`--no-kinds`** records every draw as `.nat` and no spans, which is the comparison arm for what
+  kinds and spans add. Replay such an artifact under `BASALT_CHOICE_KINDS=0`.
+- **Shrinking**: `BASALT_SHRINK=1 basalt-fuzz --backend=choice replay <prop> <file>` shrinks a failing
+  input on its records (delete runs, lower values toward their least) and writes `<file>.min`.
+- The hybrid flags (`--warmup`, `--warmup-stall`, …) work as for `fuzz`; the random phase is a
+  `ChoiceFuzz` run of no records, whose realized records are the seed.
+
 ## What a run looks like
 
 Exit `0` = campaign passed; nonzero = a counterexample was found (and, for the fuzz backend, saved).
