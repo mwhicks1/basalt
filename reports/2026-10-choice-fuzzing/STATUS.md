@@ -6,16 +6,25 @@ at a time on this 8-core machine.
 
 ## Current
 
-- **Gate 1 + 2, baselines** (`fuzz-data/g12`): rounds 2–5 of `random`, `fuzz-noramp`,
-  `fuzz-noramp+trunc`, `auto-1`, `auto-1+trunc` on `gen-traced` and `wide-traced` running (the
-  old-binary choice arms are skipped after round 1: they are re-gated). ETA ~20:00 UTC 2026-10-15.
-- **Re-gate of the choice arms** (`fuzz-data/g12r`, 40 trials) with the fixed binary (`e532801`:
-  input cap, bandit fix): `choice`, `choice-auto-1`, `choice+nokinds`, `choice-auto-1+nokinds`;
-  starts when the baselines finish, ETA ~03:00 UTC 2026-10-16. Baseline arms are linked in, so
-  `gate-stats.py fuzz-data/g12r/<gen|wide> …` compares everything.
+- **Re-gate of the choice arms running** (`fuzz-data/g12r`, 60 trials, fixed binary `fd05b15`):
+  `choice`, `choice-auto-1`, design A (`choice+nokinds`, `choice-auto-1+nokinds`),
+  `choice+posbits`, and the kinds-without-span-operators ablation. ETA ~08:30 UTC 2026-10-16.
+  Baselines (5 trials each) are linked in from `fuzz-data/g12`.
 - **Phase 0 done**: [`PHASE0.md`](PHASE0.md).
 
 ## Log
+
+- 2026-10-16 — **`wide-traced` baselines final (5 trials):** `fuzz-noramp` 6,628; `random` 6,520
+  (p = 0.008); `+trunc` 6,637 (tie); `auto-1` and `auto-1+trunc` 6,661 (p = 0.008 by tests, but at
+  0.39–0.49× throughput, so ties by time, p = 0.135 — the existing hybrid is slow on this property;
+  not investigated here).
+
+- 2026-10-15 — **`gen-traced` baselines final (5 trials):** `fuzz-noramp` 7,157; `random` 7,099
+  (p = 0.008); `auto-1` 7,173; `auto-1+trunc` 7,185 and `fuzz-noramp+trunc` 7,183 (p = 0.15 each).
+  **0.3 verdict:** truncation ties on Cedar and wins clearly on chain-n → adopted; the truncated arms
+  are the rebaselined comparison. First re-gate trial with the fixed binary: `choice` 7,184 edges at
+  0.98× throughput (was 0.69×); design A 7,063. A slot-filling scheduler (`g12r/fill.sh`) now starts a
+  re-gate trial whenever fewer than 7 run, so slow baseline stragglers no longer idle cores.
 
 - 2026-10-15 — **Gate round 1 complete (1 trial each)** — `gen-traced` / `wide-traced` edges:
   `fuzz-noramp` 7,196 / 6,619; `random` 7,097 / 6,536; `+trunc` 7,164 / 6,638; `auto-1` 7,164 /
