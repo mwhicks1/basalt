@@ -8,6 +8,7 @@ import Basalt.Fuzz.Literals
 import Basalt.Fuzz.Runner
 import BasaltFuzz.BuggyBST
 import BasaltFuzz.Cedar.Gen
+import BasaltFuzz.Cedar.Policy
 import BasaltFuzz.Staged
 
 /-!
@@ -42,6 +43,7 @@ def cedarProperties : List (String × Property) :=
     -- the wide fragment, correct by construction (`Cedar/Gen.lean`)
     ("gen-cbc",              fun _ => CedarGen.prop_correct_by_construction),
     ("gen-traced",           fun _ => CedarGen.prop_soundness_traced),
+    ("policy-traced",        fun _ => CedarPolicy.prop_policy_traced),
     ("gen-traced-last",      fun _ => CedarGen.prop_soundness_traced_last),
     ("gen-traced-repr",      fun _ => CedarGen.prop_soundness_repr) ]
 
