@@ -136,7 +136,8 @@ def prop_policy_traced [Gen G] : PropM G Unit := do
       let r := evaluate p.toExpr req es
       check (excused r) s!"UNSOUND policy: {reprStr p} evaluated to {reprStr r}"
     for id in resp.erroringPolicies.toList do
-      check (ps.any fun p => p.id == id && excused (evaluate p.toExpr req es))
+      check (ps.any fun p => p.id == id &&
+          match evaluate p.toExpr req es with | .error e => CedarTyped.isExcusedError e | .ok _ => false)
         s!"UNSOUND response: {id} reported erroring"
     for n in [0, 1, 2] do
       if validateWithLevel ps schema n matches .ok _ then
