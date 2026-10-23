@@ -1,0 +1,10 @@
+# Policy-fault screen on policy-traced: one trial per cell, 200k tests (binary e0e2f51ed4ed; Cedar 3971469b).
+mutant property                        choice         fuzz-noramp+trunc                    random
+     0 policy-traced      0/1                -      0/1                -      0/1                -
+    30 policy-traced      1/1 U              1      1/1 U              7      1/1 U             25
+    31 policy-traced      1/1 U          3,438      1/1 U            238      1/1 U          1,078
+    32 policy-traced      1/1 U            383      1/1 U            372      1/1 U             65
+    33 policy-traced      1/1 U             46      1/1 U              7      1/1 U             14
+    34 policy-traced      1/1 U              1      1/1 U             14      1/1 U              2
+    35 policy-traced      1/1 U              2      1/1 U             39      1/1 U              4
+    36 policy-traced      0/1                -      0/1                -      0/1                -

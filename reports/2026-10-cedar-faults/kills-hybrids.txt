@@ -1,0 +1,24 @@
+# 19 (fault, property) pairs x 5 arms x 10 trials, 500k tests; Cedar basalt-mutants c9adf7a7, binary a85a593714a4 (fuzz-run/kill-compare.py, Basalt cedar-mutants).
+fault property                          auto-1+trunc                     choice-auto-1
+                        kills  tests   secs p:auto-1      kills  tests   secs p:auto-1
+    2 wide-traced      10/10   94,627     70              7/10  369,976    325   0.001
+    3 gen-traced       10/10  176,633    160             10/10  111,644    107   0.392
+    3 wide-traced      10/10  117,142     88             10/10  140,996    115   0.355
+    6 gen-traced       10/10    4,574      3             10/10    1,870      2   0.012
+    6 wide-traced      10/10    3,237      2             10/10      854      1   0.065
+    7 wide-traced       9/10   76,332     54             10/10   69,845     52   0.529
+    8 gen-traced       10/10   82,246     70             10/10   83,169     78   0.631
+    8 wide-traced      10/10   67,281     44             10/10   70,474     53   0.742
+   13 gen-traced       10/10  147,642    134             10/10   99,817     97   0.533
+   13 wide-traced      10/10   69,345     47             10/10   71,980     53   0.433
+   15 gen-traced       10/10  109,742     96             10/10  109,130    106   0.741
+   15 wide-traced      10/10   84,266     59             10/10   86,879     66   0.629
+   16 gen-traced        9/10  223,750    203             10/10   90,999     85   0.000
+   16 wide-traced      10/10   75,884     54             10/10   68,198     50   0.189
+   23 gen-traced       10/10    4,807      4             10/10    1,355      1   0.485
+   23 wide-traced      10/10    4,199      3             10/10    2,506      2   0.104
+   24 wide-traced      10/10  101,330     73              9/10   78,860     63   0.689
+   28 gen-traced       10/10   10,378      8             10/10    7,352      6   0.908
+   28 wide-traced      10/10    8,970      6             10/10    9,851      7   0.916
+
+against auto-1+trunc: choice-auto-1 2-1  (pairs faster-slower, p < 0.05)
