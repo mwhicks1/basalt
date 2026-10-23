@@ -18,7 +18,7 @@ for log in glob.glob(f"{out}/m*/*/*/*.log"):
     with open(log, errors="replace") as f:
         for line in f:
             if line.startswith("BASALT_H"): continue
-            if "UNSOUND:" in line: kind = kind or "UNSOUND"
+            if "UNSOUND" in line: kind = kind or "UNSOUND"
             elif "ill-typed:" in line or "disagrees" in line: kind = kind or "ill-typed"
             m = re.match(r"runs\s*:\s*(\d+)", line)
             if m and kind: runs = int(m[1])
