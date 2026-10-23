@@ -1753,3 +1753,16 @@ LEAN_EXPORT lean_object *basalt_fuzz_go(lean_object *run, lean_object *argv, uin
   lean_dec(argv);
   return lean_io_result_mk_ok(lean_box(0));
 }
+
+/* Cedar's injected fault (`Cedar.mutantId`, Cedar branch `basalt-mutants`): `CEDAR_MUTANT`, read
+   once; 0 when unset. */
+LEAN_EXPORT lean_obj_res cedar_mutant_id(lean_obj_arg unit) {
+  static long k = -1;
+  (void)unit;
+  if (k < 0) {
+    const char *s = getenv("CEDAR_MUTANT");
+    k = s ? strtol(s, NULL, 10) : 0;
+    if (k < 0) k = 0;
+  }
+  return lean_box((size_t)k);
+}
