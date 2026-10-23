@@ -113,5 +113,24 @@ are in code only it reaches: the level checker (30, 31, 37, 39, 40), the entity 
 authorizer (33, 34), the policy slicer (35) and the validator (36). Screens:
 [`pscreen.txt`](pscreen.txt), [`pscreen2.txt`](pscreen2.txt). Every arm kills 30–35 and 39 within
 3.4k tests. 36 is never killed, since a condition built for one environment types alike in the
-other. 37 and 40 are deep (60k–146k; 40 only by the byte fuzzer), and a multi-trial run on them is
-in progress.
+other. 37 and 40 are deep.
+
+The deep faults on `policy-traced`, ten trials per arm at 300k tests
+([`kills-policy.txt`](kills-policy.txt)):
+
+| fault | random | `fuzz-noramp+trunc` | `auto-1+trunc` | `choice` | `choice-auto-1` |
+|---|---|---|---|---|---|
+| 6 | 8/10, 80.0k | 8/10, 155k | 9/10, 39.8k | 10/10, 70.9k | 10/10, 95.1k |
+| 7 | 10/10, **30.3k** | 2/10, >300k | 8/10, 40.1k | 3/10, >300k | 9/10, 102k |
+| 13 | 3/10, >300k | 5/10, 284k | 7/10, 193k | 5/10, 290k | 4/10, >300k |
+| 28 | 10/10, 15.3k | 10/10, 17.7k | 10/10, 22.1k | 10/10, 22.3k | 10/10, 13.3k |
+| 37 | 3/10, >300k | 8/10, 236k | 7/10, 241k | 7/10, 171k | 10/10, **125k** |
+| 40 | 5/10, 272k | 4/10, >300k | 4/10, >300k | 2/10, >300k | 2/10, >300k |
+
+At p < 0.05 most cells tie. Fault 7 (action `in` a set of actions requires all of them) is the one
+random wins outright: the byte fuzzer and `choice` find it in 2–3 of 10 trials, against random's
+10. `choice-auto-1` is fastest on 37 (p = 0.003 against random, 0.050 against the byte fuzzer).
+Fault 40's single-trial kill in the screen was luck. The fuzzing arms also run slower here, at 300k
+tests in ~520–570 s against random's ~400 s. On this property no backend dominates. `auto-1+trunc`
+is never significantly worse than either pure arm, and `choice-auto-1` is worse only on fault 7,
+against random.

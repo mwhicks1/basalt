@@ -1,0 +1,12 @@
+# policy-traced: 6 faults x 5 arms x 10 trials, 300k tests; Cedar 913f124d, binary pscreen2-bin (fuzz-run/kill-compare.py).
+fault property                                random                 fuzz-noramp+trunc                      auto-1+trunc                            choice                     choice-auto-1
+                  kills  tests   secs p:random p:fuzz-nkills  tests   secs p:random p:fuzz-nkills  tests   secs p:random p:fuzz-nkills  tests   secs p:random p:fuzz-nkills  tests   secs p:random p:fuzz-n
+    6 policy-traced  8/10   79,986    109           0.378  8/10  154,588    285   0.380          9/10   39,836     56   0.100   0.028 10/10   70,868    117   0.567   0.074 10/10   95,114    159   0.775   0.161
+    7 policy-traced 10/10   30,266     55           0.000  2/10    >300k    551   0.000          8/10   40,141     52   0.270   0.003  3/10    >300k    524   0.000   0.861  9/10  101,656    195   0.016   0.002
+   13 policy-traced  3/10    >300k    404           0.465  5/10  284,118    504   0.462          7/10  193,443    335   0.075   0.311  5/10  290,212    503   0.406   0.868  4/10    >300k    566   0.420   0.970
+   28 policy-traced 10/10   15,310     33           0.389 10/10   17,694     40   0.396         10/10   22,092     29   0.142   0.686 10/10   22,308     42   0.215   0.635 10/10   13,288     20   0.912   0.633
+   37 policy-traced  3/10    >300k    405           0.169  8/10  235,990    440   0.165          7/10  240,670    421   0.119   0.851  7/10  170,586    303   0.062   0.318 10/10  124,930    235   0.003   0.050
+   40 policy-traced  5/10  271,598    369           0.781  4/10    >300k    560   0.785          4/10    >300k    522   0.604   0.524  2/10    >300k    530   0.225   0.171  2/10    >300k    571   0.287   0.436
+
+against random: fuzz-noramp+trunc 0-1, auto-1+trunc 0-0, choice 0-1, choice-auto-1 1-1  (pairs faster-slower, p < 0.05)
+against fuzz-noramp+trunc: random 1-0, auto-1+trunc 2-0, choice 0-0, choice-auto-1 1-0  (pairs faster-slower, p < 0.05)
