@@ -9,7 +9,7 @@ where the property reports it, the median expression size over the last tenth of
 
   fuzz-run/gate-stats.py OUT_DIR ARM[:BACKEND] [ARM[:BACKEND] ...]
 """
-import bisect, itertools, re, statistics, sys
+import array, bisect, itertools, re, statistics, sys
 
 PREFIX = "lp_Cedar_"
 EXCLUDE = re.compile(r"[Rr]epr|[Ff]ormat|[Tt]oString")
@@ -42,17 +42,21 @@ def cedar_of(arm):
         return (n.startswith(PREFIX) or n.startswith("_init_" + PREFIX)) and not EXCLUDE.search(n)
     return cedar
 
+# A trial's distinct-expression curve is kept as a packed array and its sizes reduced to the median
+# of the last tenth: as lists of ints, a 5M-test trial held ~200 MB, and a 55-trial gate exhausted
+# the host's memory.
 def trial(base, cedar):
     firsts = sorted(int(f) for o, f in (l.split() for l in open(f"{base}.cov"))
                     if f != "0" and cedar(int(o, 16)))
     ticks = [(0, 0)] + [tuple(map(int, l.split())) for l in open(f"{base}.cov.time")]
-    seen, uniq, sizes = set(), [], []
+    seen, uniq, sizes = set(), array.array("I"), array.array("I")
     for line in open(f"{base}.log", errors="replace"):
         if line.startswith("BASALT_H "):
             p = line.split()
-            seen.add(p[1]); uniq.append(len(seen))
+            seen.add(int(p[1])); uniq.append(len(seen))
             if len(p) > 3 and p[3].isdigit(): sizes.append(int(p[3]))
-    return firsts, ticks, uniq, sizes
+    size = statistics.median(sizes[len(sizes) * 9 // 10:]) if sizes else None
+    return firsts, ticks, uniq, size
 
 def test_at_ms(ticks, ms):
     ts = [t for _, t in ticks]
@@ -93,7 +97,7 @@ for name, _ in arms:
     e_t = [bisect.bisect_right(tr[0], test_at_ms(tr[1], ms)) for tr in trs]
     rate = [tr[1][-1][0] / (tr[1][-1][1] / 1000) for tr in trs]
     uniq = [tr[2][ntests - 1] for tr in trs if len(tr[2]) >= ntests]
-    size = [statistics.median(tr[3][len(tr[3]) * 9 // 10:]) for tr in trs if tr[3]]
+    size = [tr[3] for tr in trs if tr[3] is not None]
     cols[name] = (e_n, e_t, rate, uniq, size)
 print(f"# {out}: {ntests:,} tests; {ms / 60000:.1f} min (the fastest trial's end)")
 print(f"{'arm':24}{'n':>3}{'edges@tests':>13}{'p':>7}{'edges@time':>12}{'p':>7}"
