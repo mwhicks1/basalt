@@ -1,0 +1,42 @@
+# Per-operator rewards, `choice` arm, 5 trials x 5M tests (fuzz-data/g12r, binary fd05b15).
+# runs/finds: share of the arm's mutations / of its new-feature inputs; rate: finds per run.
+gen-traced: runs 26,951,061, new-feature 20,399
+  embed      runs  15.6%  finds  39.3%  rate 0.190%
+  trunc      runs   9.5%  finds  10.0%  rate 0.080%
+  regen      runs   7.7%  finds   9.0%  rate 0.088%
+  havoc      runs   7.7%  finds   9.0%  rate 0.088%
+  hoist      runs   5.7%  finds   4.7%  rate 0.063%
+  dup        runs   5.8%  finds   3.7%  rate 0.049%
+  delete     runs   5.7%  finds   3.5%  rate 0.047%
+  flipregen  runs   4.7%  finds   3.2%  rate 0.052%
+  cross      runs   4.6%  finds   2.3%  rate 0.038%
+  insert     runs   4.5%  finds   2.3%  rate 0.038%
+  ssplice    runs   3.6%  finds   2.1%  rate 0.044%
+  rand       runs   3.6%  finds   1.8%  rate 0.039%
+  randrun    runs   3.5%  finds   1.8%  rate 0.038%
+  flip       runs   3.2%  finds   1.5%  rate 0.036%
+  bound      runs   3.2%  finds   1.5%  rate 0.034%
+  bits       runs   3.1%  finds   1.3%  rate 0.032%
+  splice     runs   3.3%  finds   1.2%  rate 0.027%
+  const      runs   2.8%  finds   1.1%  rate 0.029%
+  delta      runs   2.1%  finds   0.6%  rate 0.021%
+wide-traced: runs 27,247,260, new-feature 19,634
+  embed      runs  15.2%  finds  37.4%  rate 0.177%
+  havoc      runs   8.3%  finds  11.1%  rate 0.096%
+  trunc      runs   9.0%  finds   9.4%  rate 0.075%
+  regen      runs   6.9%  finds   7.3%  rate 0.076%
+  dup        runs   6.2%  finds   4.4%  rate 0.051%
+  hoist      runs   5.4%  finds   4.3%  rate 0.057%
+  delete     runs   5.9%  finds   4.0%  rate 0.048%
+  flipregen  runs   4.5%  finds   3.0%  rate 0.049%
+  insert     runs   5.0%  finds   2.8%  rate 0.041%
+  cross      runs   4.6%  finds   2.4%  rate 0.038%
+  rand       runs   3.9%  finds   2.3%  rate 0.043%
+  randrun    runs   3.7%  finds   1.9%  rate 0.038%
+  flip       runs   3.6%  finds   1.9%  rate 0.039%
+  ssplice    runs   3.2%  finds   1.6%  rate 0.036%
+  bits       runs   3.2%  finds   1.5%  rate 0.035%
+  const      runs   3.0%  finds   1.4%  rate 0.034%
+  splice     runs   3.3%  finds   1.3%  rate 0.027%
+  bound      runs   2.8%  finds   1.2%  rate 0.031%
+  delta      runs   2.3%  finds   0.7%  rate 0.024%

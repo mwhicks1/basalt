@@ -1,0 +1,13 @@
+# /local/home/mwhicks/fuzz-data/g12r/gen: 5,000,000 tests; 61.2 min (the fastest trial's end)
+arm                       n  edges@tests      p  edges@time      p  tests/s  ratio   distinct  size
+fuzz-noramp+trunc         5        7,183              7,153             953   1.00  2,605,930    18
+fuzz-noramp               5        7,157  0.151       7,151  1.000      989   1.04  2,481,838    18
+random                    5        7,099  0.008       7,099  0.008    1,360   1.43  3,539,662    12
+auto-1                    5        7,173  0.579       7,157  0.548      955   1.00  2,693,124    20
+auto-1+trunc              5        7,185  0.548       7,170  0.008      932   0.98  2,865,628    20
+choice                    5        7,148  0.111       7,140  0.413      969   1.02  2,300,685    16
+choice-auto-1             5        7,152  0.095       7,140  0.516      932   0.98  2,714,880    18
+choice+nokinds            5        7,063  0.008       7,048  0.008      969   1.02  1,593,657    17
+choice-auto-1+nokinds     5        7,136  0.008       7,121  0.008      964   1.01  2,044,660    18
+choice+posbits            5        7,161  0.246       7,142  0.413      967   1.01  2,454,011    16
+choice-nospan          5        7,129  0.008       7,113  0.008      938   0.98  1,875,385    18

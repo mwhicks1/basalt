@@ -1,0 +1,55 @@
+# Bug-finding rates, 300 campaigns per cell, fixed budgets (tests).
+# Binary 1b48366 (gate round 1):
+chain-2  fuzz-noramp                  budget 500  64/300   21.3% ±2.4
+chain-2  fuzz-noramp+trunc            budget 500  112/300   37.3% ±2.8
+chain-2  choice+nokinds               budget 500  130/300   43.3% ±2.9
+chain-2  choice                       budget 500  143/300   47.7% ±2.9
+chain-2  choice+simplest              budget 500  148/300   49.3% ±2.9
+chain-3  fuzz-noramp                  budget 1000  120/300   40.0% ±2.8
+chain-3  fuzz-noramp+trunc            budget 1000  192/300   64.0% ±2.8
+chain-3  choice+nokinds               budget 1000  164/300   54.7% ±2.9
+chain-3  choice                       budget 1000  148/300   49.3% ±2.9
+chain-3  choice+simplest              budget 1000  176/300   58.7% ±2.8
+chain-4  fuzz-noramp                  budget 1200  149/300   49.7% ±2.9
+chain-4  fuzz-noramp+trunc            budget 1200  192/300   64.0% ±2.8
+chain-4  choice+nokinds               budget 1200  139/300   46.3% ±2.9
+chain-4  choice                       budget 1200  130/300   43.3% ±2.9
+chain-4  choice+simplest              budget 1200  153/300   51.0% ±2.9
+bst-buggy-insert  fuzz-noramp                  budget 5  111/300   37.0% ±2.8
+bst-buggy-insert  fuzz-noramp+trunc            budget 5  107/300   35.7% ±2.8
+bst-buggy-insert  choice+nokinds               budget 5  48/300   16.0% ±2.1
+bst-buggy-insert  choice                       budget 5  37/300   12.3% ±1.9
+bst-buggy-insert  choice+simplest              budget 5  180/300   60.0% ±2.8
+bst-buggy-insert2  fuzz-noramp                  budget 45  96/300   32.0% ±2.7
+bst-buggy-insert2  fuzz-noramp+trunc            budget 45  114/300   38.0% ±2.8
+bst-buggy-insert2  choice+nokinds               budget 45  298/300   99.3% ±0.5
+bst-buggy-insert2  choice                       budget 45  300/300  100.0% ±0.0
+bst-buggy-insert2  choice+simplest              budget 45  235/300   78.3% ±2.4
+bst-buggy-delete  fuzz-noramp                  budget 10  37/300   12.3% ±1.9
+bst-buggy-delete  fuzz-noramp+trunc            budget 10  41/300   13.7% ±2.0
+bst-buggy-delete  choice+nokinds               budget 10  35/300   11.7% ±1.9
+bst-buggy-delete  choice                       budget 10  25/300    8.3% ±1.6
+bst-buggy-delete  choice+simplest              budget 10  12/300    4.0% ±1.1
+needle  fuzz-noramp  budget 2000  0/300
+needle  fuzz-noramp+trunc  budget 2000  0/300
+needle  choice+nokinds  budget 2000  240/300
+needle  choice  budget 2000  241/300
+needle  choice+simplest  budget 2000  212/300
+
+# Binary fd05b15 (fixed choice arms):
+chain-2  choice                       budget 500  142/300   47.3% ±2.9
+chain-2  choice+nokinds               budget 500  134/300   44.7% ±2.9
+chain-3  choice                       budget 1000  159/300   53.0% ±2.9
+chain-3  choice+nokinds               budget 1000  148/300   49.3% ±2.9
+chain-4  choice                       budget 1200  129/300   43.0% ±2.9
+chain-4  choice+nokinds               budget 1200  145/300   48.3% ±2.9
+bst-buggy-insert  choice                       budget 5  34/300   11.3% ±1.8
+bst-buggy-insert  choice+nokinds               budget 5  56/300   18.7% ±2.2
+bst-buggy-insert2  choice                       budget 45  300/300  100.0% ±0.0
+bst-buggy-insert2  choice+nokinds               budget 45  298/300   99.3% ±0.5
+bst-buggy-delete  choice                       budget 10  19/300    6.3% ±1.4
+bst-buggy-delete  choice+nokinds               budget 10  29/300    9.7% ±1.7
+needle  choice                       budget 2000  228/300   76.0% ±2.5
+needle  choice+nokinds               budget 2000  237/300   79.0% ±2.4
+needle-2  choice                       budget 10000  79/300   26.3% ±2.5
+needle-2  choice+nokinds               budget 10000  74/300   24.7% ±2.5

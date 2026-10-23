@@ -6,13 +6,31 @@ at a time on this 8-core machine.
 
 ## Current
 
-- **Re-gate of the choice arms running** (`fuzz-data/g12r`, 60 trials, fixed binary `fd05b15`):
-  `choice`, `choice-auto-1`, design A (`choice+nokinds`, `choice-auto-1+nokinds`),
-  `choice+posbits`, and the kinds-without-span-operators ablation. ETA ~08:30 UTC 2026-10-16.
-  Baselines (5 trials each) are linked in from `fuzz-data/g12`.
+- **Gates 1 and 2 done** ([`GATES.md`](GATES.md)): negative on Cedar edges; §5's plan stops here.
+- **Next:** a Cedar bug-finding target with injected faults, then broader Cedar properties and
+  rare-edge reporting.
 - **Phase 0 done**: [`PHASE0.md`](PHASE0.md).
 
 ## Log
+
+- 2026-10-23 — **Gates 1 and 2 written up: [`GATES.md`](GATES.md). Stop: negative result.**
+  Next, per your direction: a Cedar bug-finding target (injected faults), broader Cedar
+  properties, and rare-edge reporting.
+
+- 2026-10-23 — **Re-gate final (5 trials per arm;** [`gate-gen.txt`](gate-gen.txt),
+  [`gate-wide.txt`](gate-wide.txt)). Against `fuzz-noramp+trunc` (7,183 / 6,637 edges):
+  `gen-traced` — `choice` 7,148 (p = 0.11), `choice-auto-1` 7,152 (p = 0.10), design A 7,063
+  (p = 0.008, worse); `wide-traced` — `choice` 6,573 (p = 0.016, worse), `choice-auto-1` 6,624
+  (p = 0.31). No choice arm beats byte fuzzing on either property. **Incident:** running two
+  `gate-stats.py` at once over the 55-trial gate exhausted the host's 15 GB (no swap) and hung it
+  twice; the script now keeps packed per-trial curves (`47b44f1`; 673 MB peak for 10 trials).
+
+- 2026-10-16 02:20 — **Re-gate interim (1–2 trials per arm).** `gen-traced`: `choice` 7,164,
+  `choice-auto-1` 7,156, design A 7,094 / hybrid 7,140, `posbits` 7,156, kinds without span
+  operators 7,120 — against `fuzz-noramp+trunc` 7,183 and `auto-1+trunc` 7,185. `wide-traced`:
+  `choice` 6,579, `choice-auto-1` 6,629 vs 6,637 / 6,661. Throughput 0.98–1.07×. Shape so far:
+  kinds + spans beat design A, spans add to kinds, but nothing beats byte fuzzing's ceiling. If the
+  remaining trials agree, this is §5's "Phase 2 also fails" → **stop** and write up.
 
 - 2026-10-16 — **`wide-traced` baselines final (5 trials):** `fuzz-noramp` 6,628; `random` 6,520
   (p = 0.008); `+trunc` 6,637 (tie); `auto-1` and `auto-1+trunc` 6,661 (p = 0.008 by tests, but at
