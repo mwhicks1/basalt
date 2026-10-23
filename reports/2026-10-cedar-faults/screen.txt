@@ -1,0 +1,55 @@
+# Screening: one trial per cell, 200k tests; kills / trials, U = UNSOUND, median tests to the kill.
+# Cedar basalt-mutants c9adf7a7, Basalt cedar-mutants 8031d21, binary a85a593714a4.
+mutant property                        choice         fuzz-noramp+trunc                    random
+     1 gen-traced        1/1 U             39      1/1 U            662      1/1 U          1,642
+     1 wide-traced       1/1 U              8      1/1 U          2,111      1/1 U            433
+     2 gen-traced        0/1                -      0/1                -      0/1                -
+     2 wide-traced       1/1 U         90,743      1/1 U          8,351      0/1                -
+     3 gen-traced        0/1                -      1/1 U        182,753      0/1                -
+     3 wide-traced       0/1                -      1/1 U         59,962      0/1                -
+     4 gen-traced        1/1 U             52      1/1 U              5      1/1 U             55
+     4 wide-traced       1/1 U            557      1/1 U          1,882      1/1 U             66
+     5 gen-traced        1/1 U             14      1/1 U          1,194      1/1 U              6
+     5 wide-traced       1/1 U              1      1/1 U            198      1/1 U             58
+     6 gen-traced        1/1 U         58,991      1/1 U         39,397      1/1 U          1,813
+     6 wide-traced       1/1 U          7,100      1/1 U         68,429      1/1 U            335
+     7 gen-traced        0/1                -      0/1                -      0/1                -
+     7 wide-traced       0/1                -      0/1                -      1/1 U         34,175
+     8 gen-traced        0/1                -      1/1 U         85,754      0/1                -
+     8 wide-traced       1/1 U         23,098      1/1 U            727      0/1                -
+     9 gen-traced        0/1                -      0/1                -      0/1                -
+     9 wide-traced       0/1                -      0/1                -      0/1                -
+    10 gen-traced        1/1 U          1,116      1/1 U          7,029      1/1 U            201
+    10 wide-traced       1/1 U            667      1/1 U            273      1/1 U             28
+    11 gen-traced        0/1                -      0/1                -      0/1                -
+    11 wide-traced       0/1                -      0/1                -      0/1                -
+    12 gen-traced        0/1                -      0/1                -      0/1                -
+    12 wide-traced       0/1                -      0/1                -      0/1                -
+    13 gen-traced        1/1 U        194,339      0/1                -      0/1                -
+    13 wide-traced       1/1 U         73,951      0/1                -      1/1 U         33,357
+    14 gen-traced        0/1                -      0/1                -      0/1                -
+    14 wide-traced       0/1                -      0/1                -      0/1                -
+    15 gen-traced        0/1                -      1/1 U         38,607      0/1                -
+    15 wide-traced       0/1                -      1/1 U         19,633      0/1                -
+    16 gen-traced        0/1                -      1/1 U        112,240      0/1                -
+    16 wide-traced       1/1 U         21,893      1/1 U          6,826      0/1                -
+    17 gen-traced        0/1                -      0/1                -      0/1                -
+    17 wide-traced       0/1                -      0/1                -      0/1                -
+    20 gen-traced        1/1 U              3      1/1 U            204      1/1 U             11
+    20 wide-traced       1/1 U             18      1/1 U            448      1/1 U             10
+    21 gen-traced        1/1 U             11      1/1 U            690      1/1 U             31
+    21 wide-traced       1/1 U             74      1/1 U          2,070      1/1 U            121
+    22 gen-traced        1/1 U              1      1/1 U            787      1/1 U              3
+    22 wide-traced       1/1 U            233      1/1 U             28      1/1 U              2
+    23 gen-traced        1/1 U         31,207      1/1 U          1,955      1/1 U          7,224
+    23 wide-traced       1/1 U          4,204      1/1 U         44,949      1/1 U            497
+    24 gen-traced        0/1                -      0/1                -      0/1                -
+    24 wide-traced       0/1                -      1/1 U         35,656      0/1                -
+    25 gen-traced        1/1 U             99      1/1 U             46      1/1 U             54
+    25 wide-traced       1/1 U             64      1/1 U             66      1/1 U              5
+    26 gen-traced        0/1                -      0/1                -      0/1                -
+    26 wide-traced       0/1                -      0/1                -      0/1                -
+    27 gen-traced        1/1 U              1      1/1 U          4,113      1/1 U             51
+    27 wide-traced       1/1 U            460      1/1 U         19,117      1/1 U             44
+    28 gen-traced        1/1 U         53,421      1/1 U         47,288      1/1 U         12,841
+    28 wide-traced       1/1 U          3,990      1/1 U          9,321      1/1 U          2,465

@@ -1,0 +1,20 @@
+# /local/home/mwhicks/fuzz-data/g12r/gen: 40 trials; 7,402 edges reached, 219 rare (in at most 25% of trials), 258 beyond random
+arm                       n   edges   rare      p  beyond      p  rare∪  beyond∪
+random                    5   7,099      2  0.008       0  0.008      8        0
+fuzz-noramp+trunc         5   7,183     22             55           127      169
+fuzz-noramp               5   7,157     14  0.421      44  0.151     51       92
+auto-1+trunc              5   7,185     22  0.984      58  0.595    142      182
+choice                    5   7,148      7  0.087      36  0.063     66      104
+choice-auto-1             5   7,152      7  0.119      33  0.056     47       86
+choice+nokinds            5   7,063      1  0.048      14  0.008     28       54
+choice+posbits            5   7,161     11  0.167      43  0.095    102      145
+# /local/home/mwhicks/fuzz-data/g12r/wide: 40 trials; 6,690 edges reached, 20 rare (in at most 25% of trials), 121 beyond random
+arm                       n   edges   rare      p  beyond      p  rare∪  beyond∪
+random                    5   6,520      2  0.579       0  0.008      6        0
+fuzz-noramp+trunc         5   6,637      4             98            12      116
+fuzz-noramp               5   6,628      1  0.810     104  0.333      9      114
+auto-1+trunc              5   6,661      8  0.024     108  0.103     14      118
+choice                    5   6,573      2  0.270      39  0.008      8       78
+choice-auto-1             5   6,624      2  0.389      72  0.063      7      109
+choice+nokinds            5   6,520      0  0.135       7  0.008      2       36
+choice+posbits            5   6,589      2  0.659      42  0.032      7       96

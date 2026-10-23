@@ -68,6 +68,24 @@ mutations and 37–39% of new-feature inputs, at about twice the next operator's
 span regeneration and havoc follow at 7–11% each. The span operators (embed, hoist, span and
 flip-regenerate, same-label splice) together are 35–37% of mutations and 54–58% of finds.
 
+Rare edges ([`gate-rare.txt`](gate-rare.txt), `fuzz-run/rare-edges.py`), since the totals are
+saturated: per trial, the edges in no `random` trial ("beyond random"), and the edges reached by at
+most a quarter of all 40 trials ("rare"), medians with p against `fuzz-noramp+trunc`:
+
+| arm | `gen-traced` beyond random | p | rare | p | `wide-traced` beyond random | p | rare | p |
+|---|---|---|---|---|---|---|---|---|
+| `fuzz-noramp+trunc` | 55 | – | 22 | – | 98 | – | 4 | – |
+| `fuzz-noramp` | 44 | 0.15 | 14 | 0.42 | 104 | 0.33 | 1 | 0.81 |
+| `auto-1+trunc` | 58 | 0.60 | 22 | 0.98 | 108 | 0.10 | 8 | 0.024 |
+| `choice` | 36 | 0.063 | 7 | 0.087 | 39 | 0.008 | 2 | 0.27 |
+| `choice-auto-1` | 33 | 0.056 | 7 | 0.12 | 72 | 0.063 | 2 | 0.39 |
+| design A | 14 | 0.008 | 1 | 0.048 | 7 | 0.008 | 0 | 0.14 |
+| `choice+posbits` | 43 | 0.095 | 11 | 0.17 | 42 | 0.032 | 2 | 0.66 |
+
+Of the 258 / 121 edges beyond random, the byte fuzzer's five trials reach 169 / 116 between them,
+`choice`'s 104 / 78. Here the gap that totals show as 0.5–1% is a factor of 1.5–2.5, the same way
+round.
+
 Bug-finding rates, 300 campaigns per cell at fixed budgets ([`gate-rates.txt`](gate-rates.txt);
 `choice` from the fixed binary):
 

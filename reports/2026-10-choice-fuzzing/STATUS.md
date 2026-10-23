@@ -13,6 +13,24 @@ at a time on this 8-core machine.
 
 ## Log
 
+- 2026-10-23 — **Rare edges (item 3)**: `fuzz-run/rare-edges.py`; tables in `GATES.md`. Per trial,
+  edges beyond random: `fuzz-noramp+trunc` 55 / 98, `choice` 36 / 39 (p = 0.063 / 0.008).
+  **Policy property (item 2)**: `policy-traced` (Basalt `cedar-mutants` @ `e9d5dc0`) checks
+  Cedar's validation, level-slicing and authorization theorems over generated policy sets; 98%
+  validate; at 100k random tests 8,571 Cedar edges against `gen-traced`'s 6,943. Faults 30–36
+  (level checker, slicer, authorizer, policy slicer, validator; Cedar @ `3971469b`) are being
+  screened on it.
+
+- 2026-10-23 — **Cedar fault injection: screen done, main run started.** 26 faults, each one that
+  `type_of_is_sound` can see (17 typechecker, 9 evaluator), selected at run time by `CEDAR_MUTANT`
+  (Cedar `basalt-mutants` @ `c9adf7a7`, Basalt `cedar-mutants` @ `8031d21`, worktrees
+  `../cedar-spec-m` and `../basalt-m`). Screen, one trial × 200k tests
+  ([`../2026-10-cedar-faults/screen.txt`](../2026-10-cedar-faults/screen.txt)): 6 never killed
+  (9, 11, 12, 14, 17, 26), 7 killed by every arm within ~2k tests. `fuzz-noramp+trunc` alone
+  kills 3, 15, 24 and `gen`'s 8 and 16; `choice` alone kills `gen`'s 13. Main run: the 19
+  non-trivial (fault, property) pairs × `random`, `fuzz-noramp+trunc`, `auto-1+trunc`, `choice`,
+  `choice-auto-1` × 10 trials × 500k tests (`fuzz-data/mut/main`).
+
 - 2026-10-23 — **Gates 1 and 2 written up: [`GATES.md`](GATES.md). Stop: negative result.**
   Next, per your direction: a Cedar bug-finding target (injected faults), broader Cedar
   properties, and rare-edge reporting.
