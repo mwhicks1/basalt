@@ -18,7 +18,7 @@ at a time on this 8-core machine.
   that random misses (0–4/10 vs 10/10), but is 3–18× slower on shallow ones; the hybrids get both
   (`auto-1+trunc` 9–1 and `choice-auto-1` 7–0 against random). Pure `choice` loses to the byte
   fuzzer 1–7, and the two hybrids are even (2–1). Deep policy faults (6, 7, 13, 28,
-  37, 40 on `policy-traced`, 10 trials × 300k): done, mostly ties; random alone wins fault 7.
+  37, 40 on `policy-traced`, 10 trials × 300k): done, mostly ties; on fault 7 random beats both pure fuzzers.
 
 - 2026-10-23 — **Rare edges (item 3)**: `fuzz-run/rare-edges.py`; tables in `GATES.md`. Per trial,
   edges beyond random: `fuzz-noramp+trunc` 55 / 98, `choice` 36 / 39 (p = 0.063 / 0.008).
