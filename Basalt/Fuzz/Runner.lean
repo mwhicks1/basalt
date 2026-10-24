@@ -46,22 +46,23 @@ has the bridge keep the traces of runs that reached new coverage, discarding the
 `mutations` logs, per mutated input, why it repeats its parent (`BASALT_M` lines); `truncate` cuts
 an input to the bytes its run read before mutating it, as Zest's `gc()` does; `plant` records every
 fuzz-mode run's draws so the mutator can plant a harvested literal or a comparison operand into one
-(`native.c`, "`--plant`"). -/
+(`native.c`, "`--plant`"); `nudge` records them so it can move one by a small delta. -/
 structure Diag where
   randomFill : Bool := false
   probe : Bool := false
   mutations : Bool := false
   truncate : Bool := false
   plant : Bool := false
+  nudge : Bool := false
 
 /-- The decoding `runOne` uses under `d`. -/
 def Diag.config (d : Diag) : FuzzConfig :=
-  { randomFill := d.randomFill, record := d.probe || d.mutations || d.plant }
+  { randomFill := d.randomFill, record := d.probe || d.mutations || d.plant || d.nudge }
 
-/-- The bridge's mode bits: 1 random fill, 2 probe, 4 mutation log, 16 truncate, 32 plant. -/
+/-- The bridge's mode bits: 1 random fill, 2 probe, 4 mutation log, 16 truncate, 32 plant, 64 nudge. -/
 def Diag.modes (d : Diag) : UInt32 :=
   (if d.randomFill then 1 else 0) + (if d.probe then 2 else 0) + (if d.mutations then 4 else 0) +
-  (if d.truncate then 16 else 0) + (if d.plant then 32 else 0)
+  (if d.truncate then 16 else 0) + (if d.plant then 32 else 0) + (if d.nudge then 64 else 0)
 
 /-- Run the property on one input, reporting the byte codes the C bridge expects: `0` = pass,
 `1` = failed (the bridge then aborts, so the report must already be flushed), `2` = discard.
@@ -138,7 +139,7 @@ the exit code set by libFuzzer. -/
 def go (T : PropM FuzzGen Unit) (argv : Array String := #[]) (grow : Bool := false)
     (counters? : Option (IO.Ref (Nat × Nat)) := none) (diag : Diag := {}) : IO Unit := do
   IO.println s!"[basalt] starting libFuzzer campaign (grow={grow}, randomFill={diag.randomFill}, \
-    probe={diag.probe}, diag={diag.mutations}, plant={diag.plant}, {argv.toList})"
+    probe={diag.probe}, diag={diag.mutations}, plant={diag.plant}, nudge={diag.nudge}, {argv.toList})"
   -- libFuzzer announces that the linked custom mutator disables `-len_control` on every campaign,
   -- `--grow` or not; an explicit flag wins over that default (`splitFlags`), so say so.
   if let some lc := argv.find? (·.startsWith "-len_control=") then
@@ -209,7 +210,7 @@ private def decimal? (s : String) : Option Float :=
 
 /-- Basalt's flags, each `--name` or `--name=value`. -/
 private def ours : List String :=
-  ["--grow", "--fill", "--fill-policy", "--trace-probe", "--diag-mutations", "--truncate", "--plant", "--no-kinds", "--warmup", "--warmup-stall", "--switch-back", "--level", "--confidence"]
+  ["--grow", "--fill", "--fill-policy", "--trace-probe", "--diag-mutations", "--truncate", "--plant", "--nudge", "--no-kinds", "--warmup", "--warmup-stall", "--switch-back", "--level", "--confidence"]
 
 private def isOurs (a : String) : Bool :=
   ours.any fun f => a == f || a.startsWith (f ++ "=")
@@ -226,9 +227,10 @@ def splitFlags (argv : Array String) : FuzzFlags × Array String :=
   let fill := valueOf? argv "--fill"
   let diag : Diag := { randomFill := fill == some "random", probe := argv.contains "--trace-probe",
                        mutations := argv.contains "--diag-mutations",
-                       truncate := argv.contains "--truncate", plant := argv.contains "--plant" }
+                       truncate := argv.contains "--truncate", plant := argv.contains "--plant",
+                       nudge := argv.contains "--nudge" }
   let bad := argv.filter (fun a => a.startsWith "--grow=" || a.startsWith "--switch-back=" ||
-      a.startsWith "--trace-probe=" || a.startsWith "--diag-mutations=" || a.startsWith "--plant=" ||
+      a.startsWith "--trace-probe=" || a.startsWith "--diag-mutations=" || a.startsWith "--plant=" || a.startsWith "--nudge=" ||
       a == "--fill") ++
     (if fill.any (fun f => f != "random" && f != "zero") then #["--fill"] else #[]) ++
     (if (valueOf? argv "--fill-policy").any (fun f => f != "fresh" && f != "simplest")

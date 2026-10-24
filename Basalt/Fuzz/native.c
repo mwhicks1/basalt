@@ -178,6 +178,8 @@ static inline uint64_t basalt_ns(void) {
 static size_t basalt_choice_mutate(const uint8_t *Data, size_t Size, const uint8_t *Donor,
                                    size_t DSize, uint8_t *Out, size_t MaxSize, unsigned Seed);
 static int g_plant;                    /* `--plant`: constants planted into recorded draws        */
+static int g_nudge;                    /* `--nudge`: recorded draws moved by a small delta        */
+static size_t basalt_nudge(uint8_t *Data, size_t Size, size_t MaxSize);
 static void basalt_plant_find(const uint8_t *Data, size_t Size);
 static size_t basalt_plant(uint8_t *Data, size_t Size, size_t MaxSize);
 static void basalt_plant_report(void);
@@ -190,7 +192,7 @@ size_t LLVMFuzzerCustomMutator(uint8_t *Data, size_t Size, size_t MaxSize, unsig
   basalt_diag_parent(Data, Size, hybrid != 0);
   g_ch_seeded = hybrid != 0;
   if (hybrid) return hybrid;
-  if (g_plant) basalt_plant_find(Data, Size);       /* before truncating: the cache is keyed by it */
+  if (g_plant || g_nudge) basalt_plant_find(Data, Size);  /* before truncating: keyed by it */
   Size = basalt_truncate(Data, Size);
   if (g_choice) {
     static uint8_t *in; static size_t incap;
@@ -205,6 +207,10 @@ size_t LLVMFuzzerCustomMutator(uint8_t *Data, size_t Size, size_t MaxSize, unsig
   if (g_plant) {
     size_t planted = basalt_plant(Data, Size, MaxSize);
     if (planted) return planted;
+  }
+  if (g_nudge) {
+    size_t nudged = basalt_nudge(Data, Size, MaxSize);
+    if (nudged) return nudged;
   }
   size_t want = g_last_run_deficit;
   if (g_grow && want && basalt_fuzz_slot_matches(Data, Size)) {
@@ -772,9 +778,10 @@ static void basalt_trace_after(const uint8_t *Data, size_t Size, size_t fresh, s
   int seeded = g_diag && g_par.kind == PAR_SEED;
   /* Planting looks up corpus units, so it keeps every input libFuzzer may have saved, as
      `--truncate` does; the probe and the mutation log keep new-feature runs only. */
-  if (g_plant ? basalt_may_be_unit(Size, fresh, nf) : (fresh || seeded)) basalt_tc_put(Data, Size);
+  int lookup = g_plant || g_nudge;
+  if (lookup ? basalt_may_be_unit(Size, fresh, nf) : (fresh || seeded)) basalt_tc_put(Data, Size);
   if (!g_diag) {
-    if (!g_plant) return;
+    if (!lookup) return;
     g_ch_seeded = 0;
     g_last.buf = basalt_grow_buf(g_last.buf, &g_last.cap, Size ? Size : 1, 1);
     if (Size) memcpy(g_last.buf, Data, Size);
@@ -1058,7 +1065,7 @@ static inline void basalt_pool_add(uint64_t x) {
   g_pool[i] = x;
 }
 static inline void basalt_pool_cmp(uint64_t a, uint64_t b, int konst) {
-  if (!g_choice && !g_plant) return;
+  if (!g_choice && !g_plant) return;   /* `--nudge` alone needs no operands                         */
   if (a & 1) basalt_pool_add(a >> 1);
   if (!konst && (b & 1)) basalt_pool_add(b >> 1);
   basalt_pool_add(a);
@@ -1105,13 +1112,14 @@ void __wrap___sanitizer_cov_trace_const_cmp4(uint32_t a, uint32_t b) {
    --------------------------------------------------------------------------------------------- */
 
 static struct {
-  uint64_t tried, planted, miss, ok, bad, gone;
+  uint64_t tried, planted, miss, ok, bad, gone, nudged;
   const uint64_t *w; size_t n;
   int pending; uint64_t at, v;           /* the plant the next run should decode             */
 } g_pl;
 
 static void basalt_plant_report(void) {
-  if (!g_plant) return;
+  if (g_nudge) fprintf(stderr, "[basalt] nudge: %llu draws nudged\n", (unsigned long long)g_pl.nudged);
+  if (!g_plant && !g_nudge) return;
   fprintf(stderr, "[basalt] plant: %llu planted of %llu tried; %llu inputs with no trace; %zu "
           "literals, %zu operands pooled; next run decoded %llu as planted, %llu otherwise, %llu "
           "never reached the draw\n", (unsigned long long)g_pl.planted,
@@ -1201,6 +1209,35 @@ static size_t basalt_plant(uint8_t *Data, size_t Size, size_t MaxSize) {
     return Size;
   }
   return 0;
+}
+
+/* `--nudge`: move one recorded draw by a small signed delta within its range, as the choice
+   mutator's `delta` operator moves a record (magnitude geometric up to the range, then uniform below
+   it), rewriting exactly its bytes. A quarter of the calls not taken by `--plant`. */
+static size_t basalt_nudge(uint8_t *Data, size_t Size, size_t MaxSize) {
+  if (g_hy.on && g_hy.mode == BASALT_RANDOM) return 0;
+  if (crand() & 3) return 0;
+  if (!g_pl.w) { g_pl.miss++; return 0; }
+  size_t nd = g_pl.n / 4;
+  if (!nd) return 0;
+  size_t d = crand_below(nd);
+  const uint64_t *w = g_pl.w;
+  uint64_t lo = w[4 * d], hi = w[4 * d + 1], v = w[4 * d + 2], at = w[4 * d + 3];
+  if (hi <= lo || v < lo || v > hi) return 0;
+  uint64_t span = hi - lo, k = 1;
+  while (k < span && (crand() & 1)) k <<= 1;
+  k = 1 + crand_below(k);
+  if (crand() & 1) v = (hi - v < k) ? hi : v + k;
+  else v = (v - lo < k) ? lo : v - k;
+  if (v == w[4 * d + 2]) return 0;
+  size_t width = basalt_draw_width(lo, hi);
+  if (at + width > MaxSize) return 0;
+  if (at + width > Size) { memset(Data + Size, 0, at + width - Size); Size = at + width; }
+  uint64_t raw = v - lo;
+  for (size_t b = 0; b < width; b++) Data[at + width - 1 - b] = (uint8_t)(raw >> (8 * b));
+  g_pl.nudged++;
+  g_pl.pending = 1; g_pl.at = at; g_pl.v = v;
+  return Size;
 }
 
 enum { OP_RAND, OP_DELTA, OP_BOUND, OP_BITS, OP_CONST, OP_TRUNC, OP_RANDRUN, OP_DELETE, OP_DUP,
@@ -1818,14 +1855,14 @@ int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
   if (g_last_run_deficit) basalt_fuzz_record_short(Data, Size);
   if (g_cov_first) basalt_cov_accumulate();
   size_t fresh = 0, nf = 0;
-  if (g_hy.on || g_probe || g_diag || g_choice || g_trunc || g_plant) fresh = basalt_hybrid_scan(&nf);
+  if (g_hy.on || g_probe || g_diag || g_choice || g_trunc || g_plant || g_nudge) fresh = basalt_hybrid_scan(&nf);
   if (g_hy.on) {
     g_hy.total++;
     if (g_hy.started) basalt_phase_step(fresh);
   }
-  if (g_plant) basalt_plant_check();
+  if (g_plant || g_nudge) basalt_plant_check();
   if (g_choice) basalt_choice_after(Data, Size, fresh, nf);
-  else if (g_probe || g_diag || g_plant) basalt_trace_after(Data, Size, fresh, nf);
+  else if (g_probe || g_diag || g_plant || g_nudge) basalt_trace_after(Data, Size, fresh, nf);
   else if (g_trunc) basalt_trunc_after(Data, Size, fresh, nf);
 
   if (code == 1) {
@@ -1852,9 +1889,10 @@ LEAN_EXPORT lean_object *basalt_fuzz_go(lean_object *run, lean_object *argv, uin
   g_choice = (modes & 8) != 0;
   g_trunc = (modes & 16) != 0;
   g_plant = (modes & 32) != 0;
+  g_nudge = (modes & 64) != 0;
   if (basalt_mix64(1) != 6238072747940578789ULL)
     basalt_fuzz_die("basalt_mix64 disagrees with Basalt.Fuzz.mix64");
-  if ((g_probe || g_diag || g_choice || g_trunc || g_plant) && !g_hy.on) {
+  if ((g_probe || g_diag || g_choice || g_trunc || g_plant || g_nudge) && !g_hy.on) {
     /* The new-feature scan is the hybrid's; a plain campaign needs its maps too. */
     if (!basalt_have_counters()) basalt_fuzz_die("--trace-probe: no SanitizerCoverage counters");
     g_hy.ncntrs = (size_t)(__stop___sancov_cntrs - __start___sancov_cntrs);

@@ -25,6 +25,7 @@
 #   +diag        the mutation log (`--diag-mutations`)
 #   +trunc       cut an input to the bytes its run read before mutating it (`--truncate`)
 #   +plant       plant harvested literals and comparison operands into recorded draws (`--plant`)
+#   +nudge       move a recorded draw by a small signed delta (`--nudge`)
 #   +simplest    the choice backend's misfit fill is the least value (`--fill-policy=simplest`)
 #   +ops=a.b.c   the choice backend's operators restricted to a, b, c (`BASALT_CHOICE_OPS`)
 #   +uniform     the choice backend's operators chosen uniformly (`BASALT_CHOICE_BANDIT=0`)
@@ -62,6 +63,7 @@ for m in "${ms[@]}"; do
     diag)  flags+=(--diag-mutations) ;;
     trunc) flags+=(--truncate) ;;
     plant) flags+=(--plant) ;;
+    nudge) flags+=(--nudge) ;;
     simplest) flags+=(--fill-policy=simplest) ;;
     ops=*) envs+=(BASALT_CHOICE_OPS="$(tr . , <<<"${m#ops=}")") ;;
     uniform) envs+=(BASALT_CHOICE_BANDIT=0) ;;

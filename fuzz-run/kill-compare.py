@@ -21,7 +21,7 @@ def trial(log):
     with open(log, errors="replace") as f:
         for line in f:
             if line.startswith("BASALT_H"): continue
-            if "UNSOUND" in line or "ill-typed:" in line or "disagrees" in line: killed = True
+            if line.startswith("counterexample"): killed = True
             m = re.match(r"runs\s*:\s*(\d+)", line)
             if m and killed: runs = int(m[1])
     try: secs = float(open(log + ".secs").read())
