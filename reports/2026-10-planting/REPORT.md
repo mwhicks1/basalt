@@ -128,3 +128,58 @@ against `fuzz-noramp+trunc`, or for the planting hybrid against `auto-1+trunc`.
   by tests and by time, and on rare edges.
 - **Pure fuzzing loses a little on `wide-traced`,** 31–43 edges (0.5%). By time that is
   significant (p = 0.016), and it is about what the lost throughput costs. `gen-traced` ties.
+
+### B. Cedar: injected faults
+
+The 19 non-trivial (fault, property) pairs of
+[`../2026-10-cedar-faults/REPORT.md`](../2026-10-cedar-faults/REPORT.md), 10 trials per arm, 500k
+tests, all six byte arms on one binary ([`cedar-faults.txt`](cedar-faults.txt)). Pairs where an arm
+is significantly faster / slower (p < 0.05), out of 19:
+
+| arm | vs `fuzz-noramp+trunc` | vs `auto-1+trunc` |
+|---|---|---|
+| `fuzz-noramp+trunc+plant` | 0 / 2 | 6 / 9 |
+| `fuzz-noramp+trunc+plant+nudge` | 0 / 3 | 7 / 10 |
+| `auto-1+trunc+plant` | 7 / 6 | **0 / 0** |
+| `auto-1+trunc+plant+nudge` | 8 / 6 | **0 / 0** |
+
+- **The hybrid is unharmed.** With planting, with or without nudging, it differs significantly from
+  the plain hybrid on none of the 19 pairs. Its record against pure fuzzing is the plain hybrid's
+  (8–6 here, as in the earlier run).
+- **Pure fuzzing is slightly slower with planting.** It is slower on 2–3 pairs and faster on none:
+  `+plant` on 8 `wide` (2.1k vs 733 tests) and 16 `wide` (5.7k vs 1.7k); `+plant+nudge` on 3 `gen`,
+  16 `wide` and 28 `gen`. These are mostly faults pure fuzzing finds in a few thousand tests, where a
+  quarter of its mutations going elsewhere, and 7–12% less throughput, shows. Across 19 pairs about
+  one significant difference per comparison is expected by chance.
+- **No fault here needs a planted constant,** so no gain was expected. As planned, this is the check
+  that planting costs little, not a test of what it is for.
+- **The rerun reproduces the earlier one.** The two unplanted arms compare 8–6 here (earlier: 9–1
+  and 8–6 against random, 6–6 against each other, on a different binary).
+
+## Conclusions
+
+- **Planting brings the choice backend's one advantage to the byte fuzzer.** On the needles,
+  planting plus nudging matches `choice`: 10/10 on both, a tie on `needle-2`, faster on `needle`.
+  Planting alone solves `needle` but not `needle-2`, whose `+1` libFuzzer's unaligned arithmetic does
+  not supply.
+- **It costs the hybrid nothing measurable on Cedar:** coverage ties, rare edges tie, and 0–0 on the
+  19 fault pairs. It costs 7–12% throughput and ~75 MB at 1M tests.
+- **So the configuration the evidence supports** is the hybrid (`auto-1+trunc`) with `--plant`,
+  and `--nudge` if a target has compared values near constants. Neither changes `Gen`. Pure fuzzing
+  with planting is slightly worse on easy Cedar faults, so planting should switch on with the
+  fuzzing phase, as it does in the hybrid.
+- **The hybrid's switching rule needs attention.** On a target where random finds fewer than
+  `conf / level` (10) things, the random phase lasts a fixed fraction of `-runs` (71% at 1M), and
+  with no `-runs` it never ends. The needles show it, and a real target with a tiny random-reachable
+  surface would hit it too.
+
+## Next steps
+
+Beyond the "Not in this round" list above:
+
+- Fix the switching rule for targets with very few random finds.
+- Bring trace misses down: about 15% of planting attempts find no trace, against the choice
+  backend's 4%.
+- Measure `--nudge` alone (no planting), to tell its general value as an aligned arithmetic
+  mutation apart from its role on `needle-2`. The `needle` speed-up with nudging (70 vs 751 tests),
+  where no `+1` is needed, is not explained yet.

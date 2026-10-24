@@ -13,6 +13,13 @@ at a time on this 8-core machine.
 
 ## Log
 
+- 2026-10-25 — **Planting in the byte fuzzer** ([`../2026-10-planting/REPORT.md`](../2026-10-planting/REPORT.md)).
+  `--plant` (harvested literals and `trace-cmp` operands into recorded draws) plus `--nudge` (an
+  aligned small delta) solve both needles 10/10, matching `choice`. On Cedar the planting hybrid
+  ties the plain hybrid on coverage and on all 19 fault pairs (0–0), at 7–12% throughput. Pure
+  fuzzing with planting is slightly slower on easy faults (0–2, 0–3). Found: the hybrid's switching
+  rule stays random for 71% of the budget when random finds fewer than 10 things.
+
 - 2026-10-23 — **Cedar faults, main run done** ([`../2026-10-cedar-faults/REPORT.md`](../2026-10-cedar-faults/REPORT.md)).
   19 pairs × 5 arms × 10 trials. Coverage guidance finds the capability faults (2, 3, 15, 16)
   that random misses (0–4/10 vs 10/10), but is 3–18× slower on shallow ones; the hybrids get both
