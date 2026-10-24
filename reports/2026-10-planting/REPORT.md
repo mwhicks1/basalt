@@ -145,7 +145,7 @@ is significantly faster / slower (p < 0.05), out of 19:
 
 - **The hybrid is unharmed.** With planting, with or without nudging, it differs significantly from
   the plain hybrid on none of the 19 pairs. Its record against pure fuzzing is the plain hybrid's
-  (8–6 here, as in the earlier run).
+  (7–6 and 8–6, against 8–6).
 - **Pure fuzzing is slightly slower with planting.** It is slower on 2–3 pairs and faster on none:
   `+plant` on 8 `wide` (2.1k vs 733 tests) and 16 `wide` (5.7k vs 1.7k); `+plant+nudge` on 3 `gen`,
   16 `wide` and 28 `gen`. These are mostly faults pure fuzzing finds in a few thousand tests, where a
@@ -153,8 +153,8 @@ is significantly faster / slower (p < 0.05), out of 19:
   one significant difference per comparison is expected by chance.
 - **No fault here needs a planted constant,** so no gain was expected. As planned, this is the check
   that planting costs little, not a test of what it is for.
-- **The rerun reproduces the earlier one.** The two unplanted arms compare 8–6 here (earlier: 9–1
-  and 8–6 against random, 6–6 against each other, on a different binary).
+- **The rerun agrees with the earlier one.** The plain hybrid against pure fuzzing is 8–6 here and
+  was 6–6 in the earlier run (another binary), so it is even within noise either way.
 
 ## Conclusions
 
