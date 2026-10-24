@@ -106,3 +106,25 @@ arms on Cedar's injected faults).
   is 71% of the budget. On a target where random finds fewer than `conf / level` = 10 things, the
   random phase lasts a fixed fraction of `-runs` (and with no `-runs` it never ends). The hybrid
   still finds both needles once it switches.
+
+### B. Cedar: cost and coverage
+
+5 trials per arm, 1M tests, the unfaulted build ([`cedar-coverage.txt`](cedar-coverage.txt)). p is
+against `fuzz-noramp+trunc`, or for the planting hybrid against `auto-1+trunc`.
+
+| arm | `gen-traced` edges | p | `wide-traced` edges | p (by time) | tests/s ratio |
+|---|---|---|---|---|---|
+| `fuzz-noramp+trunc` | 7,242 | – | 6,724 | – | 1.00 |
+| `+plant` | 7,186 | 0.31 | 6,693 | 0.056 (0.016) | 0.91 / 0.91 |
+| `+plant+nudge` | 7,223 | 0.31 | 6,681 | 0.040 (0.016) | 0.89 / 0.93 |
+| `auto-1+trunc` | 7,277 | – | 6,739 | – | 1.02 / 1.00 |
+| `auto-1+trunc+plant+nudge` | 7,285 | 0.60 | 6,754 | 0.84 | 0.88 / 0.91 |
+
+- **Cost: 7–12% throughput,** as Phase 0.4 measured for the same recording. The cache is 72–77 MB
+  at 1M tests, about 20,000 traces. That is larger than Phase 0's 17–21 MB at 5M, because it keeps
+  every input libFuzzer may save, not just new-feature ones. About 15% of planting attempts find no
+  trace for their input. The operand pool fills its 1,024 slots.
+- **The hybrid is unharmed.** With planting and nudging it ties the plain hybrid on both properties,
+  by tests and by time, and on rare edges.
+- **Pure fuzzing loses a little on `wide-traced`,** 31–43 edges (0.5%). By time that is
+  significant (p = 0.016), and it is about what the lost throughput costs. `gen-traced` ties.

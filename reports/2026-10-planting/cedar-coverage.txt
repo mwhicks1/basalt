@@ -1,0 +1,39 @@
+# Cedar coverage: 5 trials per arm, 1M tests, CEDAR_MUTANT=0; binary 484789887b63. gate-stats.py and rare-edges.py (baseline and p-reference as named in each header).
+# /local/home/mwhicks/fuzz-data/plant/cov/gen-traced: 1,000,000 tests; 16.5 min (the fastest trial's end)
+arm                       n  edges@tests      p  edges@time      p  tests/s  ratio   distinct  size
+fuzz-noramp+trunc         5        7,242              7,240             964   1.00    520,481    21
+fuzz-noramp+trunc+plant   5        7,186  0.310       7,159  0.095      881   0.91    419,232    19
+fuzz-noramp+trunc+plant+nudge  5        7,223  0.310       7,210  0.421      860   0.89    413,789    21
+auto-1+trunc              5        7,277  0.008       7,277  0.008      982   1.02    563,564    21
+auto-1+trunc+plant+nudge  5        7,285  0.008       7,274  0.008      863   0.90    475,068    21
+# /local/home/mwhicks/fuzz-data/plant/cov/gen-traced: 25 trials; 7,446 edges reached, 121 rare (in at most 25% of trials), 78 beyond fuzz-noramp+trunc
+arm                       n   edges   rare      p  beyond      p  rare∪  beyond∪
+fuzz-noramp+trunc         5   7,242     14  0.476       0  0.008     60        0
+fuzz-noramp+trunc+plant   5   7,186      7              9            45       43
+fuzz-noramp+trunc+plant+nudge  5   7,223     10  0.968       4  0.079     39       20
+auto-1+trunc              5   7,277     11  0.786      18  0.056     55       44
+auto-1+trunc+plant+nudge  5   7,285     12  0.460      21  0.008     44       47
+# /local/home/mwhicks/fuzz-data/plant/cov/wide-traced: 1,000,000 tests; 14.4 min (the fastest trial's end)
+arm                       n  edges@tests      p  edges@time      p  tests/s  ratio   distinct  size
+fuzz-noramp+trunc         5        6,724              6,724           1,135   1.00    402,532    13
+fuzz-noramp+trunc+plant   5        6,693  0.056       6,687  0.016    1,038   0.91    346,255    14
+fuzz-noramp+trunc+plant+nudge  5        6,681  0.040       6,660  0.016    1,056   0.93    297,458    13
+auto-1+trunc              5        6,739  0.167       6,739  0.254    1,135   1.00    448,855    15
+auto-1+trunc+plant+nudge  5        6,754  0.143       6,748  0.222    1,035   0.91    375,863    16
+# /local/home/mwhicks/fuzz-data/plant/cov/wide-traced: 25 trials; 6,879 edges reached, 106 rare (in at most 25% of trials), 60 beyond fuzz-noramp+trunc
+arm                       n   edges   rare      p  beyond      p  rare∪  beyond∪
+fuzz-noramp+trunc         5   6,724     14  0.548       0  0.008     60        0
+fuzz-noramp+trunc+plant   5   6,693     12              2            34       11
+fuzz-noramp+trunc+plant+nudge  5   6,681      9  1.000       2  1.000     40       13
+auto-1+trunc              5   6,739     18  0.167      20  0.008     62       44
+auto-1+trunc+plant+nudge  5   6,754     17  0.079      19  0.008     69       47
+
+# The two hybrids against each other
+auto-1+trunc              5        7,277              7,277             982   1.00    563,564    21
+auto-1+trunc+plant+nudge  5        7,285  0.595       7,274  0.548      863   0.88    475,068    21
+auto-1+trunc              5   7,277      9             18            43       44
+auto-1+trunc+plant+nudge  5   7,285      8  1.000      21  0.310     34       47
+auto-1+trunc              5        6,739              6,739           1,135   1.00    448,855    15
+auto-1+trunc+plant+nudge  5        6,754  0.841       6,748  0.841    1,035   0.91    375,863    16
+auto-1+trunc              5   6,739      9             20            36       44
+auto-1+trunc+plant+nudge  5   6,754      8  0.802      19  0.881     45       47
