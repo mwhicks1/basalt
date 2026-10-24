@@ -59,6 +59,50 @@ arms on Cedar's injected faults).
 - Planting a whole string, which needs to know which draws form one.
 - A Rust differential-testing target.
 
+## What was built
+
+- **`--plant`**, on `choice-fuzz` (`332f399`) and `cedar-mutants` (`d4eb73e`). It records the draws
+  of every fuzz-mode run and caches traces. A quarter of the custom mutator's calls plant a
+  constant into a draw whose range holds it. The pool holds the harvested literals plus the 4- and
+  8-byte `trace-cmp` operands, which are now collected under the byte fuzzer too.
+  - **Decode check:** after every plant, the next run must decode the planted value at that draw's
+    offset. It never failed: 0 mismatches in every run measured, tens of thousands of plants each.
+  - **Cache policy:** the experiment binaries are built from `cedar-mutants`. Its cache, like
+    `--truncate`'s there, also keeps inputs libFuzzer saves for being smaller, and the hybrid's
+    seeds. `choice-fuzz`'s older cache keeps new-feature runs only, so it misses more parents.
+- **`--nudge`** (`9684a48` / `922a63b`), added once `needle-2` stalled under `--plant` alone (the
+  agreed trigger). It moves one recorded draw by a small signed delta within its range, the
+  distribution of the choice mutator's `delta`, and rewrites exactly that draw's bytes. It runs on a
+  quarter of the calls `--plant` does not take. It is not literal-specific.
+
 ## Results
 
-TODO
+### A. Needles
+
+10 trials per arm, 1M tests; median tests to the find (`>1000k`: not found in most trials)
+([`needles.txt`](needles.txt)).
+
+| arm | `needle` | `needle-2` |
+|---|---|---|
+| `random` | 0/10 | 0/10 |
+| `fuzz-noramp+trunc` | 0/10 | 0/10 |
+| `fuzz-noramp+trunc+plant` | 10/10, 751 | 0/10 |
+| `fuzz-noramp+trunc+plant+nudge` | 10/10, **70** | 10/10, 27,847 |
+| `auto-1+trunc` | 0/10 | 0/10 |
+| `auto-1+trunc+plant` | 10/10, 715,038 | 2/10 |
+| `auto-1+trunc+plant+nudge` | 10/10, 714,356 | 10/10, 766,496 |
+| `choice` | 10/10, 480 | 10/10, 10,269 |
+
+- **Planting does what the choice backend did.** Without it no byte arm finds either needle. With
+  planting and nudging the byte fuzzer finds both every time. On `needle-2` it ties `choice`
+  (p = 0.31), and on `needle` it is faster (70 vs 480 tests).
+- **Havoc does not supply the `+1`.** Planting alone finds `needle-2` in no trial of 10. libFuzzer's
+  arithmetic mutation lands on a random byte offset with a random endianness, so it rarely moves the
+  planted draw by exactly one. The draw-aware nudge does.
+- **The hybrid's delay is set by the budget, not the target.** Its random phase ended at test
+  714,287 in every trial. Random finds only 4 new-coverage inputs here, and the switching rule
+  (`fuzz-run/README.md`, "Random warm-up") waits until a window of `conf · H / (level · F)` tests has
+  passed, where `H` is the budget left and `F` the finds so far. With `F = 4` and a 1M budget, that
+  is 71% of the budget. On a target where random finds fewer than `conf / level` = 10 things, the
+  random phase lasts a fixed fraction of `-runs` (and with no `-runs` it never ends). The hybrid
+  still finds both needles once it switches.

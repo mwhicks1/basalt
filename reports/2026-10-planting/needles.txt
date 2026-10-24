@@ -1,0 +1,7 @@
+# Needles: 10 trials per arm, 1M tests; binary 484789887b63 (Basalt cedar-mutants 9684a48, CEDAR_MUTANT unset). fuzz-run/kill-compare.py on cedar-mutants.
+fault property                                random                 fuzz-noramp+trunc           fuzz-noramp+trunc+plant     fuzz-noramp+trunc+plant+nudge                      auto-1+trunc                auto-1+trunc+plant          auto-1+trunc+plant+nudge                            choice
+                        kills  tests   secs p:fuzz-n      kills  tests   secs p:fuzz-n      kills  tests   secs p:fuzz-n      kills  tests   secs p:fuzz-n      kills  tests   secs p:fuzz-n      kills  tests   secs p:fuzz-n      kills  tests   secs p:fuzz-n      kills  tests   secs p:fuzz-n
+    0 needle            0/10   >1000k     14   0.000      0/10   >1000k     37   0.000     10/10      751      0   0.001     10/10       70      0              0/10   >1000k     28   0.000     10/10  715,038     18   0.000     10/10  714,356     18   0.000     10/10      480      0   0.001
+    0 needle-2          0/10   >1000k     14   0.000      0/10   >1000k     37   0.000      0/10   >1000k     38   0.000     10/10   27,847      1              0/10   >1000k     28   0.000      2/10   >1000k     29   0.000     10/10  766,496     20   0.000     10/10   10,269      1   0.314
+
+against fuzz-noramp+trunc+plant+nudge: random 0-2, fuzz-noramp+trunc 0-2, fuzz-noramp+trunc+plant 0-2, auto-1+trunc 0-2, auto-1+trunc+plant 0-2, auto-1+trunc+plant+nudge 0-2, choice 0-1  (pairs faster-slower, p < 0.05)
