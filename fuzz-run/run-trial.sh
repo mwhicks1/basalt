@@ -16,6 +16,8 @@
 #   warm-<N>     a random warm-up of N tests (`--warmup=N`), then coverage-guided from its seeds
 #   auto-<φ>     the same, but the random phase ends when coverage levels off (`--warmup-stall=0
 #                --level=φ`)
+#   auto-gt      the same, the random phase ending on the Good-Turing rule (`--switch-rule=gt`)
+#   auto-gt<K>   the same, switching once at most K features were reached by one test (`--gt-f1=K`)
 #   back-<φ>     the same rule in both directions, switching back to random (`--switch-back`)
 #   choice       the choice-sequence backend (`--backend=choice`)
 #   choice-auto-<φ>  the choice backend under `auto-<φ>`'s hybrid rule
@@ -42,6 +44,8 @@ case $base in
   fuzz-noramp) be=fuzz; flags=(-max_len=65536 -len_control=0) ;;
   fuzz-grow)   be=fuzz; flags=(--grow) ;;
   warm-*)      be=fuzz; flags=(--warmup="${base#warm-}" -max_len=65536 -len_control=0) ;;
+  auto-gt)     be=fuzz; flags=(--warmup-stall=0 --switch-rule=gt -max_len=65536 -len_control=0) ;;
+  auto-gt*)    be=fuzz; flags=(--warmup-stall=0 --switch-rule=gt --gt-f1="${base#auto-gt}" -max_len=65536 -len_control=0) ;;
   auto-*)      be=fuzz; flags=(--warmup-stall=0 --level="${base#auto-}" -max_len=65536 -len_control=0) ;;
   back-*)      be=fuzz; flags=(--switch-back --level="${base#back-}" -max_len=65536 -len_control=0) ;;
   choice)      be=choice; flags=(-max_len=65536 -len_control=0) ;;

@@ -319,6 +319,8 @@ typedef struct {
   size_t    size;
   uint32_t *feats;           /* counter index * 8 + bucket, one per counter the run hit           */
   size_t    nfeats;
+  uint64_t  test;            /* its test in the phase (`g_hy.n` when it ran, from 1)              */
+  uint64_t  rng[2];          /* the SplitMix state it started from, to replay it at `RecordGen`   */
 } basalt_seed;
 
 static struct {
@@ -331,6 +333,8 @@ static struct {
   uint64_t     budget;       /* -runs, or 0 if unbounded                                          */
   lean_object *run_random;   /* `ByteArray -> IO UInt8`, the `RecordGen` callback                 */
   lean_object *offered;      /* the bytes the last random run recorded                            */
+  uint64_t     offered_rng[2];  /* and the SplitMix state it started from                         */
+  lean_object *replay_random;  /* `ByteArray -> IO UInt8`: rerun a random test from a state       */
   int          mode, started, trace;
   uint32_t     phases;       /* phases begun, the first random one included                       */
   uint64_t     total;        /* tests run, every phase                                            */
@@ -347,6 +351,18 @@ static struct {
   size_t       nseeds, cap;
   basalt_seed *queue;        /* the cover, waiting to be handed to libFuzzer                       */
   size_t       nqueue, qpos;
+  int          gt;           /* the first random phase ends on Good-Turing (`--switch-rule=gt`)   */
+  uint64_t     gt_floor;     /* tests before it may                                               */
+  uint64_t     gt_max_f1;    /* ... switch once at most this many features were reached once      */
+  int          gt_edges;     /* count edges (counter nonzero), not features (edge, hit bucket)    */
+  uint8_t     *hits;         /* per feature or edge, tests of the first random phase reaching it, capped 2 */
+  uint32_t    *first;        /* per edge, the test that first reached it (edges only)             */
+  uint64_t     f1;           /* features or edges reached by exactly one of them                  */
+  uint64_t     gt_base;      /* without `-runs`: the shortest phase of the alternation            */
+  long         replay;       /* the seed to replay in the next random slot, or -1                 */
+  uint64_t     replays, excluded, rehit;
+  uint64_t     unchecked;    /* edges reached once, not yet replayed                              */
+  uint64_t     replay_max;   /* replay once `f1` is at most this (`BASALT_GT_REPLAY_MAX`, default 16) */
 } g_hy;
 
 /* Scan the counters after a run: record its features in `scratch` and count those never reached
@@ -362,6 +378,12 @@ static size_t basalt_hybrid_scan(size_t *nf_out) {
       if (!w) { i += 7; continue; }
     }
     if (!c[i]) continue;
+    if (g_hy.gt_edges && g_hy.hits && g_hy.phases == 1 && g_hy.mode == BASALT_RANDOM) {
+      uint8_t *h = &g_hy.hits[i];         /* 1, 4: reached once (4: its replay reached it again);   */
+      if (*h == 0) { *h = 1; g_hy.f1++; g_hy.unchecked++; g_hy.first[i] = (uint32_t)(g_hy.n + 1); }
+      else if (*h == 1 || *h == 4) { g_hy.unchecked -= *h == 1; *h = 2; g_hy.f1--; }   /* 3: one-time */
+      else if (*h == 3) g_hy.rehit++;     /* an excluded edge reached again: should not happen    */
+    }
     uint32_t b = basalt_bucket(c[i]);
     g_hy.scratch[nf++] = (uint32_t)(i * 8 + b);
     if (!(g_hy.seen[i] & (1u << b))) {
@@ -373,6 +395,12 @@ static size_t basalt_hybrid_scan(size_t *nf_out) {
   *nf_out = nf;
   g_hy.features += fresh;
   if (fresh) g_hy.finds++;
+  if (!g_hy.gt_edges && g_hy.hits && g_hy.phases == 1 && g_hy.mode == BASALT_RANDOM)
+    for (size_t k = 0; k < nf; k++) {
+      uint8_t *h = &g_hy.hits[g_hy.scratch[k]];
+      if (*h == 0) { *h = 1; g_hy.f1++; }
+      else if (*h == 1) { *h = 2; g_hy.f1--; }
+    }
   return fresh;
 }
 
@@ -392,6 +420,8 @@ static void basalt_hybrid_keep(lean_object *bytes, size_t nf) {
   memcpy(sd->buf, lean_sarray_cptr(bytes), sd->size);
   memcpy(sd->feats, g_hy.scratch, nf * sizeof *sd->feats);
   sd->nfeats = nf;
+  sd->test = g_hy.n + 1;
+  sd->rng[0] = g_hy.offered_rng[0]; sd->rng[1] = g_hy.offered_rng[1];
 }
 
 /* A max-heap of seed indices by (gain, then smaller input). */
@@ -493,6 +523,8 @@ static void basalt_phase_block(void) {
   g_hy.block_new = 0;
 }
 
+static void basalt_gt_dump(void);
+#define BASALT_GT_REPLAY_MAX 16
 static void basalt_phase_switch(void) {
   fprintf(stderr, "[basalt] switch to %s after test %llu (%llu in the phase; %llu finds, %llu features)\n",
           g_hy.mode == BASALT_RANDOM ? "fuzzing" : "random", (unsigned long long)g_hy.total,
@@ -502,10 +534,44 @@ static void basalt_phase_switch(void) {
   uint64_t span = g_hy.n - g_hy.block_start;
   g_hy.left_rate[g_hy.mode] = ((double)g_hy.block_new + 1) / (double)(span ? span : 1);
   if (g_hy.mode == BASALT_RANDOM) basalt_hybrid_cover();
+  if (g_hy.phases == 1 && g_hy.gt) basalt_gt_dump();
   g_hy.mode = g_hy.mode == BASALT_RANDOM ? BASALT_FUZZ : BASALT_RANDOM;
   g_hy.phases++;
   g_hy.n = 0;
   basalt_phase_block();
+}
+
+/* Good-Turing's one-time edges. An edge one test reached is a rare edge if replaying that test
+   reaches it again, and work the process does once (a lazily initialized constant, say) if not; only
+   the latter leave `f1`. Checked once `f1` is small, one seed replayed per random slot. */
+static void basalt_gt_schedule(void) {
+  if (g_hy.replay >= 0 || !g_hy.unchecked) return;
+  for (size_t i = 0; i < g_hy.ncntrs; i++) {
+    if (g_hy.hits[i] != 1) continue;
+    for (size_t k = 0; k < g_hy.nseeds; k++)
+      if (g_hy.seeds[k].test == g_hy.first[i]) { g_hy.replay = (long)k; return; }
+    g_hy.hits[i] = 4; g_hy.unchecked--;   /* no seed to replay: keep it, as a rare edge           */
+  }
+}
+
+static uint8_t basalt_apply(lean_object *run, const uint8_t *Data, size_t Size);
+/* Rerun `g_hy.replay`'s test at `RecordGen` from the SplitMix state it started from, so the same
+   code meets the same draws, and settle the singletons it reached. Its counts touch nothing else. */
+static void basalt_gt_replay(void) {
+  basalt_seed *sd = &g_hy.seeds[g_hy.replay];
+  g_hy.replay = -1;
+  g_hy.replays++;
+  memset(__start___sancov_cntrs, 0, g_hy.ncntrs);
+  uint8_t st[16];
+  memcpy(st, sd->rng, 16);
+  (void)basalt_apply(g_hy.replay_random, st, 16);
+  const uint8_t *c = __start___sancov_cntrs;
+  for (size_t i = 0; i < g_hy.ncntrs; i++)
+    if (g_hy.hits[i] == 1 && g_hy.first[i] == sd->test) {
+      g_hy.unchecked--;
+      if (c[i]) g_hy.hits[i] = 4;
+      else { g_hy.hits[i] = 3; g_hy.f1--; g_hy.excluded++; }
+    }
 }
 
 /* After every test once the loop has started: advance the phase, and switch if it has leveled off. */
@@ -514,6 +580,26 @@ static void basalt_phase_step(size_t fresh) {
   g_hy.block_new += fresh ? 1 : 0;
   int first = g_hy.phases == 1 && g_hy.mode == BASALT_RANDOM;
   if (first && g_hy.n >= g_hy.first_max) { basalt_phase_switch(); return; }
+  if (first && g_hy.gt) {
+    if (g_hy.trace && g_hy.n % 10000 == 0)
+      fprintf(stderr, "[basalt] gt: test %llu, f1 %llu (%llu excluded by %llu replays, %llu "
+              "reached again), features %llu, finds %llu\n", (unsigned long long)g_hy.n,
+              (unsigned long long)g_hy.f1, (unsigned long long)g_hy.excluded,
+              (unsigned long long)g_hy.replays, (unsigned long long)g_hy.rehit,
+              (unsigned long long)g_hy.features, (unsigned long long)g_hy.finds);
+    if (g_hy.n >= g_hy.gt_floor) {
+      if (g_hy.gt_edges && g_hy.f1 && g_hy.f1 <= g_hy.replay_max) basalt_gt_schedule();
+      if (g_hy.f1 <= g_hy.gt_max_f1 && g_hy.replay < 0) { basalt_phase_switch(); return; }
+    }
+  }
+  /* Without `-runs` the window below has no horizon and, when random makes few finds, never closes.
+     The guarantee instead: no phase outlasts the campaign before it (at least `gt_base` tests), so
+     the modes alternate in doubling phases and fuzzing gets about half of all tests. */
+  if (g_hy.gt && !g_hy.budget) {
+    uint64_t before = g_hy.total - g_hy.n, cap = before > g_hy.gt_base ? before : g_hy.gt_base;
+    if (g_hy.n >= cap) basalt_phase_switch();
+    return;                               /* the window has no horizon here                      */
+  }
   g_hy.block_len = basalt_phase_window();
   if (g_hy.n - g_hy.block_start < g_hy.block_len) return;
   int quiet = (double)g_hy.block_new < g_hy.conf;
@@ -557,10 +643,46 @@ static size_t basalt_hybrid_mutate(uint8_t *Data, size_t Size, size_t MaxSize) {
 
 /* Called from the `RecordGen` callback with the bytes the run recorded; held until the run's
    coverage has been judged. */
-LEAN_EXPORT lean_object *basalt_hybrid_offer(lean_object *bytes) {
+LEAN_EXPORT lean_object *basalt_hybrid_offer(lean_object *bytes, uint64_t seed, uint64_t gamma) {
   if (g_hy.offered) lean_dec(g_hy.offered);
   g_hy.offered = bytes;
+  g_hy.offered_rng[0] = seed; g_hy.offered_rng[1] = gamma;
   return lean_box(0);
+}
+
+/* Make a hybrid campaign's first switch the Good-Turing rule; called after `basalt_hybrid_config`. */
+LEAN_EXPORT lean_object *basalt_hybrid_good_turing(lean_object *replay, uint64_t floor,
+                                                   uint64_t max_f1, uint8_t edges, uint64_t base) {
+  g_hy.gt = 1;
+  g_hy.replay_random = replay;
+  const char *rm = getenv("BASALT_GT_REPLAY_MAX");
+  g_hy.replay_max = rm ? strtoull(rm, NULL, 10) : BASALT_GT_REPLAY_MAX;
+  g_hy.gt_base = base;
+  g_hy.replay = -1;
+  g_hy.gt_floor = floor;
+  g_hy.gt_max_f1 = max_f1;
+  g_hy.gt_edges = edges;
+  g_hy.hits = calloc(edges ? g_hy.ncntrs : g_hy.ncntrs * 8, 1);
+  g_hy.first = edges ? calloc(g_hy.ncntrs, sizeof *g_hy.first) : NULL;
+  if (!g_hy.hits || (edges && !g_hy.first)) basalt_fuzz_die("out of memory for the Good-Turing counts");
+  if (edges) atexit(basalt_gt_dump);       /* a phase that never switched dumps at the end */
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/* `BASALT_GT_DUMP=path`: the edges one test of the first random phase reached, at its end, as
+   `<pc offset> <that test> <u|k|x>` (`nm`-comparable offsets, as `BASALT_COV_OUT` writes): not yet
+   replayed, kept (its replay reached it), excluded (it did not). */
+static void basalt_gt_dump(void) {
+  const char *path = getenv("BASALT_GT_DUMP");
+  if (!path || !g_hy.first || (size_t)(__stop___sancov_pcs - __start___sancov_pcs) != 2 * g_hy.ncntrs)
+    return;
+  FILE *f = fopen(path, "w");
+  if (!f) return;
+  for (size_t i = 0; i < g_hy.ncntrs; i++)
+    if (g_hy.hits[i] == 1 || g_hy.hits[i] == 3 || g_hy.hits[i] == 4)
+      fprintf(f, "%lx %u %c\n", (unsigned long)(__start___sancov_pcs[2 * i] - basalt_image_base()),
+              (unsigned)g_hy.first[i], g_hy.hits[i] == 3 ? 'x' : g_hy.hits[i] == 4 ? 'k' : 'u');
+  fclose(f);
 }
 
 /* Arm a hybrid campaign; called before `basalt_fuzz_go`. */
@@ -575,6 +697,7 @@ LEAN_EXPORT lean_object *basalt_hybrid_config(lean_object *run_random, uint64_t 
   g_hy.level = level > 0 ? level : 1;
   g_hy.conf = conf > 0 ? conf : 10;
   g_hy.budget = budget;
+  g_hy.replay = -1;
   g_hy.adaptive = adaptive;
   g_hy.switch_back = switch_back;
   g_hy.trace = getenv("BASALT_PHASE_TRACE") != NULL;
@@ -1516,6 +1639,12 @@ static uint8_t basalt_apply(lean_object *f, const uint8_t *Data, size_t Size) {
    artifact (reproduce with `basalt-fuzz replay`) and exits with its error code. */
 int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
   g_run_idx++;
+  if (g_hy.on && g_hy.gt && g_hy.mode == BASALT_RANDOM && g_hy.started && g_hy.replay >= 0) {
+    basalt_gt_replay();                   /* in place of a random test; counted as one          */
+    g_hy.total++;
+    basalt_phase_step(0);
+    return -1;
+  }
   if (g_hy.on && g_hy.mode == BASALT_RANDOM && g_hy.started) {
     /* A random test: the buffer is not its input, so libFuzzer must neither keep it nor learn from
        its coverage (-1). */

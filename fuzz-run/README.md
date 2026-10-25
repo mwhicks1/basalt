@@ -417,6 +417,8 @@ first, then fuzzing seeded with the random runs that reached new coverage, and o
 | `--warmup-stall=K` | end the first random phase when coverage levels off (below), never judging a window shorter than `K` tests |
 | `--switch-back` | apply the same rule in both directions for the rest of the campaign |
 | `--level=φ`, `--confidence=c` | the rule's parameters, default `1` and `10` |
+| `--switch-rule=gt` | also end the first random phase when it has saturated by Good-Turing (below); without `-runs`, alternate in doubling phases |
+| `--gt-floor=N`, `--gt-f1=K`, `--gt-base=B` | that rule's floor (default `256` tests), its threshold (`0` singleton edges), and the shortest alternating phase (`10000`) |
 
 Every phase's tests count against the one `-runs` budget, so a campaign is the same length either
 way. `--warmup-stall=0` is the setting to reach for; CEDAR.md has the measurements.
@@ -475,6 +477,31 @@ for is `λ* = min(φ·F/H, r_other)`; a phase is judged over consecutive windows
 `BASALT_PHASE_TRACE=1` prints every window as it closes: its length, its finds, and whether it was
 quiet. `φ = 1` is calibrated on Cedar, where it puts the first switch near the best fixed warm-up
 measured (about 120k tests of a 1M budget, against a hand-picked 100k).
+
+### Saturation by Good-Turing (`--switch-rule=gt`)
+
+The window rule waits in proportion to the budget, so a target where random makes almost no finds
+(the needles: 4 in 1M tests) stays random for most of it, and without `-runs` the window has no
+horizon: it never closes when random makes fewer than `c` finds and closes at once when it makes
+more. `--switch-rule=gt` keeps the window rule as the guaranteed switch and adds an earlier one. A
+random phase is i.i.d. sampling, so Good-Turing estimates the chance that the next test reaches
+something new as `f₁ / n`, `f₁` the *edges* (counters, not buckets: the reported coverage) reached
+by exactly one test so far. After `--gt-floor` tests, a phase with at most `--gt-f1` such edges has
+saturated and hands over.
+
+- **One-time edges are excluded, by replay.** Lean initializes closed subterms lazily, so the first
+  test through a path runs its initializer once and never again; left in, such edges hold `f₁` up
+  forever (2 on the needle, about 100 on Cedar). Once `f₁ ≤ 16` (`BASALT_GT_REPLAY_MAX`), each
+  singleton's test is rerun at `RecordGen` from the SplitMix state it started from, so the same code
+  meets the same draws. An edge the rerun reaches again is a rare edge and stays; one it does not
+  depended on process state and leaves `f₁`. On Cedar, forcing replays for all singletons excluded
+  106 / 115 edges, all by test 10k, and none was reached again in 300k tests. The rerun must be at
+  `RecordGen`: the same bytes replayed at `FuzzGen` run another specialization, whose edges differ.
+- **Without `-runs`** the window rule is not used: a phase ends on saturation or once it is as long
+  as the campaign before it (at least `--gt-base`), so the modes alternate in doubling phases and
+  fuzzing gets about half the tests.
+- On Cedar `f₁` stays near 100 after exclusion (random still finds a rare edge every ~1,500 tests at
+  300k), so the early exit never fires and the window rule switches as before.
 
 ### Three consequences
 
