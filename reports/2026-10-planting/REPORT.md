@@ -104,8 +104,11 @@ arms on Cedar's injected faults).
   (`fuzz-run/README.md`, "Random warm-up") waits until a window of `conf · H / (level · F)` tests has
   passed, where `H` is the budget left and `F` the finds so far. With `F = 4` and a 1M budget, that
   is 71% of the budget. On a target where random finds fewer than `conf / level` = 10 things, the
-  random phase lasts a fixed fraction of `-runs` (and with no `-runs` it never ends). The hybrid
-  still finds both needles once it switches.
+  random phase lasts a fixed fraction of `-runs`. With no `-runs` the window has no horizon: it
+  never closes when random makes fewer than 10 finds, and closes almost at once when it makes
+  more (test 11 on `gen-traced`; found later, in
+  [`../2026-10-gt-cmp/REPORT.md`](../2026-10-gt-cmp/REPORT.md)). Every run in this report had a
+  `-runs` budget. The hybrid still finds both needles once it switches.
 
 ### B. Cedar: cost and coverage
 
@@ -169,8 +172,8 @@ is significantly faster / slower (p < 0.05), out of 19:
   with planting is slightly worse on easy Cedar faults, so planting should switch on with the
   fuzzing phase, as it does in the hybrid.
 - **The hybrid's switching rule needs attention.** On a target where random finds fewer than
-  `conf / level` (10) things, the random phase lasts a fixed fraction of `-runs` (71% at 1M), and
-  with no `-runs` it never ends. The needles show it, and a real target with a tiny random-reachable
+  `conf / level` (10) things, the random phase lasts a fixed fraction of `-runs` (71% at 1M); with
+  no `-runs` it never ends, or, when random finds more early on, ends almost at once. The needles show it, and a real target with a tiny random-reachable
   surface would hit it too.
 
 ## Next steps
