@@ -16,6 +16,7 @@
 #   warm-<N>     a random warm-up of N tests (`--warmup=N`), then coverage-guided from its seeds
 #   auto-<φ>     the same, but the random phase ends when coverage levels off (`--warmup-stall=0
 #                --level=φ`)
+#   auto-dw      `auto-1`, plus the doubling-window exit (`--switch-rule=doubling`)
 #   back-<φ>     the same rule in both directions, switching back to random (`--switch-back`)
 #   choice       the choice-sequence backend (`--backend=choice`)
 #   choice-auto-<φ>  the choice backend under `auto-<φ>`'s hybrid rule
@@ -26,6 +27,8 @@
 #   +trunc       cut an input to the bytes its run read before mutating it (`--truncate`)
 #   +plant       plant harvested literals and comparison operands into recorded draws (`--plant`)
 #   +nudge       move a recorded draw by a small signed delta (`--nudge`)
+#   +cmp         plant compared operands into recorded draws, as libFuzzer's CMP mutation (`--cmp`)
+#   +time=S      stop after S seconds (`-max_total_time=S`); with RUNS=-1 the campaign has no `-runs`
 #   +simplest    the choice backend's misfit fill is the least value (`--fill-policy=simplest`)
 #   +ops=a.b.c   the choice backend's operators restricted to a, b, c (`BASALT_CHOICE_OPS`)
 #   +uniform     the choice backend's operators chosen uniformly (`BASALT_CHOICE_BANDIT=0`)
@@ -46,6 +49,7 @@ case $base in
   fuzz-noramp) be=fuzz; flags=(-max_len=65536 -len_control=0) ;;
   fuzz-grow)   be=fuzz; flags=(--grow) ;;
   warm-*)      be=fuzz; flags=(--warmup="${base#warm-}" -max_len=65536 -len_control=0) ;;
+  auto-dw)     be=fuzz; flags=(--warmup-stall=0 --switch-rule=doubling -max_len=65536 -len_control=0) ;;
   auto-*)      be=fuzz; flags=(--warmup-stall=0 --level="${base#auto-}" -max_len=65536 -len_control=0) ;;
   back-*)      be=fuzz; flags=(--switch-back --level="${base#back-}" -max_len=65536 -len_control=0) ;;
   choice)      be=choice; flags=(-max_len=65536) ;;
@@ -64,6 +68,8 @@ for m in "${ms[@]}"; do
     trunc) flags+=(--truncate) ;;
     plant) flags+=(--plant) ;;
     nudge) flags+=(--nudge) ;;
+    cmp) flags+=(--cmp) ;;
+    time=*) flags+=(-max_total_time="${m#time=}") ;;
     simplest) flags+=(--fill-policy=simplest) ;;
     ops=*) envs+=(BASALT_CHOICE_OPS="$(tr . , <<<"${m#ops=}")") ;;
     uniform) envs+=(BASALT_CHOICE_BANDIT=0) ;;

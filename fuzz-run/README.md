@@ -419,6 +419,8 @@ first, then fuzzing seeded with the random runs that reached new coverage, and o
 | `--warmup-stall=K` | end the first random phase when coverage levels off (below), never judging a window shorter than `K` tests |
 | `--switch-back` | apply the same rule in both directions for the rest of the campaign |
 | `--level=φ`, `--confidence=c` | the rule's parameters, default `1` and `10` |
+| `--switch-rule=doubling` | also end the first random phase once a doubling window finds it saturated (below); without `-runs`, alternate in doubling phases |
+| `--switch-floor=N`, `--switch-quiet=Q`, `--switch-base=B` | that rule's first checkpoint (default `256` tests), the new edges a quiet half may still reach (`0`), and the shortest alternating phase (`10000`) |
 
 Every phase's tests count against the one `-runs` budget, so a campaign is the same length either
 way. `--warmup-stall=0` is the setting to reach for; CEDAR.md has the measurements.
@@ -477,6 +479,28 @@ for is `λ* = min(φ·F/H, r_other)`; a phase is judged over consecutive windows
 `BASALT_PHASE_TRACE=1` prints every window as it closes: its length, its finds, and whether it was
 quiet. `φ = 1` is calibrated on Cedar, where it puts the first switch near the best fixed warm-up
 measured (about 120k tests of a 1M budget, against a hand-picked 100k).
+
+### Saturation by a doubling window (`--switch-rule=doubling`)
+
+The window rule waits in proportion to the budget, so a target where random makes almost no finds
+(the needles: 4 in 1M tests) stays random for most of it. Without `-runs` its window has no horizon:
+it never closes when random makes fewer than `c` finds, and closes at once when it makes more.
+`--switch-rule=doubling` keeps the window rule as the guaranteed switch and adds an earlier exit:
+at tests `N/2, N, 2N, 4N, …` (`N` = `--switch-floor`), a first random phase whose second half reached
+at most `--switch-quiet` new *edges* (counters, not buckets: the reported coverage) has saturated.
+
+- It counts discovery *events*, so first-time code needs no special case: a lazily initialized
+  constant is a discovery when its path is first reached, as it should be, and then stops. A
+  Good-Turing estimate (`f₁ / n`, `f₁` the edges reached by one test) counts a *state* instead, and
+  every edge that can only ever be reached once stays in it for good (2 on the needle, about 100 on
+  Cedar); excluding them takes a replay of each test, which this rule replaced.
+- If random still found new edges at `k` per half window, a quiet half has probability about
+  `e⁻ᵏ`, so the evidence grows with the window.
+- On Cedar each half-window still reaches 50–190 new edges at 16k–130k tests, so the exit does not
+  fire and the window rule switches as before. On the needles it fires at the floor.
+- **Without `-runs`** the window rule is not used: a phase ends on saturation or once it is as long
+  as the campaign before it (at least `--switch-base`), so the modes alternate in doubling phases
+  and fuzzing gets about half the tests.
 
 ### Three consequences
 
