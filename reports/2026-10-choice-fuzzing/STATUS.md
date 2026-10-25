@@ -13,6 +13,13 @@ at a time on this 8-core machine.
 
 ## Log
 
+- 2026-10-25 — **Switching rule and `--cmp`** (branch `hybrid-gt-cmp`,
+  [`../2026-10-gt-cmp/REPORT.md`](../2026-10-gt-cmp/REPORT.md)). Good-Turing over features never
+  switches (`f₁` in the thousands on Cedar, stuck at 2 on the needle); over edges it needed one-time
+  edges excluded by replay, judged brittle and replaced by a doubling-window exit on discovery
+  events, with the old rule kept as the guaranteed switch. `--cmp` replaces `--plant`/`--nudge` and
+  solves both needles alone. Evaluation queue running (~14 h).
+
 - 2026-10-25 — **Planting in the byte fuzzer** ([`../2026-10-planting/REPORT.md`](../2026-10-planting/REPORT.md)).
   `--plant` (harvested literals and `trace-cmp` operands into recorded draws) plus `--nudge` (an
   aligned small delta) solve both needles 10/10, matching `choice`. On Cedar the planting hybrid

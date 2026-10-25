@@ -59,10 +59,30 @@ from part 1 if it holds up.
   only once because of one-time process work are excluded, but only once shown to be such (below),
   never just for being hit early: an edge an early small test reaches is what random generation is
   for. The feature-based version is kept as a comparison arm.
+- **2026-10-25, the rule replaced: a doubling window.** Excluding one-time edges needed a replay of
+  each singleton's test at `RecordGen` from its saved random state. It was correct (on Cedar, 106 /
+  115 edges excluded, none reached again in 300k tests), but the user judged it brittle: a statistic
+  that needs first-time code removed does not fit. `f₁` counts a *state*; the replacement counts
+  discovery *events*. At tests `N/2, N, 2N, …` (`N = 256`) a first random phase whose second half
+  reached no new edge has saturated. First-time code is a discovery when its path is first reached,
+  then stops. The window rule stays as the guaranteed switch, since a rule that never switches loses
+  fuzzing's benefit entirely (the user's point: inefficient benefits beat none). Without `-runs` the
+  modes alternate in doubling phases. Smoke checks: the needles switch at test 258; on Cedar each
+  half-window still reaches 50–190 new edges, so the window rule switches as before (101k–132k of
+  1M). Arms: `auto-dw`. The replay version's trials are kept only as its record.
+- **`--cmp` built,** on the same binary (`cedar-mutants` `a9a7274`, binary `f86aee73a32c`): pairs from
+  the 4/8-byte hooks, literals as unpaired constants, `± 1`, 1/14 of mutator calls, kept constants
+  reused. Smoke: `needle` at ~1,100 tests and `needle-2` at 2.2k–8.6k, with no nudge flag; 0 decode
+  mismatches.
 - **Later, not in this round:** a probe-based switch, where short fuzzing bursts measure fuzzing's
   find rate against random's Good-Turing rate, with doubling spacing. Considered after this round's
   results.
 
 ## Results
+
+Queue (one binary, `f86aee73a32c`; 7 trials at a time): needles, 6 arms × 10 trials × 1M; Cedar
+coverage, 5 arms × 5 trials × 1M; Cedar without `-runs`, old vs new rule, 5 trials × 30 min; Cedar
+faults, the 19 pairs × 5 arms (`fuzz-noramp+trunc`, `+cmp`, `auto-1+trunc`, `auto-dw+trunc`,
+`auto-dw+trunc+cmp`) × 10 trials × 500k.
 
 TODO
