@@ -46,7 +46,8 @@ has the bridge keep the traces of runs that reached new coverage, discarding the
 `mutations` logs, per mutated input, why it repeats its parent (`BASALT_M` lines); `truncate` cuts
 an input to the bytes its run read before mutating it, as Zest's `gc()` does; `plant` records every
 fuzz-mode run's draws so the mutator can plant a harvested literal or a comparison operand into one
-(`native.c`, "`--plant`"); `nudge` records them so it can move one by a small delta. -/
+(`native.c`, "`--plant`"); `nudge` records them so it can move one by a small delta; `cmp` records
+them to plant compared operands as libFuzzer's CMP mutation does (`native.c`, "`--cmp`"). -/
 structure Diag where
   randomFill : Bool := false
   probe : Bool := false
@@ -54,15 +55,16 @@ structure Diag where
   truncate : Bool := false
   plant : Bool := false
   nudge : Bool := false
+  cmp : Bool := false
 
 /-- The decoding `runOne` uses under `d`. -/
 def Diag.config (d : Diag) : FuzzConfig :=
-  { randomFill := d.randomFill, record := d.probe || d.mutations || d.plant || d.nudge }
+  { randomFill := d.randomFill, record := d.probe || d.mutations || d.plant || d.nudge || d.cmp }
 
-/-- The bridge's mode bits: 1 random fill, 2 probe, 4 mutation log, 16 truncate, 32 plant, 64 nudge. -/
+/-- The bridge's mode bits: 1 random fill, 2 probe, 4 mutation log, 16 truncate, 32 plant, 64 nudge, 128 cmp. -/
 def Diag.modes (d : Diag) : UInt32 :=
   (if d.randomFill then 1 else 0) + (if d.probe then 2 else 0) + (if d.mutations then 4 else 0) +
-  (if d.truncate then 16 else 0) + (if d.plant then 32 else 0) + (if d.nudge then 64 else 0)
+  (if d.truncate then 16 else 0) + (if d.plant then 32 else 0) + (if d.nudge then 64 else 0) + (if d.cmp then 128 else 0)
 
 /-- Run the property on one input, reporting the byte codes the C bridge expects: `0` = pass,
 `1` = failed (the bridge then aborts, so the report must already be flushed), `2` = discard.
@@ -89,7 +91,7 @@ def runOneIO (counters : IO.Ref (Nat × Nat)) (T : PropM FuzzGen Unit) (cfg : Fu
 
 /-- Hand the C bridge the bytes a `RecordGen` run recorded, to keep if the run reached new coverage. -/
 @[extern "basalt_hybrid_offer"]
-opaque hybridOfferImpl (bytes : ByteArray) (seed gamma : UInt64) : BaseIO Unit
+opaque hybridOfferImpl (bytes : ByteArray) : BaseIO Unit
 
 /-- How a hybrid campaign moves between random and coverage-guided phases (`fuzz-run/README.md`,
 "Random warm-up"). The first phase is random and lasts at most `firstMax` tests (`0`: no cap); it
@@ -102,14 +104,12 @@ structure HybridConfig where
   confidence : Float := 10
   adaptive : Bool := false
   switchBack : Bool := false
-  /-- `some (floor, maxF1)`: Good-Turing (`--switch-rule=gt`, `fuzz-run/README.md`, "Random
-  warm-up"). The first random phase also ends, after `floor` tests, once at most `maxF1` edges were
-  reached by exactly one test, edges only one-time work reached excluded; and without `-runs` the
-  modes alternate, no phase outlasting the campaign before it or `gtBase` tests. -/
-  goodTuring : Option (Nat × Nat) := none
-  gtBase : Nat := 10000
-  /-- The Good-Turing rule counts edges, not (edge, hit-count bucket) features (`--gt-on`). -/
-  gtEdges : Bool := true
+  /-- `some (floor, quiet)`: the doubling-window exit (`--switch-rule=doubling`, `fuzz-run/README.md`,
+  "Random warm-up"). At tests `floor/2, floor, 2·floor, …` the first random phase also ends once its
+  second half reached at most `quiet` new edges; and without `-runs` the modes alternate, no phase
+  outlasting the campaign before it or `doublingBase` tests. -/
+  doubling : Option (Nat × Nat) := none
+  doublingBase : Nat := 10000
 
 /-- Arm a hybrid campaign in the C bridge, with `runRandom` as the random phases' callback and
 `budget` the `-runs` bound (`0`: none). -/
@@ -117,10 +117,9 @@ structure HybridConfig where
 opaque hybridConfigImpl (runRandom : ByteArray → IO UInt8) (firstMax minWindow : UInt64)
     (level confidence : Float) (budget : UInt64) (adaptive switchBack : Bool) : IO Unit
 
-/-- Make the armed hybrid campaign's first switch the Good-Turing rule. -/
-@[extern "basalt_hybrid_good_turing"]
-opaque hybridGoodTuringImpl (replay : ByteArray → IO UInt8) (floor maxF1 : UInt64) (edges : Bool)
-    (base : UInt64) : IO Unit
+/-- Add the doubling-window exit to the armed hybrid campaign. -/
+@[extern "basalt_hybrid_doubling"]
+opaque hybridDoublingImpl (floor quiet base : UInt64) : IO Unit
 
 /-- One random test, for a random phase: libFuzzer's buffer is ignored, the run is drawn at
 `RecordGen` from `gen`, and its recorded bytes go to the bridge. A failure is reported here, its
@@ -129,10 +128,9 @@ exits on the `1` it returns, without letting libFuzzer save the buffer, which is
 input. -/
 def runOneRecorded (counters : IO.Ref (Nat × Nat)) (T : PropM RecordGen Unit)
     (gen : IO.Ref SplitMix) (artifactPrefix : String) (_ : ByteArray) : IO UInt8 := do
-  let g ← gen.get
-  let (outcome, bytes, g') := runRecord T g
+  let (outcome, bytes, g') := runRecord T (← gen.get)
   gen.set g'
-  hybridOfferImpl bytes g.seed g.gamma
+  hybridOfferImpl bytes
   match outcome with
   | Except.ok () => counters.modify (fun (runs, discards) => (runs + 1, discards)); pure 0
   | Except.error .discard => counters.modify (fun (r, d) => (r, d + 1)); pure 2
@@ -146,17 +144,6 @@ def runOneRecorded (counters : IO.Ref (Nat × Nat)) (T : PropM RecordGen Unit)
         ("runs", s!"{runs} ({discards} discarded), failing in a random phase"),
         ("artifact", path)]
     pure 1
-
-/-- Rerun one random test from the SplitMix state it started from (`seed`, `gamma`, little-endian in
-`st`), for the Good-Turing rule's replay check; its outcome is the code `runOneRecorded` gives. -/
-def replayRecorded (T : PropM RecordGen Unit) (st : ByteArray) : IO UInt8 := do
-  let word (i : Nat) : UInt64 :=
-    (List.range 8).foldl (fun w k => w ||| ((st.get! (i + k)).toUInt64 <<< (8 * k).toUInt64)) 0
-  let (outcome, _, _) := runRecord T ⟨word 0, word 8⟩
-  match outcome with
-  | Except.ok () => pure 0
-  | Except.error .discard => pure 2
-  | Except.error (.fail _) => pure 1
 
 /-- Start a fuzzing campaign for property `T`. `argv` is forwarded to libFuzzer (corpus dirs,
 `-runs`, `-max_len`, `-artifact_prefix`, …). A failure aborts the process, with the artifact saved and
@@ -235,7 +222,7 @@ private def decimal? (s : String) : Option Float :=
 
 /-- Basalt's flags, each `--name` or `--name=value`. -/
 private def ours : List String :=
-  ["--grow", "--fill", "--fill-policy", "--trace-probe", "--diag-mutations", "--truncate", "--plant", "--nudge", "--warmup", "--warmup-stall", "--switch-back", "--level", "--confidence", "--switch-rule", "--gt-floor", "--gt-f1", "--gt-on", "--gt-base"]
+  ["--grow", "--fill", "--fill-policy", "--trace-probe", "--diag-mutations", "--truncate", "--plant", "--nudge", "--cmp", "--warmup", "--warmup-stall", "--switch-back", "--level", "--confidence", "--switch-rule", "--switch-floor", "--switch-quiet", "--switch-base"]
 
 private def isOurs (a : String) : Bool :=
   ours.any fun f => a == f || a.startsWith (f ++ "=")
@@ -253,17 +240,15 @@ def splitFlags (argv : Array String) : FuzzFlags × Array String :=
   let diag : Diag := { randomFill := fill == some "random", probe := argv.contains "--trace-probe",
                        mutations := argv.contains "--diag-mutations",
                        truncate := argv.contains "--truncate", plant := argv.contains "--plant",
-                       nudge := argv.contains "--nudge" }
+                       nudge := argv.contains "--nudge", cmp := argv.contains "--cmp" }
   let bad := argv.filter (fun a => a.startsWith "--grow=" || a.startsWith "--switch-back=" ||
-      a.startsWith "--trace-probe=" || a.startsWith "--diag-mutations=" || a.startsWith "--plant=" || a.startsWith "--nudge=" ||
+      a.startsWith "--trace-probe=" || a.startsWith "--diag-mutations=" || a.startsWith "--plant=" || a.startsWith "--nudge=" || a.startsWith "--cmp=" ||
       a == "--fill") ++
     (if fill.any (fun f => f != "random" && f != "zero") then #["--fill"] else #[]) ++
     (if (valueOf? argv "--fill-policy").any (fun f => f != "fresh" && f != "simplest")
      then #["--fill-policy"] else #[]) ++
-    (if (valueOf? argv "--switch-rule").any (· != "gt") then #["--switch-rule"] else #[]) ++
-    (if (valueOf? argv "--gt-on").any (fun v => v != "edges" && v != "features") then #["--gt-on"]
-     else #[]) ++
-    #["--gt-floor", "--gt-f1", "--gt-base"].filter (fun n => (nat n) == some none) ++
+    (if (valueOf? argv "--switch-rule").any (· != "doubling") then #["--switch-rule"] else #[]) ++
+    #["--switch-floor", "--switch-quiet", "--switch-base"].filter (fun n => (nat n) == some none) ++
     #["--warmup", "--warmup-stall", "--level", "--confidence"].filter fun n =>
     (argv.contains n) ||
     (match nat n, dec n with
@@ -274,17 +259,17 @@ def splitFlags (argv : Array String) : FuzzFlags × Array String :=
   let stall := (nat "--warmup-stall").join
   let switchBack := argv.contains "--switch-back"
   let rule := valueOf? argv "--switch-rule"
-  let gt : Option (Nat × Nat) :=
-    if rule == some "gt" then some (((nat "--gt-floor").join).getD 256, ((nat "--gt-f1").join).getD 0)
+  let doubling : Option (Nat × Nat) :=
+    if rule == some "doubling" then
+      some (((nat "--switch-floor").join).getD 256, ((nat "--switch-quiet").join).getD 0)
     else none
   let hybrid : Option HybridConfig :=
     if first.isNone && stall.isNone && !switchBack then none
     else some { firstMax := first.getD 0, minWindow := stall.getD 0,
                 level := ((dec "--level").join).getD 1,
                 confidence := ((dec "--confidence").join).getD 10,
-                adaptive := stall.isSome || switchBack, switchBack, goodTuring := gt,
-                gtEdges := valueOf? argv "--gt-on" != some "features",
-                gtBase := ((nat "--gt-base").join).getD 10000 }
+                adaptive := stall.isSome || switchBack, switchBack, doubling,
+                doublingBase := ((nat "--switch-base").join).getD 10000 }
   let rest := argv.filter (!isOurs ·)
   -- `-max_len` bounds the buffer and so bounds the structure growth can build; libFuzzer's own
   -- default derives it from the seed corpus, which is 4096 at a cold start. Left there it, and not
@@ -326,9 +311,8 @@ def goHybrid (T : Property) (cfg : HybridConfig) (grow : Bool) (argv : Array Str
   hybridConfigImpl (runOneRecorded counters (T RecordGen) gen artifactPrefix)
     cfg.firstMax.toUInt64 cfg.minWindow.toUInt64 cfg.level cfg.confidence budget.toUInt64
     cfg.adaptive cfg.switchBack
-  if let some (floor, maxF1) := cfg.goodTuring then
-    hybridGoodTuringImpl (replayRecorded (T RecordGen)) floor.toUInt64 maxF1.toUInt64 cfg.gtEdges
-      cfg.gtBase.toUInt64
+  if let some (floor, quiet) := cfg.doubling then
+    hybridDoublingImpl floor.toUInt64 quiet.toUInt64 cfg.doublingBase.toUInt64
   go (T FuzzGen) argv grow counters diag
 
 /-- The coverage-guided backend, for `Basalt.PBT.dispatch`. `--grow` is Basalt's own
@@ -380,10 +364,9 @@ def runOneChoiceIO (counters : IO.Ref (Nat × Nat)) (T : PropM ChoiceFuzz Unit) 
 filled from the campaign's PRNG, and its realized records are the seed, which replays exactly. -/
 def runOneChoiceRandom (counters : IO.Ref (Nat × Nat)) (T : PropM ChoiceFuzz Unit)
     (gen : IO.Ref SplitMix) (artifactPrefix : String) (_ : ByteArray) : IO UInt8 := do
-  let g ← gen.get
-  let r := runChoice T ByteArray.empty g
+  let r := runChoice T ByteArray.empty (← gen.get)
   gen.set r.fill
-  hybridOfferImpl r.realized g.seed g.gamma
+  hybridOfferImpl r.realized
   match r.outcome with
   | Except.ok () => counters.modify (fun (runs, discards) => (runs + 1, discards)); pure 0
   | Except.error .discard => counters.modify (fun (r, d) => (r, d + 1)); pure 2
