@@ -118,4 +118,23 @@ rounds per mode, and `L̄` over time.
 
 ## Results
 
-TODO
+### Needles
+
+10 trials per arm, 1M tests, median tests to the find ([`needles.txt`](needles.txt)). Every arm finds
+both needles in 10/10.
+
+| arm | `needle` | `needle-2` |
+|---|---|---|
+| `fuzz-noramp+cmp` | 6,276 | 8,391 |
+| `auto-dw+cmp` | 6,558 | 8,156 |
+| `auto-1+cmp` | 720,577 | 721,282 |
+| `auto-stale+cmp`, all five variants | 12,668–12,714 | 14,228–15,038 |
+
+The stale rule is about 2× slower here than `auto-dw` and pure fuzzing. Random finds nothing on a
+needle, but every random round still runs its 256-test floor, so the modes alternate (about 50
+switches before the find) and random takes half the tests: fuzzing's ~6k of its own tests become
+~12k in all. The five variants are identical because `E` is 1–4 tests on 3-byte inputs, so the floor
+decides everything. A random round that makes no find at all could end sooner; that refinement is
+left for later.
+
+TODO: Cedar
