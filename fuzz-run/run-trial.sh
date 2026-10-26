@@ -12,6 +12,7 @@
 #   random       random choices inside libFuzzer's loop (`--backend=io-libfuzzer`): the control
 #   fuzz         coverage-guided `FuzzGen`, libFuzzer's defaults (its input-length ramp on)
 #   fuzz-noramp  coverage-guided, `-max_len=65536 -len_control=0` (the best-measured setting)
+#                (every byte-fuzzer arm cuts an input to the bytes its run read before mutating it)
 #   fuzz-grow    coverage-guided with Basalt's `--grow`
 #   warm-<N>     a random warm-up of N tests (`--warmup=N`), then coverage-guided from its seeds
 #   auto-<φ>     the same, but the random phase ends when coverage levels off (`--warmup-stall=0
@@ -24,9 +25,6 @@
 #   +grow        `--grow`
 #   +probe       the trace cost probe (`--trace-probe`)
 #   +diag        the mutation log (`--diag-mutations`)
-#   +trunc       cut an input to the bytes its run read before mutating it (`--truncate`)
-#   +plant       plant harvested literals and comparison operands into recorded draws (`--plant`)
-#   +nudge       move a recorded draw by a small signed delta (`--nudge`)
 #   +cmp         plant compared operands into recorded draws, as libFuzzer's CMP mutation (`--cmp`)
 #   +time=S      stop after S seconds (`-max_total_time=S`); with RUNS=-1 the campaign has no `-runs`
 #   +simplest    the choice backend's misfit fill is the least value (`--fill-policy=simplest`)
@@ -61,9 +59,6 @@ for m in "${ms[@]}"; do
     grow)  flags+=(--grow) ;;
     probe) flags+=(--trace-probe) ;;
     diag)  flags+=(--diag-mutations) ;;
-    trunc) flags+=(--truncate) ;;
-    plant) flags+=(--plant) ;;
-    nudge) flags+=(--nudge) ;;
     cmp) flags+=(--cmp) ;;
     time=*) flags+=(-max_total_time="${m#time=}") ;;
     simplest) flags+=(--fill-policy=simplest) ;;

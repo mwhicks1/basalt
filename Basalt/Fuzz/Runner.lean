@@ -32,7 +32,7 @@ opaque goImpl (run : ByteArray → IO UInt8) (argv : Array String) (grow : Bool)
 /-- Called at the conclusion of a run to report to the C code the deficit in the buffer,
 i.e., the difference N - S between requested bytes N and available bytes S, the run's fill seed
 (`FuzzResult.seed`), which `--grow` needs to materialize a random fill, and how many bytes it read,
-which `--truncate` cuts the next mutation's input to. -/
+which truncation cuts the next mutation's input to. -/
 @[extern "basalt_fuzz_note_deficit"]
 opaque noteDeficitImpl (deficit : UInt32) (seed : UInt64) (cursor : UInt64) : BaseIO Unit
 
@@ -40,31 +40,27 @@ opaque noteDeficitImpl (deficit : UInt32) (seed : UInt64) (cursor : UInt64) : Ba
 @[extern "basalt_fuzz_note_trace"]
 opaque noteTraceImpl (cursor : UInt64) (trace : @& Array UInt64) : BaseIO Unit
 
-/-- The `FuzzGen` variations Phase 0 of `DESIGN-choice-sequences.md` measures, each off by default:
-`randomFill` reads a seeded random byte past the end instead of `0`; `probe` records every draw and
-has the bridge keep the traces of runs that reached new coverage, discarding them (the cost probe);
-`mutations` logs, per mutated input, why it repeats its parent (`BASALT_M` lines); `truncate` cuts
-an input to the bytes its run read before mutating it, as Zest's `gc()` does; `plant` records every
-fuzz-mode run's draws so the mutator can plant a harvested literal or a comparison operand into one
-(`native.c`, "`--plant`"); `nudge` records them so it can move one by a small delta; `cmp` records
-them to plant compared operands as libFuzzer's CMP mutation does (`native.c`, "`--cmp`"). -/
+/-- `FuzzGen` variations, each off by default: `randomFill` reads a seeded random byte past the end
+instead of `0`; `probe` records every draw and has the bridge keep the traces of runs that reached
+new coverage, discarding them (the cost probe); `mutations` logs, per mutated input, why it repeats
+its parent (`BASALT_M` lines); `cmp` records every fuzz-mode run's draws so the mutator can plant
+compared operands into them, as libFuzzer's CMP mutation does (`native.c`, "`--cmp`"). Truncating an
+input to the bytes its run read, as Zest's `gc()` does, is not a variation: the byte fuzzer always
+does it. -/
 structure Diag where
   randomFill : Bool := false
   probe : Bool := false
   mutations : Bool := false
-  truncate : Bool := false
-  plant : Bool := false
-  nudge : Bool := false
   cmp : Bool := false
 
 /-- The decoding `runOne` uses under `d`. -/
 def Diag.config (d : Diag) : FuzzConfig :=
-  { randomFill := d.randomFill, record := d.probe || d.mutations || d.plant || d.nudge || d.cmp }
+  { randomFill := d.randomFill, record := d.probe || d.mutations || d.cmp }
 
-/-- The bridge's mode bits: 1 random fill, 2 probe, 4 mutation log, 16 truncate, 32 plant, 64 nudge, 128 cmp. -/
+/-- The bridge's mode bits: 1 random fill, 2 probe, 4 mutation log, 128 cmp. -/
 def Diag.modes (d : Diag) : UInt32 :=
   (if d.randomFill then 1 else 0) + (if d.probe then 2 else 0) + (if d.mutations then 4 else 0) +
-  (if d.truncate then 16 else 0) + (if d.plant then 32 else 0) + (if d.nudge then 64 else 0) + (if d.cmp then 128 else 0)
+  (if d.cmp then 128 else 0)
 
 /-- Run the property on one input, reporting the byte codes the C bridge expects: `0` = pass,
 `1` = failed (the bridge then aborts, so the report must already be flushed), `2` = discard.
@@ -151,7 +147,7 @@ the exit code set by libFuzzer. -/
 def go (T : PropM FuzzGen Unit) (argv : Array String := #[]) (grow : Bool := false)
     (counters? : Option (IO.Ref (Nat × Nat)) := none) (diag : Diag := {}) : IO Unit := do
   IO.println s!"[basalt] starting libFuzzer campaign (grow={grow}, randomFill={diag.randomFill}, \
-    probe={diag.probe}, diag={diag.mutations}, plant={diag.plant}, nudge={diag.nudge}, {argv.toList})"
+    probe={diag.probe}, diag={diag.mutations}, cmp={diag.cmp}, {argv.toList})"
   -- libFuzzer announces that the linked custom mutator disables `-len_control` on every campaign,
   -- `--grow` or not; an explicit flag wins over that default (`splitFlags`), so say so.
   if let some lc := argv.find? (·.startsWith "-len_control=") then
@@ -222,7 +218,7 @@ private def decimal? (s : String) : Option Float :=
 
 /-- Basalt's flags, each `--name` or `--name=value`. -/
 private def ours : List String :=
-  ["--grow", "--fill", "--fill-policy", "--trace-probe", "--diag-mutations", "--truncate", "--plant", "--nudge", "--cmp", "--warmup", "--warmup-stall", "--switch-back", "--level", "--confidence", "--switch-rule", "--switch-floor", "--switch-quiet", "--switch-base"]
+  ["--grow", "--fill", "--fill-policy", "--trace-probe", "--diag-mutations", "--cmp", "--warmup", "--warmup-stall", "--switch-back", "--level", "--confidence", "--switch-rule", "--switch-floor", "--switch-quiet", "--switch-base"]
 
 private def isOurs (a : String) : Bool :=
   ours.any fun f => a == f || a.startsWith (f ++ "=")
@@ -239,10 +235,9 @@ def splitFlags (argv : Array String) : FuzzFlags × Array String :=
   let fill := valueOf? argv "--fill"
   let diag : Diag := { randomFill := fill == some "random", probe := argv.contains "--trace-probe",
                        mutations := argv.contains "--diag-mutations",
-                       truncate := argv.contains "--truncate", plant := argv.contains "--plant",
-                       nudge := argv.contains "--nudge", cmp := argv.contains "--cmp" }
+                       cmp := argv.contains "--cmp" }
   let bad := argv.filter (fun a => a.startsWith "--grow=" || a.startsWith "--switch-back=" ||
-      a.startsWith "--trace-probe=" || a.startsWith "--diag-mutations=" || a.startsWith "--plant=" || a.startsWith "--nudge=" || a.startsWith "--cmp=" ||
+      a.startsWith "--trace-probe=" || a.startsWith "--diag-mutations=" || a.startsWith "--cmp=" ||
       a == "--fill") ++
     (if fill.any (fun f => f != "random" && f != "zero") then #["--fill"] else #[]) ++
     (if (valueOf? argv "--fill-policy").any (fun f => f != "fresh" && f != "simplest")
