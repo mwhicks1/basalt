@@ -114,8 +114,8 @@ literals) and much faster on `needle-2`, where the `± 1` on literals and the re
 | `auto-dw+trunc` | 7,283 | 1.00 | 6,748 | 0.79 (0.65) | 0.97 / 1.00 |
 | `auto-dw+trunc+cmp` | 7,293 | 0.89 | **6,772** | **0.008 (0.040)** | 0.88 / 0.92 |
 
-The doubling window never fired on Cedar: switches came from the window rule at 94k–152k tests,
-the same range as `auto-1` (107k–152k). `--cmp` ties without the hybrid and, in it, adds ~34 edges on
+The doubling window never fired on Cedar: switches came from the window rule at 94k–140k tests,
+about the range of `auto-1` (107k–152k). `--cmp` ties without the hybrid and, in it, adds ~34 edges on
 `wide-traced`. Rare edges tie throughout.
 
 ### Cedar: no `-runs`
@@ -151,7 +151,7 @@ slower (p < 0.05):
 - **`--cmp` is the single flag to keep.** It solves both needles on its own, as well as `choice` and
   `--plant --nudge`. Unlike those, it costs pure fuzzing nothing on Cedar's faults (0 / 0, against
   0 / 2 and 0 / 3), because it runs at libFuzzer's rate, 1/14 of steps. In the hybrid it ties on
-  faults and adds edges on `wide-traced`. It costs 8–13% throughput, for the recording.
+  faults and adds edges on `wide-traced`. It costs 5–13% throughput, for the recording.
 - **The configuration the evidence supports:** `auto-dw+trunc+cmp`, the hybrid with the doubling exit
   and `--cmp`. `--plant` and `--nudge` can be retired.
 - **What is still open:** whether a probe-based switch (fuzzing's measured rate against random's)
