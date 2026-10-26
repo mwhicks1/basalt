@@ -13,6 +13,14 @@ at a time on this 8-core machine.
 
 ## Log
 
+- 2026-10-26 — **Branches consolidated.** One mainline, `hybrid-fuzzing` (`d5559f4`): `--cmp` replaces
+  `--plant`/`--nudge`, the byte fuzzer always truncates, design B's trace-cache policy ported, and
+  `policy-traced`, the kill tools and the size-reporting traced properties brought over; the choice
+  backend (design A) stays. `cedar-mutants` (`9249d5c`) is now `hybrid-fuzzing` plus the faulty-Cedar
+  path dependency and the `CEDAR_MUTANT` selector. Old branches are tags: `archive/choice-fuzz`,
+  `archive/choice-design-b`, `archive/hybrid-gt-cmp`, `archive/cedar-mutants-design-b` (every fault
+  binary through this date). Commits cited in the reports stay reachable through them.
+
 - 2026-10-26 — **Planned: switching by stale effort** (branch `hybrid-stale`,
   [`../2026-10-stale-switch/REPORT.md`](../2026-10-stale-switch/REPORT.md)). Each mode is judged by
   "no new edge in a structure-scaled effort" `L̄ · ln L̄` (Driller-style), in both directions, with no
