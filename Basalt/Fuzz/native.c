@@ -179,6 +179,7 @@ static void basalt_plant_find(const uint8_t *Data, size_t Size);
 static void basalt_plant_report(void);
 static void basalt_seed_count(const uint8_t *Data, size_t Size);
 static void basalt_seed_census(double e, size_t *live, size_t *seeds);
+static uint64_t g_census_max, g_census_sum;
 static void basalt_plant_check(void);
 
 __attribute__((visibility("default")))
@@ -560,7 +561,8 @@ static void basalt_phase_step(size_t fresh) {
       basalt_seed_census(e, &live, &seeds);
       if (g_hy.trace && g_hy.n % 65536 == 0)
         fprintf(stderr, "[basalt] seeds: fuzz round at %llu tests, %zu of %zu seeds with budget left, "
-                "E %.0f\n", (unsigned long long)g_hy.n, live, seeds, e);
+                "E %.0f; mutations charged %llu, most to one seed %llu\n", (unsigned long long)g_hy.n,
+                live, seeds, e, (unsigned long long)g_census_sum, (unsigned long long)g_census_max);
       if (seeds && !live) {
         if (g_hy.trace)
           fprintf(stderr, "[basalt] seeds: every one of %zu seeds has had E %.0f, after %llu tests\n",
@@ -834,22 +836,33 @@ static struct { uint64_t key; const uint8_t *buf; size_t size; } g_root;  /* the
 static void basalt_seed_count(const uint8_t *Data, size_t Size) {
   if (!g_hy.st_seeds || g_hy.mode != BASALT_FUZZ) return;
   /* libFuzzer mutates a picked seed up to `-mutate_depth` times in a row, each step from the last
-     step's child, so a step is charged to the chain's seed: the seed itself, or the run just made. */
-  basalt_tentry *e = basalt_tc_find(basalt_hash_buf(Data, Size), Data, Size);
-  if (e && e->unit) { g_root.key = e->key; g_root.buf = e->buf; g_root.size = e->size; }
-  else if (!(g_root.buf && g_last.run && Size == g_last.size &&
-             (!Size || memcmp(Data, g_last.buf, Size) == 0))) { g_root.buf = NULL; return; }
-  basalt_tentry *r = g_root.buf ? basalt_tc_find(g_root.key, g_root.buf, g_root.size) : NULL;
+     step's child, so a step is charged to the chain's seed. A step from the run just made continues
+     the chain (that child may be cached, but it was not picked); any other cached input was picked,
+     so it is in the corpus: a seed (a replacement, if it was not new). */
+  int cont = g_root.buf && g_last.run && Size == g_last.size &&
+             (!Size || memcmp(Data, g_last.buf, Size) == 0);
+  if (!cont) {
+    basalt_tentry *e = basalt_tc_find(basalt_hash_buf(Data, Size), Data, Size);
+    if (!e) { g_root.buf = NULL; return; }
+    e->unit = 1;
+    g_root.key = e->key; g_root.buf = e->buf; g_root.size = e->size;
+  }
+  basalt_tentry *r = basalt_tc_find(g_root.key, g_root.buf, g_root.size);
   if (r) r->muts++;
 }
 
-/* The seeds (cached inputs certainly in libFuzzer's corpus), and how many have had fewer than `e`
+/* The seeds (cached inputs certainly in libFuzzer's corpus: new, a hybrid seed, or picked as a
+   parent), and how many have had fewer than `e`
    mutations. Counting every cached input instead, the smallest-for-a-feature ones included, made
    ~10,000 "seeds" on Cedar where libFuzzer keeps ~2,000, most never picked and so never exhausted. */
 static void basalt_seed_census(double e, size_t *live, size_t *seeds) {
-  *live = *seeds = 0;
+  *live = *seeds = 0; g_census_max = g_census_sum = 0;
   for (size_t i = 0; i < g_tc.cap; i++)
-    if (g_tc.e[i].key && g_tc.e[i].unit) { (*seeds)++; *live += (double)g_tc.e[i].muts < e; }
+    if (g_tc.e[i].key && g_tc.e[i].unit) {
+      (*seeds)++; *live += (double)g_tc.e[i].muts < e;
+      g_census_sum += g_tc.e[i].muts;
+      if (g_tc.e[i].muts > g_census_max) g_census_max = g_tc.e[i].muts;
+    }
 }
 
 
