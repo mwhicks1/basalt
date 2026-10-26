@@ -756,6 +756,8 @@ typedef struct {
   uint8_t  *rz, *bd;          /* a choice campaign's trace: realized records, and bounds          */
   size_t    rzn, bdn;
   uint64_t  muts;             /* mutations libFuzzer has started from this input (`--stale-seeds`) */
+  int       unit;             /* certainly in libFuzzer's corpus: it reached a new feature, or was a
+                                 hybrid seed (not just the smallest input for some feature)        */
 } basalt_tentry;
 
 static struct { uint8_t *rz, *bd; size_t rzn, bdn, rzcap, bdcap; } g_ch;   /* the last run's        */
@@ -783,13 +785,16 @@ static void basalt_seed_count(const uint8_t *Data, size_t Size) {
   if (e) e->muts++;
 }
 
-/* The cached corpus units, and how many of them have had fewer than `e` mutations. */
+/* The seeds (cached inputs certainly in libFuzzer's corpus), and how many have had fewer than `e`
+   mutations. Counting every cached input instead, the smallest-for-a-feature ones included, made
+   ~10,000 "seeds" on Cedar where libFuzzer keeps ~2,000, most never picked and so never exhausted. */
 static void basalt_seed_census(double e, size_t *live, size_t *seeds) {
   *live = *seeds = 0;
   for (size_t i = 0; i < g_tc.cap; i++)
-    if (g_tc.e[i].key) { (*seeds)++; *live += (double)g_tc.e[i].muts < e; }
+    if (g_tc.e[i].key && g_tc.e[i].unit) { (*seeds)++; *live += (double)g_tc.e[i].muts < e; }
 }
 
+static int g_put_unit;                 /* the input `basalt_tc_put` is given is certainly a unit */
 static void basalt_tc_put(const uint8_t *d, size_t size) {
   if (2 * (g_tc.n + 1) > g_tc.cap) {
     size_t cap = g_tc.cap ? 2 * g_tc.cap : 4096;
@@ -807,7 +812,8 @@ static void basalt_tc_put(const uint8_t *d, size_t size) {
     free(old);
   }
   uint64_t key = basalt_hash_buf(d, size);
-  if (basalt_tc_find(key, d, size)) return;
+  basalt_tentry *old = basalt_tc_find(key, d, size);
+  if (old) { old->unit |= g_put_unit; return; }
   size_t j = key & (g_tc.cap - 1);
   while (g_tc.e[j].key) j = (j + 1) & (g_tc.cap - 1);
   basalt_tentry *e = &g_tc.e[j];
@@ -825,6 +831,7 @@ static void basalt_tc_put(const uint8_t *d, size_t size) {
     e->rzn = g_ch.rzn; e->bdn = g_ch.bdn;
   }
   e->key = key; e->n = n; e->size = size; e->cursor = g_tr.cursor; e->run = g_run_idx;
+  e->unit = g_put_unit; e->muts = 0;
   g_tc.n++;
   g_tc.bytes += n * sizeof *e->w + size + sizeof *e + e->rzn + e->bdn;
 }
@@ -908,6 +915,7 @@ static void basalt_trace_after(const uint8_t *Data, size_t Size, size_t fresh, s
   /* `--cmp` and truncation look up corpus units, so they keep every input libFuzzer may have saved;
      the probe and the mutation log keep new-feature runs only. */
   int lookup = basalt_tracing();
+  g_put_unit = fresh || g_ch_seeded;
   if ((lookup || g_trunc) ? basalt_may_be_unit(Size, fresh, nf) : (fresh || seeded))
     basalt_tc_put(Data, Size);
   if (!g_diag) {
@@ -971,6 +979,7 @@ static size_t basalt_truncate(const uint8_t *Data, size_t Size) {
 static void basalt_trunc_after(const uint8_t *Data, size_t Size, size_t fresh, size_t nf) {
   g_tr.n = 0;
   g_tr.cursor = g_last_run_cursor;
+  g_put_unit = fresh || g_ch_seeded;
   if (basalt_may_be_unit(Size, fresh, nf)) basalt_tc_put(Data, Size);
   g_ch_seeded = 0;
   g_last.buf = basalt_grow_buf(g_last.buf, &g_last.cap, Size ? Size : 1, 1);
