@@ -13,6 +13,14 @@ at a time on this 8-core machine.
 
 ## Log
 
+- 2026-10-26 — **Switching rule and `--cmp`: results**
+  ([`../2026-10-gt-cmp/REPORT.md`](../2026-10-gt-cmp/REPORT.md)). The doubling window switches at test
+  258 on the needles (714k before) and never fires on Cedar: coverage ties, 0 / 0 on the 19 fault
+  pairs; without `-runs` it alternates and beats the old rule (which switched at test 11) on
+  `gen-traced`. `--cmp` solves both needles alone, costs pure fuzzing nothing on faults (0 / 0), and
+  in the hybrid adds edges on `wide-traced` (p = 0.008). Supported configuration:
+  `auto-dw+trunc+cmp`.
+
 - 2026-10-25 — **Switching rule and `--cmp`** (branch `hybrid-gt-cmp`,
   [`../2026-10-gt-cmp/REPORT.md`](../2026-10-gt-cmp/REPORT.md)). Good-Turing over features never
   switches (`f₁` in the thousands on Cedar, stuck at 2 on the needle); over edges it needed one-time

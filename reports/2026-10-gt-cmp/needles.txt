@@ -1,0 +1,8 @@
+# needles: binary f86aee73a32c (cedar-mutants a9a7274); fuzz-run/kill-compare.py on cedar-mutants.
+fault property         fuzz-noramp+trunc+plant+nudge             fuzz-noramp+trunc+cmp          auto-1+trunc+plant+nudge         auto-dw+trunc+plant+nudge                 auto-dw+trunc+cmp                            choice
+                  kills  tests   secs p:fuzz-n p:auto-1kills  tests   secs p:fuzz-n p:auto-1kills  tests   secs p:fuzz-n p:auto-1kills  tests   secs p:fuzz-n p:auto-1kills  tests   secs p:fuzz-n p:auto-1kills  tests   secs p:fuzz-n p:auto-1
+    0 needle       10/10       69      0   0.000   0.000 10/10    6,292      0           0.000 10/10  714,356     18   0.000         10/10      328      0   0.000   0.000 10/10    6,516      0   0.000   0.000 10/10    1,693      0   0.000   0.000
+    0 needle-2     10/10   63,392      3   0.023   0.000 10/10    7,508      0           0.000 10/10  767,266     20   0.000         10/10   92,828      4   0.025   0.000 10/10    8,117      0   0.522   0.000 10/10   19,554      1   0.028   0.000
+
+against fuzz-noramp+trunc+cmp: fuzz-noramp+trunc+plant+nudge 1-1, auto-1+trunc+plant+nudge 0-2, auto-dw+trunc+plant+nudge 1-1, auto-dw+trunc+cmp 0-1, choice 1-1  (pairs faster-slower, p < 0.05)
+against auto-1+trunc+plant+nudge: fuzz-noramp+trunc+plant+nudge 2-0, fuzz-noramp+trunc+cmp 2-0, auto-dw+trunc+plant+nudge 2-0, auto-dw+trunc+cmp 2-0, choice 2-0  (pairs faster-slower, p < 0.05)

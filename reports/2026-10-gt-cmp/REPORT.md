@@ -80,9 +80,81 @@ from part 1 if it holds up.
 
 ## Results
 
-Queue (one binary, `f86aee73a32c`; 7 trials at a time): needles, 6 arms × 10 trials × 1M; Cedar
-coverage, 5 arms × 5 trials × 1M; Cedar without `-runs`, old vs new rule, 5 trials × 30 min; Cedar
-faults, the 19 pairs × 5 arms (`fuzz-noramp+trunc`, `+cmp`, `auto-1+trunc`, `auto-dw+trunc`,
-`auto-dw+trunc+cmp`) × 10 trials × 500k.
+One binary for everything (`f86aee73a32c`, Basalt `cedar-mutants` `a9a7274`), 7 trials at a time.
+`auto-dw` is `auto-1` plus the doubling-window exit; `+cmp` is `--cmp`.
 
-TODO
+### Needles
+
+10 trials per arm, 1M tests, median tests to the find ([`needles.txt`](needles.txt)):
+
+| arm | `needle` | `needle-2` | switched at |
+|---|---|---|---|
+| `fuzz-noramp+trunc+plant+nudge` | 69 | 63,392 | – |
+| `fuzz-noramp+trunc+cmp` | 6,292 | 7,508 | – |
+| `auto-1+trunc+plant+nudge` | 714,356 | 767,266 | 714,287 (all 10) |
+| `auto-dw+trunc+plant+nudge` | 328 | 92,828 | 258 (all 10) |
+| `auto-dw+trunc+cmp` | 6,516 | 8,117 | 258 (all 10) |
+| `choice` | 1,693 | 19,554 | – |
+
+All arms find both needles in 10/10. The doubling window ends the random phase at its first
+checkpoint, so the hybrid now costs ~258 tests over pure fuzzing instead of 714k. `--cmp` is
+slower than `--plant --nudge` on `needle` (1/14 of steps against 1/4, and a third of its picks are
+literals) and much faster on `needle-2`, where the `± 1` on literals and the reuse of a kept
+`0xDEADBEEF` supply the second stage. With either, the byte fuzzer is as good as `choice`.
+
+### Cedar: coverage at 1M tests
+
+5 trials per arm ([`cedar-coverage.txt`](cedar-coverage.txt)); p against `auto-1+trunc`:
+
+| arm | `gen-traced` | p | `wide-traced` | p (by time) | tests/s ratio |
+|---|---|---|---|---|---|
+| `fuzz-noramp+trunc` | 7,263 | – | 6,744 | – | 1.00 / 1.00 |
+| `fuzz-noramp+trunc+cmp` | 7,253 | (0.52 vs pure) | 6,740 | (0.84 vs pure) | 0.87 / 0.92 |
+| `auto-1+trunc` | 7,293 | – | 6,738 | – | 1.00 / 0.97 |
+| `auto-dw+trunc` | 7,283 | 1.00 | 6,748 | 0.79 (0.65) | 0.97 / 1.00 |
+| `auto-dw+trunc+cmp` | 7,293 | 0.89 | **6,772** | **0.008 (0.040)** | 0.88 / 0.92 |
+
+The doubling window never fired on Cedar: switches came from the window rule at 94k–152k tests,
+the same range as `auto-1` (107k–152k). `--cmp` ties without the hybrid and, in it, adds ~34 edges on
+`wide-traced`. Rare edges tie throughout.
+
+### Cedar: no `-runs`
+
+5 trials × 30 min ([`cedar-nobudget.txt`](cedar-nobudget.txt)):
+
+| arm | `gen-traced` | p | `wide-traced` | p |
+|---|---|---|---|---|
+| `auto-1+trunc` | 7,281 | – | 6,762 | – |
+| `auto-dw+trunc` | **7,307** | **0.008** | 6,752 | 1.00 |
+
+Without a budget the old rule switched at test 11 in every trial, so it was pure fuzzing. The new
+rule alternated in doubling phases (10k random, 10k fuzzing, 20k, 40k, … 8 switches). It is better on
+`gen-traced` and ties on `wide-traced`.
+
+### Cedar: injected faults
+
+The 19 pairs, 10 trials per arm, 500k tests ([`faults.txt`](faults.txt)). Pairs significantly faster /
+slower (p < 0.05):
+
+| | vs `auto-1+trunc` | vs `auto-dw+trunc` | vs `fuzz-noramp+trunc` |
+|---|---|---|---|
+| `auto-dw+trunc` | **0 / 0** | – | 7 / 7 |
+| `auto-dw+trunc+cmp` | **0 / 0** | **0 / 0** | 6 / 5 |
+| `fuzz-noramp+trunc+cmp` | 6 / 7 | 6 / 7 | **0 / 0** |
+
+## Conclusions
+
+- **The doubling window fixes the switch without hurting Cedar.** It ends the random phase at test
+  258 on the needles (714k before), and on Cedar it never fires: coverage, rare edges and all 19
+  fault pairs are unchanged. Without `-runs` it replaces a rule that switched at test 11 with a
+  doubling alternation, which is better on one property and ties on the other.
+- **`--cmp` is the single flag to keep.** It solves both needles on its own, as well as `choice` and
+  `--plant --nudge`. Unlike those, it costs pure fuzzing nothing on Cedar's faults (0 / 0, against
+  0 / 2 and 0 / 3), because it runs at libFuzzer's rate, 1/14 of steps. In the hybrid it ties on
+  faults and adds edges on `wide-traced`. It costs 8–13% throughput, for the recording.
+- **The configuration the evidence supports:** `auto-dw+trunc+cmp`, the hybrid with the doubling exit
+  and `--cmp`. `--plant` and `--nudge` can be retired.
+- **What is still open:** whether a probe-based switch (fuzzing's measured rate against random's)
+  switches *earlier* on Cedar with benefit; this round only made sure no rule switches later or
+  never. Pair-matched plants are rare here, since Lean's `Nat` comparisons never reach the hook.
+  That is the next item on the `--cmp` plan (a `lean.h` override).

@@ -1,0 +1,33 @@
+# Cedar coverage, 5 trials x 1M, CEDAR_MUTANT=0; binary f86aee73a32c. gate-stats.py (first block: p vs fuzz-noramp+trunc; second: vs auto-1+trunc) and rare-edges.py.
+# /local/home/mwhicks/fuzz-data/dw/cov/gen-traced: 1,000,000 tests; 18.3 min (the fastest trial's end)
+arm                       n  edges@tests      p  edges@time      p  tests/s  ratio   distinct  size
+fuzz-noramp+trunc         5        7,263              7,259             886   1.00    519,074    19
+fuzz-noramp+trunc+cmp     5        7,253  0.516       7,236  0.548      767   0.87    515,124    21
+auto-1+trunc              5        7,293  0.048       7,290  0.048      882   1.00    556,814    21
+auto-dw+trunc             5        7,283  0.024       7,276  0.151      857   0.97    562,358    21
+auto-dw+trunc+cmp         5        7,293  0.008       7,288  0.032      779   0.88    562,839    21
+auto-dw+trunc             5        7,283  1.000       7,276  0.841      857   0.97    562,358    21
+auto-dw+trunc+cmp         5        7,293  0.889       7,289  0.841      779   0.88    562,839    21
+# /local/home/mwhicks/fuzz-data/dw/cov/gen-traced: 25 trials; 7,447 edges reached, 110 rare (in at most 25% of trials), 80 beyond fuzz-noramp+trunc
+arm                       n   edges   rare      p  beyond      p  rare∪  beyond∪
+fuzz-noramp+trunc         5   7,263      9  0.548       0  0.048     35        0
+auto-1+trunc              5   7,293     13              9            47       26
+auto-dw+trunc             5   7,283     11  1.000       3  0.730     47       28
+auto-dw+trunc+cmp         5   7,293     21  0.389       7  0.889     67       39
+fuzz-noramp+trunc+cmp     5   7,253      9  0.841       8  0.984     55       52
+# /local/home/mwhicks/fuzz-data/dw/cov/wide-traced: 1,000,000 tests; 15.5 min (the fastest trial's end)
+arm                       n  edges@tests      p  edges@time      p  tests/s  ratio   distinct  size
+fuzz-noramp+trunc         5        6,744              6,740           1,039   1.00    427,306    14
+fuzz-noramp+trunc+cmp     5        6,740  0.841       6,732  0.421      959   0.92    405,645    13
+auto-1+trunc              5        6,738  0.635       6,728  0.500    1,006   0.97    446,659    15
+auto-dw+trunc             5        6,748  0.548       6,745  0.222    1,041   1.00    443,114    15
+auto-dw+trunc+cmp         5        6,772  0.008       6,768  0.016      959   0.92    446,513    15
+auto-dw+trunc             5        6,748  0.794       6,745  0.651    1,041   1.03    443,114    15
+auto-dw+trunc+cmp         5        6,772  0.008       6,769  0.040      959   0.95    446,513    15
+# /local/home/mwhicks/fuzz-data/dw/cov/wide-traced: 25 trials; 6,883 edges reached, 81 rare (in at most 25% of trials), 52 beyond fuzz-noramp+trunc
+arm                       n   edges   rare      p  beyond      p  rare∪  beyond∪
+fuzz-noramp+trunc         5   6,744     17  0.159       0  0.008     44        0
+auto-1+trunc              5   6,738      3             11            42       34
+auto-dw+trunc             5   6,748      5  0.643      15  0.460     21       31
+auto-dw+trunc+cmp         5   6,772     18  0.127      13  0.651     60       34
+fuzz-noramp+trunc+cmp     5   6,740      6  0.516       8  0.071     26       18

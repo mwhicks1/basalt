@@ -1,0 +1,9 @@
+# Cedar without -runs, 5 trials x 30 min; binary f86aee73a32c.
+# /local/home/mwhicks/fuzz-data/dw/nobudget/gen-traced: 1,465,917 tests; 30.0 min (the fastest trial's end)
+arm                       n  edges@tests      p  edges@time      p  tests/s  ratio   distinct  size
+auto-1+trunc+time=1800    5        7,277              7,281             844   1.00    788,830    21
+auto-dw+trunc+time=1800   5        7,301  0.008       7,307  0.008      996   1.18    902,594    12
+# /local/home/mwhicks/fuzz-data/dw/nobudget/wide-traced: 1,669,645 tests; 30.0 min (the fastest trial's end)
+arm                       n  edges@tests      p  edges@time      p  tests/s  ratio   distinct  size
+auto-1+trunc+time=1800    5        6,755              6,762             979   1.00    709,756    14
+auto-dw+trunc+time=1800   5        6,750  1.000       6,752  1.000    1,219   1.24    744,352     4
