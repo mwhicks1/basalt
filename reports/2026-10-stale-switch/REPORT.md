@@ -96,6 +96,15 @@ As in the previous round: the needles; Cedar coverage and rare edges at 1M tests
 `-runs` (30 min); the 19-pair Cedar fault suite, 10 trials × 500k. Also, per trial: switch points,
 rounds per mode, and `L̄` over time.
 
+### Amendments
+
+- **2026-10-26, the floor applies to every round.** On tiny inputs `E` is tiny: the needles read about
+  3 bytes, so `E = L̄ · ln L̄` is 1–4 tests, and without a minimum the modes would flip every few
+  tests. The 256-test floor therefore bounds every round, in both directions, not just the first
+  random one. On Cedar (`L̄` around 100 bytes, `E` around 460) it rarely binds.
+- **Built** on `hybrid-fuzzing` (`2eebfc3`), with `cedar-mutants` rebased onto it (`ad0e2fa`); one
+  binary for all of this round, `424bafda2341`. Arm names drop `+trunc` (truncation is built in).
+
 ## Later, not in this round
 
 - **Switching back with a fresh start:** drop the corpus and coverage on the way back to random.
