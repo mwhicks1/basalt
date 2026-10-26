@@ -177,4 +177,63 @@ of tests and the switch count are from trial 1.
 - **Edges instead of finds is the weakest variant:** with rarer events it goes stale sooner.
 - Every hybrid beats both pure arms, as before.
 
-TODO: no `-runs`, faults
+### Cedar: no `-runs`
+
+5 trials × 30 min ([`cedar-nobudget.txt`](cedar-nobudget.txt)); p against `auto-dw+cmp`, by time:
+
+| arm | `gen-traced` | p | `wide-traced` | p | switches |
+|---|---|---|---|---|---|
+| `auto-dw+cmp` | 7,320 | – | 6,757 | – | 8 |
+| `auto-stale+cmp` | 7,313 | 0.46 | 6,752 | 0.97 | 2,000–2,600 |
+| `auto-stale-x4+cmp` | 7,319 | 0.90 | 6,783 | 0.15 | 245–295 |
+| `auto-stale-corpus+cmp` | 7,303 | 0.95 | 6,797 | 0.063 | 1 |
+
+All tie. As at 1M, letting fuzzing run longer does no harm.
+
+### Cedar: injected faults
+
+The 19 pairs, 10 trials per arm, 500k tests ([`faults.txt`](faults.txt)). Pairs significantly faster /
+slower (p < 0.05), and the median first switch to fuzzing (from four of the faults):
+
+| arm | first switch | vs `auto-dw+cmp` | vs `fuzz-noramp+cmp` |
+|---|---|---|---|
+| `auto-stale-corpus+cmp` | ~28k–36k, then fuzzing throughout | **5 / 0** | 7 / 5 |
+| `auto-stale+cmp` | ~37k–105k, then ~1,000 alternations | 2 / 0 | 7 / 5 |
+| `auto-stale-x4+cmp` | ~93k–153k | **0 / 5** | 7 / 7 |
+| `auto-dw+cmp` | ~62k–69k (the window rule at 500k) | – | 7 / 7 |
+
+- **When random hands over is what matters here.** "No find in `E` tests" ends random at ~30k,
+  earlier than the window rule at this budget; that helps the capability faults that need fuzzing
+  (2, 3, 8, 15, 16 on `wide`), so the corpus-scaled arm, which then fuzzes throughout, beats `auto-dw`
+  on five pairs. `4E` hands over only at ~100k+ and is slower on five.
+- **Handing back to random costs little:** plain `auto-stale` alternates ~1,000 times and is still
+  2 / 0 against `auto-dw`.
+- **Pure fuzzing remains fastest on several deep faults** (16 `wide`: 1.8k tests against ~50k), where
+  any random phase is a delay; the hybrids still win the shallow ones (6, 23, 28).
+
+### The per-seed variant (`auto-stale-seeds`): not run
+
+Charging fuzzing's mutations to seeds works (86% of steps attributed once a chain's later steps are
+charged to its seed), but which inputs are seeds cannot be observed: libFuzzer replaces seeds with
+smaller ones and admits the hybrid's seeds on its own terms, with no API for its corpus. The census
+counts ~3,000 seeds where libFuzzer reports ~1,500–1,770. A dropped seed is never picked again, so it
+never spends its budget and fuzzing never hands back. On Cedar the principle predicts that anyway: at
+65k fuzzing tests the most-mutated seed had 106 mutations against `E` = 545, so exhausting ~2,000 seeds
+takes ~1M+ tests. `auto-stale-corpus` therefore stands in for it here. Exact per-seed accounting
+would need libFuzzer's corpus (a patch to the vendored source), or a rule that treats a seed unpicked
+for long as dropped (a heuristic).
+
+## Conclusions
+
+- **The supported configuration is now `auto-stale-corpus+cmp`:** random until it has gone
+  `E = L̄ · ln L̄` tests without a find, then fuzzing, judged per corpus. It ties the best arms on Cedar
+  coverage at 1M and without `-runs`, beats `auto-dw` on the faults (5 / 0), and has no budget
+  dependence and no tuned constant.
+- **Its cost is on targets where random finds nothing,** the needles, where every round runs the
+  256-test floor: ~2× slower than `auto-dw` there. Ending a fruitless random round early would remove
+  that.
+- **`4E` is worse and `E/4` no better,** so the derived `E` sits in a good region for the first switch.
+  The fuzzing side needs per-corpus judging; per-input judging (plain `auto-stale`) hands back too
+  readily, though at little cost.
+- **Next for the rule:** the per-seed version, if libFuzzer's corpus can be exposed, and the early end
+  of fruitless random rounds.

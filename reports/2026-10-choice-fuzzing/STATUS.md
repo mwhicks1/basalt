@@ -13,6 +13,13 @@ at a time on this 8-core machine.
 
 ## Log
 
+- 2026-10-27 — **Stale-effort switching: results** ([`../2026-10-stale-switch/REPORT.md`](../2026-10-stale-switch/REPORT.md)).
+  `auto-stale-corpus+cmp` (random until `L̄ · ln L̄` tests without a find, then fuzzing judged per
+  corpus) ties the best on Cedar coverage at 1M and without `-runs`, and beats `auto-dw` 5 / 0 on the
+  fault suite by handing over earlier (~30k vs ~65k). `4E` hands over late and is 0 / 5. On the needles
+  every arm pays the 256-test floor, ~2× `auto-dw`. The per-seed variant was not run: libFuzzer's corpus
+  membership is not observable.
+
 - 2026-10-26 — **Branches consolidated.** One mainline, `hybrid-fuzzing` (`d5559f4`): `--cmp` replaces
   `--plant`/`--nudge`, the byte fuzzer always truncates, design B's trace-cache policy ported, and
   `policy-traced`, the kill tools and the size-reporting traced properties brought over; the choice

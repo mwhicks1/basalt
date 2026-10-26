@@ -1,0 +1,13 @@
+# Cedar without -runs: 5 trials x 30 min; binary 424bafda2341.
+# /local/home/mwhicks/fuzz-data/st/nobudget/gen-traced: 1,323,104 tests; 30.0 min (the fastest trial's end)
+arm                       n  edges@tests      p  edges@time      p  tests/s  ratio   distinct  size
+auto-dw+cmp+time=1800     5        7,313              7,320             963   1.00    800,493    12
+auto-stale+cmp+time=1800  5        7,289  0.159       7,313  0.460      909   0.94    813,593    16
+auto-stale-x4+cmp+time=1800  5        7,316  0.730       7,319  0.897      878   0.91    793,557    17
+auto-stale-corpus+cmp+time=1800  5        7,303  0.651       7,303  0.952      769   0.80    727,341    21
+# /local/home/mwhicks/fuzz-data/st/nobudget/wide-traced: 1,438,294 tests; 30.0 min (the fastest trial's end)
+arm                       n  edges@tests      p  edges@time      p  tests/s  ratio   distinct  size
+auto-dw+cmp+time=1800     5        6,753              6,757           1,180   1.00    640,713     5
+auto-stale+cmp+time=1800  5        6,744  0.341       6,752  0.968    1,093   0.93    642,174    10
+auto-stale-x4+cmp+time=1800  5        6,771  0.222       6,783  0.151    1,030   0.87    650,238    11
+auto-stale-corpus+cmp+time=1800  5        6,787  0.151       6,797  0.063      932   0.79    648,440    15
