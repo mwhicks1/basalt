@@ -106,12 +106,22 @@ structure HybridConfig where
   outlasting the campaign before it or `doublingBase` tests. -/
   doubling : Option (Nat × Nat) := none
   doublingBase : Nat := 10000
+  /-- `some (scale, edges, corpus)`: switch by stale effort (`--switch-rule=stale`, `native.c`), in
+  both directions and instead of the window: a round ends once it has gone `scale · L̄ · ln L̄` tests
+  without a find (a new edge, if `edges`), `L̄` the finds' mean length in bytes; with `corpus`,
+  fuzzing's effort is that per corpus input. No round ends before `staleFloor` tests. -/
+  stale : Option (Float × Bool × Bool) := none
+  staleFloor : Nat := 256
 
 /-- Arm a hybrid campaign in the C bridge, with `runRandom` as the random phases' callback and
 `budget` the `-runs` bound (`0`: none). -/
 @[extern "basalt_hybrid_config"]
 opaque hybridConfigImpl (runRandom : ByteArray → IO UInt8) (firstMax minWindow : UInt64)
     (level confidence : Float) (budget : UInt64) (adaptive switchBack : Bool) : IO Unit
+
+/-- Make the armed hybrid campaign switch by stale effort. -/
+@[extern "basalt_hybrid_stale"]
+opaque hybridStaleImpl (scale : Float) (edges corpus : Bool) (floor : UInt64) : IO Unit
 
 /-- Add the doubling-window exit to the armed hybrid campaign. -/
 @[extern "basalt_hybrid_doubling"]
@@ -218,7 +228,7 @@ private def decimal? (s : String) : Option Float :=
 
 /-- Basalt's flags, each `--name` or `--name=value`. -/
 private def ours : List String :=
-  ["--grow", "--fill", "--fill-policy", "--trace-probe", "--diag-mutations", "--cmp", "--warmup", "--warmup-stall", "--switch-back", "--level", "--confidence", "--switch-rule", "--switch-floor", "--switch-quiet", "--switch-base"]
+  ["--grow", "--fill", "--fill-policy", "--trace-probe", "--diag-mutations", "--cmp", "--warmup", "--warmup-stall", "--switch-back", "--level", "--confidence", "--switch-rule", "--switch-floor", "--switch-quiet", "--switch-base", "--stale-scale", "--stale-on", "--stale-corpus"]
 
 private def isOurs (a : String) : Bool :=
   ours.any fun f => a == f || a.startsWith (f ++ "=")
@@ -242,7 +252,11 @@ def splitFlags (argv : Array String) : FuzzFlags × Array String :=
     (if fill.any (fun f => f != "random" && f != "zero") then #["--fill"] else #[]) ++
     (if (valueOf? argv "--fill-policy").any (fun f => f != "fresh" && f != "simplest")
      then #["--fill-policy"] else #[]) ++
-    (if (valueOf? argv "--switch-rule").any (· != "doubling") then #["--switch-rule"] else #[]) ++
+    (if (valueOf? argv "--switch-rule").any (fun r => r != "doubling" && r != "stale") then
+      #["--switch-rule"] else #[]) ++
+    (if (valueOf? argv "--stale-on").any (fun v => v != "edges" && v != "finds") then #["--stale-on"]
+     else #[]) ++
+    (if (dec "--stale-scale") == some none then #["--stale-scale"] else #[]) ++
     #["--switch-floor", "--switch-quiet", "--switch-base"].filter (fun n => (nat n) == some none) ++
     #["--warmup", "--warmup-stall", "--level", "--confidence"].filter fun n =>
     (argv.contains n) ||
@@ -254,6 +268,11 @@ def splitFlags (argv : Array String) : FuzzFlags × Array String :=
   let stall := (nat "--warmup-stall").join
   let switchBack := argv.contains "--switch-back"
   let rule := valueOf? argv "--switch-rule"
+  let stale : Option (Float × Bool × Bool) :=
+    if rule == some "stale" then
+      some (((dec "--stale-scale").join).getD 1, valueOf? argv "--stale-on" == some "edges",
+            argv.contains "--stale-corpus")
+    else none
   let doubling : Option (Nat × Nat) :=
     if rule == some "doubling" then
       some (((nat "--switch-floor").join).getD 256, ((nat "--switch-quiet").join).getD 0)
@@ -264,7 +283,8 @@ def splitFlags (argv : Array String) : FuzzFlags × Array String :=
                 level := ((dec "--level").join).getD 1,
                 confidence := ((dec "--confidence").join).getD 10,
                 adaptive := stall.isSome || switchBack, switchBack, doubling,
-                doublingBase := ((nat "--switch-base").join).getD 10000 }
+                doublingBase := ((nat "--switch-base").join).getD 10000, stale,
+                staleFloor := ((nat "--switch-floor").join).getD 256 }
   let rest := argv.filter (!isOurs ·)
   -- `-max_len` bounds the buffer and so bounds the structure growth can build; libFuzzer's own
   -- default derives it from the seed corpus, which is 4096 at a cold start. Left there it, and not
@@ -308,6 +328,8 @@ def goHybrid (T : Property) (cfg : HybridConfig) (grow : Bool) (argv : Array Str
     cfg.adaptive cfg.switchBack
   if let some (floor, quiet) := cfg.doubling then
     hybridDoublingImpl floor.toUInt64 quiet.toUInt64 cfg.doublingBase.toUInt64
+  if let some (scale, edges, corpus) := cfg.stale then
+    hybridStaleImpl scale edges corpus cfg.staleFloor.toUInt64
   go (T FuzzGen) argv grow counters diag
 
 /-- The coverage-guided backend, for `Basalt.PBT.dispatch`. `--grow` is Basalt's own

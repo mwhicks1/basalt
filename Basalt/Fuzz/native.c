@@ -4,6 +4,7 @@ Released under MIT license as described in the file LICENSE.
 Authors: Michael Hicks
 */
 #include <lean/lean.h>
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -349,11 +350,21 @@ static struct {
                                                 the shortest phase of the no-`-runs` alternation */
   uint64_t     dw_next, dw_mark;  /* the next checkpoint, and the edges reached at the last one      */
   uint64_t     edges;        /* distinct edges reached (counters ever nonzero)                    */
+  uint64_t     scan_edges;   /* of them, reached first by the test just scanned                   */
+  int          st;           /* switching by stale effort (`--switch-rule=stale`)                 */
+  double       st_scale;     /* E's multiple (`--stale-scale`, default 1)                         */
+  int          st_edges;     /* the events are new edges, not finds (`--stale-on=edges`)          */
+  int          st_corpus;    /* fuzzing's effort is E per corpus input (`--stale-corpus`)         */
+  uint64_t     st_floor;     /* no round ends before this many tests                              */
+  uint64_t     st_last;      /* the test of the round's last event (0: none yet)                 */
+  uint64_t     st_len;       /* this test's length: bytes read (random: bytes recorded)          */
+  double       st_sum;       /* the finds' lengths, summed: L̄ = st_sum / finds                   */
 } g_hy;
 
 /* Scan the counters after a run: record its features in `scratch` and count those never reached
    before. The counters are only read; libFuzzer resets them before each run. */
 static size_t basalt_hybrid_scan(size_t *nf_out) {
+  g_hy.scan_edges = 0;
   const uint8_t *c = __start___sancov_cntrs;
   size_t nf = 0, fresh = 0;
   for (size_t i = 0; i < g_hy.ncntrs; i++) {
@@ -364,7 +375,7 @@ static size_t basalt_hybrid_scan(size_t *nf_out) {
       if (!w) { i += 7; continue; }
     }
     if (!c[i]) continue;
-    if (!g_hy.seen[i]) g_hy.edges++;
+    if (!g_hy.seen[i]) { g_hy.edges++; g_hy.scan_edges++; }
     uint32_t b = basalt_bucket(c[i]);
     g_hy.scratch[nf++] = (uint32_t)(i * 8 + b);
     if (!(g_hy.seen[i] & (1u << b))) {
@@ -513,11 +524,40 @@ static void basalt_phase_switch(void) {
 }
 
 /* After every test once the loop has started: advance the phase, and switch if it has leveled off. */
+/* Switching by stale effort: a round, in either mode, ends once it has gone `E` tests without an
+   event (a find, or with `--stale-on=edges` a new edge), and not before `st_floor` tests. `E` is
+   `L̄ · ln L̄`, `L̄` the finds' mean length in bytes (the corpus's, since an input is cut to what its run
+   read): about the random-position mutations that touch each of an input's `L̄` bytes once, the
+   coupon-collector bound. A mode is judged by its own effort since its round began, never by its rate
+   against the other's, since each inherits most of its coverage from the other. */
+static double basalt_stale_effort(void) {
+  double lbar = g_hy.finds ? g_hy.st_sum / (double)g_hy.finds : 1;
+  double e = lbar > 1 ? lbar * log(lbar) : 1;
+  if (g_hy.st_corpus && g_hy.mode == BASALT_FUZZ) e *= (double)(g_hy.finds ? g_hy.finds : 1);
+  return e * g_hy.st_scale;
+}
+
 static void basalt_phase_step(size_t fresh) {
   g_hy.n++;
   g_hy.block_new += fresh ? 1 : 0;
   int first = g_hy.phases == 1 && g_hy.mode == BASALT_RANDOM;
   if (first && g_hy.n >= g_hy.first_max) { basalt_phase_switch(); return; }
+  if (g_hy.st) {
+    if (fresh) g_hy.st_sum += (double)g_hy.st_len;
+    if (g_hy.st_edges ? g_hy.scan_edges : fresh) g_hy.st_last = g_hy.n;
+    if (g_hy.n < g_hy.st_floor) return;
+    double e = basalt_stale_effort();
+    if ((double)(g_hy.n - g_hy.st_last) >= e) {
+      if (g_hy.trace)
+        fprintf(stderr, "[basalt] stale: %s round of %llu tests, last event at %llu, E %.0f (L %.1f)\n",
+                g_hy.mode == BASALT_RANDOM ? "random" : "fuzz", (unsigned long long)g_hy.n,
+                (unsigned long long)g_hy.st_last, e,
+                g_hy.finds ? g_hy.st_sum / (double)g_hy.finds : 0.0);
+      g_hy.st_last = 0;
+      basalt_phase_switch();
+    }
+    return;
+  }
   /* The doubling window: at tests floor/2, floor, 2·floor, …, a first random phase whose second half
      reached at most `dw_quiet` new edges has saturated. A path's first-time code (a lazily initialized
      constant, say) is a discovery when its path is first reached, as it should be, and then stops. */
@@ -590,6 +630,16 @@ LEAN_EXPORT lean_object *basalt_hybrid_offer(lean_object *bytes) {
 }
 
 /* Add the doubling-window exit to a hybrid campaign; called after `basalt_hybrid_config`. */
+/* Make the armed hybrid campaign switch by stale effort, in both directions, instead of the window. */
+LEAN_EXPORT lean_object *basalt_hybrid_stale(double scale, uint8_t edges, uint8_t corpus, uint64_t floor) {
+  g_hy.st = 1;
+  g_hy.st_scale = scale > 0 ? scale : 1;
+  g_hy.st_edges = edges;
+  g_hy.st_corpus = corpus;
+  g_hy.st_floor = floor;
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
 LEAN_EXPORT lean_object *basalt_hybrid_doubling(uint64_t floor, uint64_t quiet, uint64_t base) {
   g_hy.dw = 1;
   g_hy.dw_floor = floor ? floor : 1;
@@ -1605,6 +1655,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
     g_hy.total++;
     size_t nf, fresh = basalt_hybrid_scan(&nf);
     if (fresh && g_hy.offered) basalt_hybrid_keep(g_hy.offered, nf);
+    g_hy.st_len = g_hy.offered ? lean_sarray_size(g_hy.offered) : 0;
     basalt_phase_step(fresh);
     return -1;
   }
@@ -1619,6 +1670,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
   if (g_hy.on || g_probe || g_diag || g_choice || g_trunc || basalt_tracing()) fresh = basalt_hybrid_scan(&nf);
   if (g_hy.on) {
     g_hy.total++;
+    g_hy.st_len = g_last_run_cursor;
     if (g_hy.started) basalt_phase_step(fresh);
   }
   if (basalt_tracing()) basalt_plant_check();
