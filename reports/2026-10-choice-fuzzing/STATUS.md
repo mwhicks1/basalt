@@ -13,6 +13,11 @@ at a time on this 8-core machine.
 
 ## Log
 
+- 2026-10-26 — **Planned: switching by stale effort** (branch `hybrid-stale`,
+  [`../2026-10-stale-switch/REPORT.md`](../2026-10-stale-switch/REPORT.md)). Each mode is judged by
+  "no new edge in a structure-scaled effort" `L̄ · ln L̄` (Driller-style), in both directions, with no
+  budget dependence. Replaces `auto-1` + the doubling window. Not built yet.
+
 - 2026-10-26 — **Switching rule and `--cmp`: results**
   ([`../2026-10-gt-cmp/REPORT.md`](../2026-10-gt-cmp/REPORT.md)). The doubling window switches at test
   258 on the needles (714k before) and never fires on Cedar: coverage ties, 0 / 0 on the 19 fault
