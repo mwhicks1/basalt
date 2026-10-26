@@ -74,8 +74,8 @@ rev = "splitmix-0.1.0"
 # from Mathlib moved into `Cedar.List`, because Mathlib declares the same names and no file could import
 # both; and SanitizerCoverage flags on the Cedar library, because Lake gives the root package no way to
 # set a dependency's compiler flags.
+# Branch `cedar-mutants` only: Cedar with injected faults (`basalt-mutants`, cloned at
+# `../cedar-spec-m`), selected at run time by `CEDAR_MUTANT` (`native.c`). Never merge this change.
 [[require]]
 name = "Cedar"
-git = "https://github.com/mwhicks1/cedar-spec.git"
-rev = "basalt-integration"
-subDir = "cedar-lean"
+path = "../cedar-spec-m/cedar-lean"
