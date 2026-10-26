@@ -105,6 +105,18 @@ rounds per mode, and `L̄` over time.
 - **Built** on `hybrid-fuzzing` (`2eebfc3`), with `cedar-mutants` rebased onto it (`ad0e2fa`); one
   binary for all of this round, `424bafda2341`. Arm names drop `+trunc` (truncation is built in).
 
+- **2026-10-26, per-seed fuzzing (`auto-stale-seeds`).** The plain rule judges fuzzing stuck after
+  `E` tests without a find anywhere, one input's effort for a corpus of ~900 seeds, which is why it
+  flips back ~1,100 times on Cedar. The principle, as agreed: the unit of work is one seed's
+  neighbourhood, priced `E = L̄ · ln L̄`, in both modes. Random's price for a new seed is its gap between
+  finds, so random → fuzzing when that gap exceeds `E` (unchanged). Fuzzing's units are its seeds, each
+  with a budget of `E` mutations; an input it finds is a new seed with a fresh budget. Fuzzing →
+  random once no seed has budget left: at that price the only new material left is random's breadth.
+  The corpus is the number of pending units, not a multiple of `E`. libFuzzer's entropic schedule
+  does not round-robin, so the mutator counts mutations per cached corpus unit (`68fc2f4`).
+  `auto-stale-corpus` was a crude stand-in. Built as `seeds-bin`, which differs from the round's
+  binary only by this gated code. It runs after the queue in progress.
+
 ## Later, not in this round
 
 - **Switching back with a fresh start:** drop the corpus and coverage on the way back to random.
