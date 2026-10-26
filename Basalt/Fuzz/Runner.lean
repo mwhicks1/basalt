@@ -109,8 +109,10 @@ structure HybridConfig where
   /-- `some (scale, edges, corpus)`: switch by stale effort (`--switch-rule=stale`, `native.c`), in
   both directions and instead of the window: a round ends once it has gone `scale · L̄ · ln L̄` tests
   without a find (a new edge, if `edges`), `L̄` the finds' mean length in bytes; with `corpus`,
-  fuzzing's effort is that per corpus input. No round ends before `staleFloor` tests. -/
+  fuzzing's effort is that per corpus input. No round ends before `staleFloor` tests. With
+  `staleSeeds`, fuzzing's round ends instead once every seed has had that many mutations. -/
   stale : Option (Float × Bool × Bool) := none
+  staleSeeds : Bool := false
   staleFloor : Nat := 256
 
 /-- Arm a hybrid campaign in the C bridge, with `runRandom` as the random phases' callback and
@@ -121,7 +123,7 @@ opaque hybridConfigImpl (runRandom : ByteArray → IO UInt8) (firstMax minWindow
 
 /-- Make the armed hybrid campaign switch by stale effort. -/
 @[extern "basalt_hybrid_stale"]
-opaque hybridStaleImpl (scale : Float) (edges corpus : Bool) (floor : UInt64) : IO Unit
+opaque hybridStaleImpl (scale : Float) (edges corpus seeds : Bool) (floor : UInt64) : IO Unit
 
 /-- Add the doubling-window exit to the armed hybrid campaign. -/
 @[extern "basalt_hybrid_doubling"]
@@ -228,7 +230,7 @@ private def decimal? (s : String) : Option Float :=
 
 /-- Basalt's flags, each `--name` or `--name=value`. -/
 private def ours : List String :=
-  ["--grow", "--fill", "--fill-policy", "--trace-probe", "--diag-mutations", "--cmp", "--warmup", "--warmup-stall", "--switch-back", "--level", "--confidence", "--switch-rule", "--switch-floor", "--switch-quiet", "--switch-base", "--stale-scale", "--stale-on", "--stale-corpus"]
+  ["--grow", "--fill", "--fill-policy", "--trace-probe", "--diag-mutations", "--cmp", "--warmup", "--warmup-stall", "--switch-back", "--level", "--confidence", "--switch-rule", "--switch-floor", "--switch-quiet", "--switch-base", "--stale-scale", "--stale-on", "--stale-corpus", "--stale-seeds"]
 
 private def isOurs (a : String) : Bool :=
   ours.any fun f => a == f || a.startsWith (f ++ "=")
@@ -284,7 +286,8 @@ def splitFlags (argv : Array String) : FuzzFlags × Array String :=
                 confidence := ((dec "--confidence").join).getD 10,
                 adaptive := stall.isSome || switchBack, switchBack, doubling,
                 doublingBase := ((nat "--switch-base").join).getD 10000, stale,
-                staleFloor := ((nat "--switch-floor").join).getD 256 }
+                staleFloor := ((nat "--switch-floor").join).getD 256,
+                staleSeeds := argv.contains "--stale-seeds" }
   let rest := argv.filter (!isOurs ·)
   -- `-max_len` bounds the buffer and so bounds the structure growth can build; libFuzzer's own
   -- default derives it from the seed corpus, which is 4096 at a cold start. Left there it, and not
@@ -329,7 +332,7 @@ def goHybrid (T : Property) (cfg : HybridConfig) (grow : Bool) (argv : Array Str
   if let some (floor, quiet) := cfg.doubling then
     hybridDoublingImpl floor.toUInt64 quiet.toUInt64 cfg.doublingBase.toUInt64
   if let some (scale, edges, corpus) := cfg.stale then
-    hybridStaleImpl scale edges corpus cfg.staleFloor.toUInt64
+    hybridStaleImpl scale edges corpus cfg.staleSeeds cfg.staleFloor.toUInt64
   go (T FuzzGen) argv grow counters diag
 
 /-- The coverage-guided backend, for `Basalt.PBT.dispatch`. `--grow` is Basalt's own

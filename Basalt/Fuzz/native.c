@@ -177,6 +177,8 @@ static size_t basalt_cmp(uint8_t *Data, size_t Size, size_t MaxSize);
 static inline int basalt_tracing(void) { return g_cmp; }
 static void basalt_plant_find(const uint8_t *Data, size_t Size);
 static void basalt_plant_report(void);
+static void basalt_seed_count(const uint8_t *Data, size_t Size);
+static void basalt_seed_census(double e, size_t *live, size_t *seeds);
 static void basalt_plant_check(void);
 
 __attribute__((visibility("default")))
@@ -186,6 +188,7 @@ size_t LLVMFuzzerCustomMutator(uint8_t *Data, size_t Size, size_t MaxSize, unsig
   basalt_diag_parent(Data, Size, hybrid != 0);
   g_ch_seeded = hybrid != 0;
   if (hybrid) return hybrid;
+  basalt_seed_count(Data, Size);
   if (basalt_tracing()) basalt_plant_find(Data, Size);  /* before truncating: keyed by it */
   Size = basalt_truncate(Data, Size);
   if (g_choice) {
@@ -355,6 +358,7 @@ static struct {
   double       st_scale;     /* E's multiple (`--stale-scale`, default 1)                         */
   int          st_edges;     /* the events are new edges, not finds (`--stale-on=edges`)          */
   int          st_corpus;    /* fuzzing's effort is E per corpus input (`--stale-corpus`)         */
+  int          st_seeds;     /* fuzzing's round ends once every seed has had E (`--stale-seeds`)  */
   uint64_t     st_floor;     /* no round ends before this many tests                              */
   uint64_t     st_last;      /* the test of the round's last event (0: none yet)                 */
   uint64_t     st_len;       /* this test's length: bytes read (random: bytes recorded)          */
@@ -547,6 +551,25 @@ static void basalt_phase_step(size_t fresh) {
     if (g_hy.st_edges ? g_hy.scan_edges : fresh) g_hy.st_last = g_hy.n;
     if (g_hy.n < g_hy.st_floor) return;
     double e = basalt_stale_effort();
+    if (g_hy.st_seeds && g_hy.mode == BASALT_FUZZ) {
+      /* Fuzzing's units of work are its seeds, each worth `E` mutations; an input it finds is a new
+         seed with a fresh budget. The round ends once no seed has budget left: at that price the only
+         new material left is random's breadth. Checked every 256 tests. */
+      if (g_hy.n % 256) return;
+      size_t live, seeds;
+      basalt_seed_census(e, &live, &seeds);
+      if (g_hy.trace && g_hy.n % 65536 == 0)
+        fprintf(stderr, "[basalt] seeds: fuzz round at %llu tests, %zu of %zu seeds with budget left, "
+                "E %.0f\n", (unsigned long long)g_hy.n, live, seeds, e);
+      if (seeds && !live) {
+        if (g_hy.trace)
+          fprintf(stderr, "[basalt] seeds: every one of %zu seeds has had E %.0f, after %llu tests\n",
+                  seeds, e, (unsigned long long)g_hy.n);
+        g_hy.st_last = 0;
+        basalt_phase_switch();
+      }
+      return;
+    }
     if ((double)(g_hy.n - g_hy.st_last) >= e) {
       if (g_hy.trace)
         fprintf(stderr, "[basalt] stale: %s round of %llu tests, last event at %llu, E %.0f (L %.1f)\n",
@@ -631,8 +654,10 @@ LEAN_EXPORT lean_object *basalt_hybrid_offer(lean_object *bytes) {
 
 /* Add the doubling-window exit to a hybrid campaign; called after `basalt_hybrid_config`. */
 /* Make the armed hybrid campaign switch by stale effort, in both directions, instead of the window. */
-LEAN_EXPORT lean_object *basalt_hybrid_stale(double scale, uint8_t edges, uint8_t corpus, uint64_t floor) {
+LEAN_EXPORT lean_object *basalt_hybrid_stale(double scale, uint8_t edges, uint8_t corpus, uint8_t seeds,
+                                             uint64_t floor) {
   g_hy.st = 1;
+  g_hy.st_seeds = seeds;
   g_hy.st_scale = scale > 0 ? scale : 1;
   g_hy.st_edges = edges;
   g_hy.st_corpus = corpus;
@@ -730,6 +755,7 @@ typedef struct {
   size_t    size;
   uint8_t  *rz, *bd;          /* a choice campaign's trace: realized records, and bounds          */
   size_t    rzn, bdn;
+  uint64_t  muts;             /* mutations libFuzzer has started from this input (`--stale-seeds`) */
 } basalt_tentry;
 
 static struct { uint8_t *rz, *bd; size_t rzn, bdn, rzcap, bdcap; } g_ch;   /* the last run's        */
@@ -747,6 +773,21 @@ static basalt_tentry *basalt_tc_find(uint64_t key, const uint8_t *d, size_t size
     if (!e->key) return NULL;
     if (e->key == key && e->size == size && (!size || memcmp(e->buf, d, size) == 0)) return e;
   }
+}
+
+/* `--stale-seeds`: one more mutation libFuzzer started from `Data`, if it is a cached corpus unit (a
+   mutation of an unexecuted intermediate in libFuzzer's mutation sequence is not one). */
+static void basalt_seed_count(const uint8_t *Data, size_t Size) {
+  if (!g_hy.st_seeds || g_hy.mode != BASALT_FUZZ) return;
+  basalt_tentry *e = basalt_tc_find(basalt_hash_buf(Data, Size), Data, Size);
+  if (e) e->muts++;
+}
+
+/* The cached corpus units, and how many of them have had fewer than `e` mutations. */
+static void basalt_seed_census(double e, size_t *live, size_t *seeds) {
+  *live = *seeds = 0;
+  for (size_t i = 0; i < g_tc.cap; i++)
+    if (g_tc.e[i].key) { (*seeds)++; *live += (double)g_tc.e[i].muts < e; }
 }
 
 static void basalt_tc_put(const uint8_t *d, size_t size) {

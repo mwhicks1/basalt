@@ -19,7 +19,8 @@
 #                --level=φ`)
 #   auto-dw      `auto-1`, plus the doubling-window exit (`--switch-rule=doubling`)
 #   auto-stale   switching by stale effort, both directions (`--switch-rule=stale`); variants
-#                auto-stale-q (E/4), auto-stale-x4 (4E), auto-stale-edges, auto-stale-corpus
+#                auto-stale-q (E/4), auto-stale-x4 (4E), auto-stale-edges, auto-stale-corpus,
+#                auto-stale-seeds (fuzzing's round ends once every seed has had E mutations)
 #   back-<φ>     the same rule in both directions, switching back to random (`--switch-back`)
 #   choice       the choice-sequence backend (`--backend=choice`)
 #   choice-auto-<φ>  the choice backend under `auto-<φ>`'s hybrid rule
@@ -49,6 +50,7 @@ case $base in
   auto-stale-q) be=fuzz; flags=(--warmup-stall=0 --switch-rule=stale --stale-scale=0.25 -max_len=65536 -len_control=0) ;;
   auto-stale-x4) be=fuzz; flags=(--warmup-stall=0 --switch-rule=stale --stale-scale=4 -max_len=65536 -len_control=0) ;;
   auto-stale-edges) be=fuzz; flags=(--warmup-stall=0 --switch-rule=stale --stale-on=edges -max_len=65536 -len_control=0) ;;
+  auto-stale-seeds) be=fuzz; flags=(--warmup-stall=0 --switch-rule=stale --stale-seeds -max_len=65536 -len_control=0) ;;
   auto-stale-corpus) be=fuzz; flags=(--warmup-stall=0 --switch-rule=stale --stale-corpus -max_len=65536 -len_control=0) ;;
   auto-dw)     be=fuzz; flags=(--warmup-stall=0 --switch-rule=doubling -max_len=65536 -len_control=0) ;;
   auto-*)      be=fuzz; flags=(--warmup-stall=0 --level="${base#auto-}" -max_len=65536 -len_control=0) ;;
