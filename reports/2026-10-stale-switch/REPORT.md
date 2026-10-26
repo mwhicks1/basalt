@@ -137,4 +137,32 @@ switches before the find) and random takes half the tests: fuzzing's ~6k of its 
 decides everything. A random round that makes no find at all could end sooner; that refinement is
 left for later.
 
-TODO: Cedar
+### Cedar: coverage at 1M tests
+
+5 trials per arm ([`cedar-coverage.txt`](cedar-coverage.txt)); p against `auto-dw+cmp`. Random's share
+of tests and the switch count are from trial 1.
+
+| arm | `gen-traced` | p | `wide-traced` | p (by time) | switches | random's share |
+|---|---|---|---|---|---|---|
+| `auto-dw+cmp` | 7,297 | – | 6,757 | – | 1 | ~11% |
+| `auto-stale+cmp` | 7,280 | 0.14 | 6,728 | **0.008** (0.095) | ~1,100 | ~40% |
+| `auto-stale-q+cmp` (`E/4`) | 7,280 | 0.14 | 6,745 | 0.056 | ~3,600 | |
+| `auto-stale-x4+cmp` (`4E`) | 7,277 | 0.28 | 6,742 | 0.056 (0.84) | ~110 | ~27% |
+| `auto-stale-edges+cmp` | 7,262 | 0.14 | 6,725 | **0.016** | ~1,600 | |
+| `auto-stale-corpus+cmp` | 7,288 | 0.38 | 6,745 | 0.31 | 1 | ~3% |
+| `auto-1+cmp` | 7,302 | 0.79 | 6,759 | 0.89 | 1 | |
+| `fuzz-noramp+cmp` | 7,246 | 0.048 | 6,736 | 0.056 | – | – |
+| `random` | 7,197 | 0.008 | 6,655 | 0.008 | – | – |
+
+- **`E` is where the plan put it:** 496–559 tests, `L̄` 106–117 bytes (a traced run).
+- **The first switch comes earlier than predicted,** at 28k–31k tests rather than 60k–120k, and below
+  `auto-1`'s 100k–150k.
+- **Fuzzing is judged stuck too eagerly.** On Cedar fuzzing's finds come in bursts, with gaps longer
+  than one input's `L̄ · ln L̄`, so `auto-stale` flips back to random about 1,100 times in 1M tests and
+  random takes ~40% of them. That costs ~29 edges on `wide-traced` by tests (p = 0.008; by time a tie)
+  and ties on `gen-traced`. The variants that let fuzzing run longer, `4E` (~110 switches) and the
+  corpus-scaled one (fuzzing never stuck: one switch at ~28k), tie the best references on both.
+- **Edges instead of finds is the weakest variant:** with rarer events it goes stale sooner.
+- Every hybrid beats both pure arms, as before.
+
+TODO: no `-runs`, faults

@@ -1,0 +1,45 @@
+# Cedar 1M: 5 trials per arm, CEDAR_MUTANT=0; binary 424bafda2341. gate-stats.py (p vs auto-dw+cmp), then rare-edges.py (baseline random, p vs auto-dw+cmp).
+# /local/home/mwhicks/fuzz-data/st/cov/gen-traced: 1,000,000 tests; 14.5 min (the fastest trial's end)
+arm                       n  edges@tests      p  edges@time      p  tests/s  ratio   distinct  size
+auto-dw+cmp               5        7,297              7,269             841   1.00    559,798    21
+auto-stale+cmp            5        7,280  0.135       7,263  0.421      916   1.09    610,635    17
+auto-stale-q+cmp          5        7,280  0.135       7,251  0.151      949   1.13    624,999    17
+auto-stale-x4+cmp         5        7,277  0.278       7,269  1.000      896   1.07    592,254    18
+auto-stale-edges+cmp      5        7,262  0.135       7,246  0.151      950   1.13    625,478    17
+auto-stale-corpus+cmp     5        7,288  0.381       7,256  0.841      817   0.97    548,311    21
+auto-1+cmp                5        7,302  0.794       7,266  0.421      797   0.95    563,818    21
+fuzz-noramp+cmp           5        7,246  0.048       7,209  0.008      823   0.98    523,113    20
+random                    5        7,197  0.008       7,193  0.016    1,150   1.37    731,609    12
+# /local/home/mwhicks/fuzz-data/st/cov/wide-traced: 1,000,000 tests; 12.1 min (the fastest trial's end)
+arm                       n  edges@tests      p  edges@time      p  tests/s  ratio   distinct  size
+auto-dw+cmp               5        6,757              6,728             971   1.00    448,682    16
+auto-stale+cmp            5        6,728  0.008       6,715  0.095    1,100   1.13    450,450    10
+auto-stale-q+cmp          5        6,745  0.056       6,736  0.548    1,127   1.16    453,772    10
+auto-stale-x4+cmp         5        6,742  0.056       6,735  0.841    1,075   1.11    446,476    12
+auto-stale-edges+cmp      5        6,725  0.016       6,715  0.056    1,135   1.17    450,569    10
+auto-stale-corpus+cmp     5        6,745  0.310       6,721  0.262      971   1.00    446,999    15
+auto-1+cmp                5        6,759  0.889       6,743  0.841      989   1.02    448,938    15
+fuzz-noramp+cmp           5        6,736  0.056       6,704  0.008      996   1.03    413,345    13
+random                    5        6,655  0.008       6,655  0.008    1,373   1.41    465,057     4
+# /local/home/mwhicks/fuzz-data/st/cov/gen-traced: 45 trials; 7,472 edges reached, 139 rare (in at most 25% of trials), 146 beyond random
+arm                       n   edges   rare      p  beyond      p  rare∪  beyond∪
+random                    5   7,197      6  0.151       0  0.008     31        0
+auto-dw+cmp               5   7,297     17             41            90      107
+auto-stale+cmp            5   7,280      8  0.333      31  0.548     52       74
+auto-stale-q+cmp          5   7,280      5  0.032      25  0.040     24       51
+auto-stale-x4+cmp         5   7,277      7  0.063      29  0.151     41       66
+auto-stale-edges+cmp      5   7,262      5  0.016      25  0.040     24       49
+auto-stale-corpus+cmp     5   7,288     14  0.325      36  0.452     47       62
+auto-1+cmp                5   7,302     15  0.286      37  0.881     36       62
+fuzz-noramp+cmp           5   7,246      6  0.087      37  0.595     40       70
+# /local/home/mwhicks/fuzz-data/st/cov/wide-traced: 45 trials; 6,892 edges reached, 113 rare (in at most 25% of trials), 168 beyond random
+arm                       n   edges   rare      p  beyond      p  rare∪  beyond∪
+random                    5   6,655      6  0.317       0  0.008     16        0
+auto-dw+cmp               5   6,757     14             74            73      136
+auto-stale+cmp            5   6,728      6  0.548      53  0.024     39       96
+auto-stale-q+cmp          5   6,745     12  0.738      63  0.238     46      109
+auto-stale-x4+cmp         5   6,742      6  0.286      56  0.103     26       88
+auto-stale-edges+cmp      5   6,725     15  1.000      57  0.111     49      107
+auto-stale-corpus+cmp     5   6,745     15  0.794      69  0.786     65      128
+auto-1+cmp                5   6,759     13  0.690      69  0.841     66      134
+fuzz-noramp+cmp           5   6,736     11  0.952      74  0.444     54      121
