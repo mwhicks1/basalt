@@ -1,0 +1,7 @@
+# Needles: 10 trials per arm, 1M tests; binary 21946a523bd2 (hybrid-fuzzing 97aeac6); kill-compare.py (p vs fuzz-noramp+cmp).
+fault property                       fuzz-noramp+cmp            fuzz-noramp+cmp+nolits     fuzz-noramp+cmp+nolits+natcmp            fuzz-noramp+cmp+natcmp             auto-stale-corpus+cmp      auto-stale-corpus+cmp+natcmp
+                        kills  tests   secs p:fuzz-n      kills  tests   secs p:fuzz-n      kills  tests   secs p:fuzz-n      kills  tests   secs p:fuzz-n      kills  tests   secs p:fuzz-n      kills  tests   secs p:fuzz-n
+    0 needle           10/10    6,323      0             10/10  144,865      5   0.000     10/10      799      0   0.000     10/10      370      0   0.000     10/10   12,692      0   0.001     10/10      786      0   0.001
+    0 needle-2         10/10    8,562      0             10/10   97,636      4   0.000     10/10    3,154      0   0.006     10/10    2,118      0   0.017     10/10   15,818      1   0.001     10/10   10,044      0   0.638
+
+against fuzz-noramp+cmp: fuzz-noramp+cmp+nolits 0-2, fuzz-noramp+cmp+nolits+natcmp 2-0, fuzz-noramp+cmp+natcmp 2-0, auto-stale-corpus+cmp 0-2, auto-stale-corpus+cmp+natcmp 1-0  (pairs faster-slower, p < 0.05)

@@ -35,4 +35,29 @@ only from the source scan (`harvested_literals%`), and never sees a computed one
 
 ## Results
 
-TODO
+Built on `hybrid-fuzzing` (`97aeac6`): `Basalt/Fuzz/nat_hook.h`, force-included into the three
+instrumented targets. A smoke run decoded every plant as planted.
+
+### Needles
+
+10 trials per arm, 1M tests, median tests to the find; every arm finds both needles in 10/10
+([`needles.txt`](needles.txt)).
+
+| arm | `needle` | `needle-2` |
+|---|---|---|
+| `fuzz-noramp+cmp` (literals, no hook) | 6,323 | 8,562 |
+| `fuzz-noramp+cmp+nolits` | 144,865 | 97,636 |
+| `fuzz-noramp+cmp+nolits+natcmp` | **799** | **3,154** |
+| `fuzz-noramp+cmp+natcmp` | **370** | **2,118** |
+| `auto-stale-corpus+cmp` | 12,692 | 15,818 |
+| `auto-stale-corpus+cmp+natcmp` | **786** | 10,044 |
+
+- **The hook replaces the source scan, and does better.** With literals off and the hook on, `needle`
+  falls 8× and `needle-2` 3× against literals without the hook. `needle-2`'s second constant,
+  `0xDEADBEEF + 1`, now arrives as its run-time value, where before it needed a literal plus `± 1`.
+- **Both together are fastest** (370 and 2,118), and the hybrid gains the same way (786 against
+  12,692 on `needle`).
+- **Without either, the needles are still found, ~100× slower** (145k and 98k): some other captured
+  operand reaches them. Literals remain a cheap fallback.
+
+TODO: Cedar
