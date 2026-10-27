@@ -61,4 +61,18 @@ instrumented targets. A smoke run decoded every plant as planted.
   with literals, 31–180× slower than with the hook): some other captured operand reaches them.
   Literals remain a cheap fallback.
 
-TODO: Cedar
+### Cedar
+
+**Build.** Cedar's C is compiled under Cedar's own `lakefile.lean`, so the header reaches it through an
+environment variable: `fuzz-run/build.sh` exports `BASALT_NAT_HOOK` (the header's path), and Cedar's
+`lean_lib Cedar` adds `-include` it when set, nothing otherwise. Done on the faulty-Cedar branch first
+(`basalt-mutants` `c91909e4`), which every Cedar experiment builds against; the mainline Cedar
+(`basalt-integration`) gets it if the results justify. Confirmed in the objects: Cedar's
+`Evaluator` and Basalt's `Staged` both reference the switch. Binary `dece68e2c7c9` (`cedar-mutants`
+`d765e36`).
+
+**Queued:** coverage at 1M (`fuzz-noramp+cmp` and `auto-stale-corpus+cmp`, each with and without
+`+natcmp`, 5 trials) and the fault suite (`auto-stale-corpus+cmp` with and without `+natcmp`, the 19
+pairs × 10 trials).
+
+TODO: results

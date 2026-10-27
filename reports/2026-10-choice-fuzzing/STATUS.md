@@ -13,6 +13,12 @@ at a time on this 8-core machine.
 
 ## Log
 
+- 2026-10-27 — **`--nat-cmp`** ([`../2026-10-nat-cmp/REPORT.md`](../2026-10-nat-cmp/REPORT.md)): a
+  force-included `nat_hook.h` makes Lean `Nat` comparisons reach the comparison hook. Needles with
+  literals off: 799 / 3,154 tests with the hook against 145k / 98k without (literals alone: 6.3k /
+  8.6k). Cedar hooked too (via `BASALT_NAT_HOOK`, on `basalt-mutants`); Cedar coverage and faults
+  running.
+
 - 2026-10-27 — **Stale-effort switching: results** ([`../2026-10-stale-switch/REPORT.md`](../2026-10-stale-switch/REPORT.md)).
   `auto-stale-corpus+cmp` (random until `L̄ · ln L̄` tests without a find, then fuzzing judged per
   corpus) ties the best on Cedar coverage at 1M and without `-runs`, and beats `auto-dw` 5 / 0 on the
