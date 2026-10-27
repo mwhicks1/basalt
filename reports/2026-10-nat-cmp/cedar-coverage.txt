@@ -1,0 +1,11 @@
+# Cedar 1M: 5 trials per arm; binary dece68e2c7c9 (cedar-mutants d765e36, Cedar basalt-mutants c91909e4); gate-stats.py, pairs compared within each block.
+arm                       n  edges@tests      p  edges@time      p  tests/s  ratio   distinct  size
+fuzz-noramp+cmp           5        7,318              7,297             788   1.00    528,254    22
+fuzz-noramp+cmp+natcmp    5        7,315  1.000       7,314  0.690      779   0.99    510,050    20
+auto-stale-corpus+cmp     5        7,366              7,366             750   1.00    543,131    21
+auto-stale-corpus+cmp+natcmp  5        7,366  0.730       7,366  0.540      762   1.02    542,358    21
+arm                       n  edges@tests      p  edges@time      p  tests/s  ratio   distinct  size
+fuzz-noramp+cmp           5        6,778              6,776             977   1.00    412,907    13
+fuzz-noramp+cmp+natcmp    5        6,782  0.690       6,775  0.841      966   0.99    397,618    13
+auto-stale-corpus+cmp     5        6,805              6,798             930   1.00    444,934    16
+auto-stale-corpus+cmp+natcmp  5        6,797  0.548       6,792  0.548      928   1.00    447,574    16

@@ -75,4 +75,34 @@ environment variable: `fuzz-run/build.sh` exports `BASALT_NAT_HOOK` (the header'
 `+natcmp`, 5 trials) and the fault suite (`auto-stale-corpus+cmp` with and without `+natcmp`, the 19
 pairs × 10 trials).
 
-TODO: results
+**Coverage at 1M** ([`cedar-coverage.txt`](cedar-coverage.txt)), 5 trials, p within each pair:
+
+| arm | `gen-traced` | p | `wide-traced` | p | tests/s ratio |
+|---|---|---|---|---|---|
+| `fuzz-noramp+cmp` | 7,318 | – | 6,778 | – | 1.00 / 1.00 |
+| `fuzz-noramp+cmp+natcmp` | 7,315 | 1.00 | 6,782 | 0.69 | 0.99 / 0.99 |
+| `auto-stale-corpus+cmp` | 7,366 | – | 6,805 | – | 1.00 / 1.00 |
+| `auto-stale-corpus+cmp+natcmp` | 7,366 | 0.73 | 6,797 | 0.55 | 1.02 / 1.00 |
+
+**Faults** ([`faults.txt`](faults.txt)), the 19 pairs × 10 trials: `+natcmp` is significantly faster
+on 1 pair and slower on none; the per-pair median ratios scatter both ways (0.40× to 2.18×), as noise
+does with 10 trials.
+
+- **On Cedar the hook adds little, and costs nothing.** Coverage ties, faults tie, throughput is
+  unchanged. Plants that matched a compared value barely moved (129 with the hook against 132
+  without, on a `wide-traced` trial): Cedar's comparisons that matter are on `Int64` and strings,
+  which `trace-cmp` already sees, not on `Nat`.
+- **Absolute edges are not comparable with earlier rounds.** This binary counts ~50 more Cedar edges:
+  the hook's inlined branches are counted as Cedar's own. Comparisons within the round are fair.
+
+## Conclusions
+
+- **`--nat-cmp` does what it is for.** It lets `--cmp` see Lean's `Nat` comparisons at run time, and
+  on the needles it beats the source scan alone (8× and 3× faster) and gets computed constants
+  directly. With the scan as well it is fastest.
+- **It is free where it does not help.** On Cedar it changes neither coverage, nor faults, nor
+  throughput.
+- **So it can be on by default with `--cmp`.** The scan stays as a cheap fallback.
+- **The mainline Cedar** (`basalt-integration`) does not have the `BASALT_NAT_HOOK` lakefile change
+  yet; only the faulty-Cedar branch does. Since the hook does not help on Cedar, that is not urgent.
+- **Next** on the `--cmp` plan: 1-/2-byte and `switch` hooks (step 3).

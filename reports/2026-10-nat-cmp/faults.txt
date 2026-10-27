@@ -1,0 +1,24 @@
+# Cedar faults: 19 pairs x 2 arms x 10 trials, 500k tests; binary dece68e2c7c9; kill-compare.py.
+fault property                 auto-stale-corpus+cmp      auto-stale-corpus+cmp+natcmp
+                        kills  tests   secs p:auto-s      kills  tests   secs p:auto-s
+    2 wide-traced      10/10   78,842     73             10/10   80,799     77   1.000
+    3 gen-traced       10/10  114,528    130             10/10  114,326    134   0.968
+    3 wide-traced      10/10   78,032     71             10/10   89,426     84   0.482
+    6 gen-traced       10/10    5,622      5             10/10    2,252      2   0.392
+    6 wide-traced      10/10    4,685      3             10/10    2,968      2   0.970
+    7 wide-traced      10/10   71,660     66              9/10  134,723    128   0.088
+    8 gen-traced       10/10   53,420     57             10/10   65,096     68   0.527
+    8 wide-traced      10/10   42,568     35             10/10   38,791     32   0.105
+   13 gen-traced        8/10  177,796    205             10/10  113,660    132   0.428
+   13 wide-traced      10/10   77,565     70             10/10   62,538     55   0.913
+   15 gen-traced       10/10  136,980    157             10/10  127,609    147   0.396
+   15 wide-traced      10/10   56,010     49             10/10   37,660     31   0.025
+   16 gen-traced       10/10  132,734    150             10/10  174,220    200   0.631
+   16 wide-traced      10/10   43,420     34             10/10   47,980     42   0.355
+   23 gen-traced       10/10    3,410      3             10/10    2,042      2   0.680
+   23 wide-traced      10/10    1,398      1             10/10    1,104      1   0.478
+   24 wide-traced      10/10   39,674     33             10/10   86,440     80   0.060
+   28 gen-traced       10/10    6,186      5             10/10    7,054      6   0.481
+   28 wide-traced      10/10    6,512      5             10/10    3,812      3   0.579
+
+against auto-stale-corpus+cmp: auto-stale-corpus+cmp+natcmp 1-0  (pairs faster-slower, p < 0.05)
