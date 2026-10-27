@@ -16,7 +16,7 @@ defaultTargets = ["Basalt", "BasaltExamples", "BasaltTest", "BasaltFuzz"]
 [[lean_lib]]
 name = "Basalt"
 globs = ["Basalt", "Basalt.+"]
-moreLeancArgs = ["-O1", "-fsanitize=fuzzer-no-link"]
+moreLeancArgs = ["-O1", "-fsanitize=fuzzer-no-link", "-include", "Basalt/Fuzz/nat_hook.h"]
 
 [[lean_lib]]
 name = "BasaltExamples"
@@ -40,7 +40,7 @@ globs = ["BasaltTest.+"]
 [[lean_lib]]
 name = "BasaltFuzz"
 globs = ["BasaltFuzz.+"]
-moreLeancArgs = ["-O1", "-fsanitize=fuzzer-no-link"]
+moreLeancArgs = ["-O1", "-fsanitize=fuzzer-no-link", "-include", "Basalt/Fuzz/nat_hook.h"]
 
 # The opt-in fuzzing executable, never built by `lake build` and reached only through
 # `fuzz-run/build.sh`, which writes the `link.rsp` naming this platform's libFuzzer runtime. The root
@@ -52,7 +52,7 @@ moreLeancArgs = ["-O1", "-fsanitize=fuzzer-no-link"]
 [[lean_exe]]
 name = "basalt-fuzz"
 root = "BasaltFuzzMain"
-moreLeancArgs = ["-O1", "-fsanitize=fuzzer-no-link"]
+moreLeancArgs = ["-O1", "-fsanitize=fuzzer-no-link", "-include", "Basalt/Fuzz/nat_hook.h"]
 moreLinkArgs = ["@fuzz-run/obj/link.rsp"]
 
 [[require]]
