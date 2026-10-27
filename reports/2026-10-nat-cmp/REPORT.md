@@ -57,7 +57,8 @@ instrumented targets. A smoke run decoded every plant as planted.
   `0xDEADBEEF + 1`, now arrives as its run-time value, where before it needed a literal plus `± 1`.
 - **Both together are fastest** (370 and 2,118), and the hybrid gains the same way (786 against
   12,692 on `needle`).
-- **Without either, the needles are still found, ~100× slower** (145k and 98k): some other captured
-  operand reaches them. Literals remain a cheap fallback.
+- **Without either, the needles are still found, but slowly** (145k and 98k tests: 11–23× slower than
+  with literals, 31–180× slower than with the hook): some other captured operand reaches them.
+  Literals remain a cheap fallback.
 
 TODO: Cedar
