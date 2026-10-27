@@ -1,4 +1,4 @@
-# Cedar faults: 19 pairs x 5 arms x 10 trials, 500k tests; binary 424bafda2341; fuzz-run/kill-compare.py.
+# Cedar faults: 19 pairs x 5 arms x 10 trials, 500k tests; binary 424bafda2341; kill-compare.py.
 fault property                        auto-stale+cmp                 auto-stale-x4+cmp             auto-stale-corpus+cmp                       auto-dw+cmp                   fuzz-noramp+cmp
                   kills  tests   secs p:auto-d p:fuzz-nkills  tests   secs p:auto-d p:fuzz-nkills  tests   secs p:auto-d p:fuzz-nkills  tests   secs p:auto-d p:fuzz-nkills  tests   secs p:auto-d p:fuzz-n
     2 wide-traced  10/10   52,750     48   0.220   0.145 10/10  214,000    162   0.001   0.000 10/10   94,110     82   0.971   0.106 10/10   95,506     78           0.031 10/10   36,951     36   0.030        

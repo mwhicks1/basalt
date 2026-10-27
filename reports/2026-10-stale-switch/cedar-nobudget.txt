@@ -1,4 +1,4 @@
-# Cedar without -runs: 5 trials x 30 min; binary 424bafda2341.
+# Cedar without -runs: 5 trials x 30 min; binary 424bafda2341; gate-stats.py (p vs auto-dw+cmp).
 # /local/home/mwhicks/fuzz-data/st/nobudget/gen-traced: 1,323,104 tests; 30.0 min (the fastest trial's end)
 arm                       n  edges@tests      p  edges@time      p  tests/s  ratio   distinct  size
 auto-dw+cmp+time=1800     5        7,313              7,320             963   1.00    800,493    12
