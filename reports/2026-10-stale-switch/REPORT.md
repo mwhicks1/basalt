@@ -235,5 +235,10 @@ for long as dropped (a heuristic).
 - **`4E` is worse and `E/4` no better,** so the derived `E` sits in a good region for the first switch.
   The fuzzing side needs per-corpus judging; per-input judging (plain `auto-stale`) hands back too
   readily, though at little cost.
-- **Next for the rule:** the per-seed version, if libFuzzer's corpus can be exposed, and the early end
-  of fruitless random rounds.
+- **Decision (2026-10-27): `auto-stale-corpus` stands as the approximation of the per-seed principle.**
+  The aggregate rule miscounts the corpus only as a scale error (finds overstate libFuzzer's corpus
+  by ~1.2–1.3×, so fuzzing is judged a little more patiently), where the per-seed rule fails
+  structurally (one seed libFuzzer drops never spends its budget). No change to libFuzzer.
+- **Kept for later:** a tighter corpus estimate for the aggregate rule, the number of distinct inputs
+  libFuzzer has picked to mutate (certainly in its corpus; a slight undercount where finds overcount);
+  and ending a fruitless random round early, which would remove the 2× cost on the needles.
