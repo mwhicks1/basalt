@@ -20,6 +20,9 @@ cd "$(dirname "$0")/.."
 # `-P` resolves symlinks so ROOT matches the physical paths Lake writes into the link response file
 # (e.g. a `/home` → `/local/home` symlink would otherwise misclassify every object in the scope check).
 ROOT=$(pwd -P)
+# Dependencies built as part of the fuzz target force-include this header too, when their lakefile asks
+# for it (Cedar's does): it makes Lean `Nat` comparisons reach the comparison hook (`--nat-cmp`).
+export BASALT_NAT_HOOK="$ROOT/Basalt/Fuzz/nat_hook.h"
 
 # shellcheck source=/dev/null   # optional and git-ignored; nothing to follow
 if [ -f fuzz-run/env.sh ]; then . fuzz-run/env.sh; fi
