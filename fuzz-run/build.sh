@@ -34,6 +34,9 @@ cd "$ROOT"
 # Dependencies built as part of the fuzz target force-include this header too, when their lakefile asks
 # for it (Cedar's does): it makes Lean `Nat` comparisons reach the comparison hook (under `--cmp`).
 export BASALT_NAT_HOOK="$BASALT/Basalt/Fuzz/nat_hook.h"
+# Basalt's own libraries name the header relative to Basalt's root (lakefile.toml); clang finds it there
+# through `CPATH` when Basalt is built as another package's dependency, from that package's root.
+export CPATH="$BASALT${CPATH:+:$CPATH}"
 
 # shellcheck source=/dev/null   # optional and git-ignored; nothing to follow
 if [ -f "$ROOT/fuzz-run/env.sh" ]; then . "$ROOT/fuzz-run/env.sh"
