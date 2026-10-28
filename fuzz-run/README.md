@@ -183,6 +183,7 @@ seconds, once). Instrumentation itself needs nothing extra.
 ```bash
 fuzz-run/basalt-fuzz [--backend=fuzz|io|plausible|io-libfuzzer] <property> [-runs=N] [-discard_ratio=N] [libFuzzer args...]
 fuzz-run/basalt-fuzz <property> --truncate                 # fuzz backend only, see below
+fuzz-run/basalt-fuzz <property> --hybrid[=stale|window|N]  # fuzz backend only: random first, see below
 fuzz-run/basalt-fuzz replay <property> <file>      # reproduce a saved input, no fuzzer
 ```
 
@@ -207,8 +208,9 @@ corpus. The random backends read `-runs=N` from the same spelling, plus `-discar
 discard budget (`Basalt/PBT/Driver.lean`), and ignore the rest — under `fuzz`, libFuzzer owns the
 loop, so a discarded input is a `-1` return and neither budget applies.
 
-`--backend=` and `--truncate` are Basalt's own and are consumed before libFuzzer sees the command line;
-everything else is forwarded verbatim, and libFuzzer rejects a flag it does not know.
+`--backend=`, `--truncate` and the [hybrid](#hybrid-campaigns) flags are Basalt's own and are consumed
+before libFuzzer sees the command line; everything else is forwarded verbatim, and libFuzzer rejects
+a flag it does not know.
 
 ## Backends
 
@@ -324,6 +326,85 @@ suite for the whole campaign (hence the `LLVMFuzzerMutate` delegation), and it m
 `-len_control` length ramp. Truncating is no reason to change the campaign's length regime, so
 `withDefaults` (`Basalt/Fuzz/Runner.lean`) puts libFuzzer's own default ramp back. An explicit
 `-len_control=N` always wins.
+
+## Hybrid campaigns
+
+Random generation and coverage-guided mutation win at different budgets and on different bugs: random
+covers breadth cheaply and finds shallow bugs first, and the fuzzer gets behind guards random cannot
+stumble through. A *hybrid* campaign runs both in one libFuzzer loop: random first, then fuzzing seeded
+with the random tests that reached new coverage, and, under the default rule, back and forth.
+
+| flag | meaning |
+|---|---|
+| `--hybrid`, `--hybrid=stale` | switch in both directions by stale effort (below); the rule to reach for |
+| `--stale-scale=s` | that rule's effort, times `s` (default `1`) |
+| `--hybrid=window` | switch once, to fuzzing, when the random round's finds level off (below) |
+| `--level=φ`, `--confidence=c` | that rule's parameters, default `1` and `10` |
+| `--hybrid=N` | switch once, to fuzzing, after `N` random tests |
+
+Every round's tests count against the one `-runs` budget, so a campaign is the same length either way.
+`-max_len` defaults to 65536 and the `-len_control` ramp stays off: a seed is as long as its run read,
+and the ramp would hold its mutations to that length for most of the campaign.
+
+**A random test has to become a corpus input.** `RecordGen` (`Basalt/Fuzz/Record.lean`) makes each
+choice from SplitMix, uniformly as `IO` does, and records bytes that `FuzzGen`'s `choose` decodes to
+that choice: for a value `d` of a range of `r` outcomes it writes `d + r·k` for a random `k` that fits
+the `bytesFor r` bytes `choose` will read, since `FuzzGen` reduces modulo `r`. Two simpler encodings
+fail. Random bytes decoded by `FuzzGen` have the wrong distribution — modulo reduction makes `0..55`
+twice as likely as `56..199` from one byte — and the wrong length. A recorded buffer is exactly as long
+as its run read. `readNat_recordDraw` proves the decoding per draw; that a whole run replays is a free
+theorem of the generator's polymorphism, which `BasaltTest/Fuzz.lean` pins instead.
+
+**One loop, two modes.** In a random round the callback ignores libFuzzer's buffer, runs the property
+at `RecordGen`, and returns `-1`, so libFuzzer neither keeps the input nor records its features;
+`native.c` judges the test itself, by the same notion of a feature [truncation](#truncation) uses. A
+*find* is a test that reached a feature no earlier test of either mode did. On the switch to fuzzing
+the round's finds are reduced by greedy set cover over the features that round discovered (admission
+one test at a time cannot drop a seed a later one subsumes), and the custom mutator hands them to
+libFuzzer one per call, so each enters the corpus by libFuzzer's own rule. A switch back loses nothing:
+libFuzzer's corpus stays in memory and the next fuzzing round resumes from it.
+
+**The stale rule** ends a round, in either mode, once it has gone `E` tests without a find, and never
+before 256 tests. `E = L̄ · ln L̄`, `L̄` the finds' mean length in bytes: libFuzzer's mutations land at
+random positions, so touching each of an input's `L̄` bytes once takes about `L̄ · ln L̄` of them (the
+coupon collector's bound). Fuzzing spends that on every corpus input, so its `E` is multiplied by the
+number of finds, which stands in for the corpus's size (libFuzzer exposes no corpus API; finds
+somewhat overstate it, which only makes fuzzing judged a little more patiently). Each mode is judged by its own effort since its round began, never by its rate against the
+other's, since each inherits most of its coverage from the other. Nothing in the rule depends on the
+budget, so it works the same without `-runs`. Its cost is the floor: on a target where random finds
+nothing, every random round still runs its 256 tests.
+
+**The window rule** compares random only with its own record: a round is judged over consecutive
+windows of `⌈c/λ⌉` tests, `λ = φ·F/H` the rate at which the rest of the budget `H` would add a further
+`φ` of the `F` finds so far, and hands over at the end of the first window with fewer than `c` finds.
+It waits in proportion to the budget, so a target where random finds almost nothing stays random for
+most of it, and without `-runs` it has no horizon. It is kept as the comparison the stale rule replaced.
+
+**Measured.** `fuzz-run/compare-settings.sh`, 300 campaigns per cell, Amazon Linux 2023 x86_64,
+`-len_control=0 -max_len=65536` throughout:
+
+| property | budget | fuzzing only | `--hybrid` | `--hybrid=window` | `--hybrid=100` |
+|---|---|---|---|---|---|
+| `chain-3` | 1,000 runs | 46.3% ±2.9 | **83.3%** ±2.2 | 67.3% ±2.7 | 58.3% ±2.8 |
+| `chain-4` | 1,200 | 50.0% ±2.9 | **73.0%** ±2.6 | 62.3% ±2.8 | 63.3% ±2.8 |
+| `long-16` | 3,000 | 71.7% ±2.6 | 49.7% ±2.9 | 46.0% ±2.9 | **75.0%** ±2.5 |
+
+`chain-n`'s first guard is a uniform 1-in-256 byte, which random hits at exactly that rate while
+libFuzzer, starting from an empty input, must first insert a byte and get its value right: random banks
+the first stage and hands over a seed already past it. `long-16` is the cost of the floor: random never
+reaches a long run, and every random round still takes 256 tests, so the modes alternate and random
+takes a large share of a small budget. These benchmarks put one bug behind nested guards, so they
+measure depth, not the breadth a hybrid is for; the BasaltBench repository measures that, on proved
+generators driving Cedar, lean-mc and Strata.
+
+Three consequences. A counterexample found in a random round is written as `crash-random-<n>` under
+`-artifact_prefix` and replays like any other artifact, because it *is* a `FuzzGen` buffer; the bridge
+exits past libFuzzer's exit hook, which would otherwise save the buffer in hand — not that test's input
+— as the crash. Novelty in a random round is judged on the code that runs then, which includes the
+generator's `RecordGen` specialization rather than its `FuzzGen` one; libFuzzer judges each seed again
+when it is handed over, so the cost is keeping seeds a `FuzzGen` run would not have, never losing one
+it would, though those finds also count toward both rules' `F`. And the budget is in tests, not time: a random test is cheaper than a fuzzing one, which
+`-max_total_time` does not see.
 
 ## What a run looks like
 
