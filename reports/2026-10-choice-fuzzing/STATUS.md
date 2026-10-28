@@ -13,6 +13,10 @@ at a time on this 8-core machine.
 
 ## Log
 
+- 2026-10-28 — **`--nat-cmp` folded into `--cmp`.** **To do:** port the `BASALT_NAT_HOOK` lakefile change
+  to the mainline Cedar (`basalt-integration`) and bump Basalt's pinned revision
+  ([`../2026-10-nat-cmp/REPORT.md`](../2026-10-nat-cmp/REPORT.md), Conclusions).
+
 - 2026-10-27 — **`--nat-cmp`** ([`../2026-10-nat-cmp/REPORT.md`](../2026-10-nat-cmp/REPORT.md)): a
   force-included `nat_hook.h` makes Lean `Nat` comparisons reach the comparison hook. Needles with
   literals off: 799 / 3,154 tests with the hook against 145k / 98k without (literals alone: 6.3k /

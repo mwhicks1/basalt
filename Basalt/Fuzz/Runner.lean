@@ -44,7 +44,8 @@ opaque noteTraceImpl (cursor : UInt64) (trace : @& Array UInt64) : BaseIO Unit
 instead of `0`; `probe` records every draw and has the bridge keep the traces of runs that reached
 new coverage, discarding them (the cost probe); `mutations` logs, per mutated input, why it repeats
 its parent (`BASALT_M` lines); `cmp` records every fuzz-mode run's draws so the mutator can plant
-compared operands into them, as libFuzzer's CMP mutation does (`native.c`, "`--cmp`"). Truncating an
+compared operands into them, as libFuzzer's CMP mutation does (`native.c`, "`--cmp`"), Lean `Nat`
+comparisons included (`nat_hook.h`). Truncating an
 input to the bytes its run read, as Zest's `gc()` does, is not a variation: the byte fuzzer always
 does it. -/
 structure Diag where
@@ -52,8 +53,6 @@ structure Diag where
   probe : Bool := false
   mutations : Bool := false
   cmp : Bool := false
-  /-- Lean `Nat` comparisons reach the comparison hook (`nat_hook.h`). -/
-  natCmp : Bool := false
   /-- `--cmp` plants no harvested literals, only compared operands. -/
   noLiterals : Bool := false
 
@@ -61,11 +60,11 @@ structure Diag where
 def Diag.config (d : Diag) : FuzzConfig :=
   { randomFill := d.randomFill, record := d.probe || d.mutations || d.cmp }
 
-/-- The bridge's mode bits: 1 random fill, 2 probe, 4 mutation log, 128 cmp, 256 nat-cmp, 512
-no-literals. -/
+/-- The bridge's mode bits: 1 random fill, 2 probe, 4 mutation log, 128 cmp (with Lean `Nat`
+comparisons reaching the hook, `nat_hook.h`), 512 no-literals. -/
 def Diag.modes (d : Diag) : UInt32 :=
   (if d.randomFill then 1 else 0) + (if d.probe then 2 else 0) + (if d.mutations then 4 else 0) +
-  (if d.cmp then 128 else 0) + (if d.natCmp then 256 else 0) + (if d.noLiterals then 512 else 0)
+  (if d.cmp then 128 else 0) + (if d.noLiterals then 512 else 0)
 
 /-- Run the property on one input, reporting the byte codes the C bridge expects: `0` = pass,
 `1` = failed (the bridge then aborts, so the report must already be flushed), `2` = discard.
@@ -235,7 +234,7 @@ private def decimal? (s : String) : Option Float :=
 
 /-- Basalt's flags, each `--name` or `--name=value`. -/
 private def ours : List String :=
-  ["--grow", "--fill", "--fill-policy", "--trace-probe", "--diag-mutations", "--cmp", "--nat-cmp", "--no-literals", "--warmup", "--warmup-stall", "--switch-back", "--level", "--confidence", "--switch-rule", "--switch-floor", "--switch-quiet", "--switch-base", "--stale-scale", "--stale-on", "--stale-corpus", "--stale-seeds"]
+  ["--grow", "--fill", "--fill-policy", "--trace-probe", "--diag-mutations", "--cmp", "--no-literals", "--warmup", "--warmup-stall", "--switch-back", "--level", "--confidence", "--switch-rule", "--switch-floor", "--switch-quiet", "--switch-base", "--stale-scale", "--stale-on", "--stale-corpus", "--stale-seeds"]
 
 private def isOurs (a : String) : Bool :=
   ours.any fun f => a == f || a.startsWith (f ++ "=")
@@ -252,7 +251,7 @@ def splitFlags (argv : Array String) : FuzzFlags × Array String :=
   let fill := valueOf? argv "--fill"
   let diag : Diag := { randomFill := fill == some "random", probe := argv.contains "--trace-probe",
                        mutations := argv.contains "--diag-mutations",
-                       cmp := argv.contains "--cmp", natCmp := argv.contains "--nat-cmp",
+                       cmp := argv.contains "--cmp",
                        noLiterals := argv.contains "--no-literals" }
   let bad := argv.filter (fun a => a.startsWith "--grow=" || a.startsWith "--switch-back=" ||
       a.startsWith "--trace-probe=" || a.startsWith "--diag-mutations=" || a.startsWith "--cmp=" ||

@@ -5,7 +5,7 @@ Authors: Michael Hicks
 */
 /* Lean `Nat` comparisons, made visible to the comparison hook. Force-included (`-include`) into the
    instrumented libraries' C: for small values `lean_nat_eq`/`lt`/`le` compare tagged pointers, which
-   SanitizerCoverage's `trace-cmp` does not instrument, so under `--nat-cmp` (`basalt_nat_hook_on`,
+   SanitizerCoverage's `trace-cmp` does not instrument, so under `--cmp` (`basalt_nat_hook_on`,
    set by `native.c`; weak, so a binary without the bridge links and never calls it) each wrapper
    hands the untagged operands to the 8-byte hook first. Lean's generated code is unchanged: the
    macros below rename the calls it makes after its own `#include <lean/lean.h>`. */

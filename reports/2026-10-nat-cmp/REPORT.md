@@ -102,7 +102,11 @@ does with 10 trials.
   directly. With the scan as well it is fastest.
 - **It is free where it does not help.** On Cedar it changes neither coverage, nor faults, nor
   throughput.
-- **So it can be on by default with `--cmp`.** The scan stays as a cheap fallback.
-- **The mainline Cedar** (`basalt-integration`) does not have the `BASALT_NAT_HOOK` lakefile change
-  yet; only the faulty-Cedar branch does. Since the hook does not help on Cedar, that is not urgent.
+- **Done (2026-10-28): the hook is part of `--cmp`,** and the `--nat-cmp` flag is gone. With literals
+  off, plain `--cmp` now finds `needle` at 751 tests and `needle-2` at 892 (one trial each). The scan
+  stays as a cheap fallback; `--no-literals` remains, for measurement.
+- **To do later: the mainline Cedar** (`basalt-integration` on `mwhicks1/cedar-spec`) needs the
+  `BASALT_NAT_HOOK` lakefile change (`basalt-mutants` `c91909e4`), and Basalt's `lake-manifest.json`
+  the new revision. Until then the mainline `basalt-fuzz` hooks Basalt's code only, not Cedar's. Not
+  urgent, since the hook does not help on Cedar.
 - **Next** on the `--cmp` plan: 1-/2-byte and `switch` hooks (step 3).

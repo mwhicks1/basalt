@@ -21,7 +21,7 @@ cd "$(dirname "$0")/.."
 # (e.g. a `/home` → `/local/home` symlink would otherwise misclassify every object in the scope check).
 ROOT=$(pwd -P)
 # Dependencies built as part of the fuzz target force-include this header too, when their lakefile asks
-# for it (Cedar's does): it makes Lean `Nat` comparisons reach the comparison hook (`--nat-cmp`).
+# for it (Cedar's does): it makes Lean `Nat` comparisons reach the comparison hook (under `--cmp`).
 export BASALT_NAT_HOOK="$ROOT/Basalt/Fuzz/nat_hook.h"
 
 # shellcheck source=/dev/null   # optional and git-ignored; nothing to follow

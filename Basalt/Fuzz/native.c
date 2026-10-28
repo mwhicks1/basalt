@@ -173,7 +173,7 @@ static int g_trunc;                    /* cut inputs to the bytes their run read
 static size_t basalt_choice_mutate(const uint8_t *Data, size_t Size, const uint8_t *Donor,
                                    size_t DSize, uint8_t *Out, size_t MaxSize, unsigned Seed);
 static int g_cmp;                      /* `--cmp`: compared operands planted, as libFuzzer's CMP  */
-/* `--nat-cmp`: Lean `Nat` comparisons reach the comparison hook (`nat_hook.h`, which reads this). */
+/* Under `--cmp`, Lean `Nat` comparisons reach the comparison hook too (`nat_hook.h`, which reads this). */
 int basalt_nat_hook_on = 0;
 static size_t basalt_cmp(uint8_t *Data, size_t Size, size_t MaxSize);
 static inline int basalt_tracing(void) { return g_cmp; }
@@ -1776,7 +1776,7 @@ LEAN_EXPORT lean_object *basalt_fuzz_go(lean_object *run, lean_object *argv, uin
   g_choice = (modes & 8) != 0;
   g_trunc = !g_choice;                /* the byte fuzzer always truncates; choice inputs are records */
   g_cmp = (modes & 128) != 0;
-  basalt_nat_hook_on = (modes & 256) != 0;
+  basalt_nat_hook_on = g_cmp;
   if (modes & 512) g_lits_n = 0;              /* `--no-literals`: harvested literals unused          */
   if (basalt_mix64(1) != 6238072747940578789ULL)
     basalt_fuzz_die("basalt_mix64 disagrees with Basalt.Fuzz.mix64");

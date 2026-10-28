@@ -29,7 +29,6 @@
 #   +probe       the trace cost probe (`--trace-probe`)
 #   +diag        the mutation log (`--diag-mutations`)
 #   +cmp         plant compared operands into recorded draws, as libFuzzer's CMP mutation (`--cmp`)
-#   +natcmp      Lean `Nat` comparisons reach the comparison hook (`--nat-cmp`)
 #   +nolits      `--cmp` plants no harvested literals (`--no-literals`)
 #   +time=S      stop after S seconds (`-max_total_time=S`); with RUNS=-1 the campaign has no `-runs`
 #   +simplest    the choice backend's misfit fill is the least value (`--fill-policy=simplest`)
@@ -71,7 +70,6 @@ for m in "${ms[@]}"; do
     probe) flags+=(--trace-probe) ;;
     diag)  flags+=(--diag-mutations) ;;
     cmp) flags+=(--cmp) ;;
-    natcmp) flags+=(--nat-cmp) ;;
     nolits) flags+=(--no-literals) ;;
     time=*) flags+=(-max_total_time="${m#time=}") ;;
     simplest) flags+=(--fill-policy=simplest) ;;
