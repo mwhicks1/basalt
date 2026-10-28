@@ -163,10 +163,11 @@ private theorem le_pow_bytesFor (range : Nat) : range ≤ 256 ^ bytesFor range :
 are read back by `FuzzGen`'s `readNat` as the `raw` it drew — so `FuzzGen`'s `choose` makes that
 same choice and leaves its cursor where the next draw's bytes begin. The bytes are in the buffer,
 so nothing past it is read. -/
-theorem readNat_recordDraw (s : RecordState) (range : Nat) (hr : 0 < range) (post : ByteArray) :
-    readNat ⟨(recordDraw s range).2.bytes ++ post, s.bytes.size⟩ (bytesFor range) =
+theorem readNat_recordDraw (s : RecordState) (range : Nat) (hr : 0 < range) (post : ByteArray)
+    (trace : Option ByteArray) :
+    readNat ⟨(recordDraw s range).2.bytes ++ post, s.bytes.size, trace⟩ (bytesFor range) =
       ((recordDraw s range).1,
-       ⟨(recordDraw s range).2.bytes ++ post, s.bytes.size + bytesFor range⟩) := by
+       ⟨(recordDraw s range).2.bytes ++ post, s.bytes.size + bytesFor range, trace⟩) := by
   have hpow := le_pow_bytesFor range
   have hd := SplitMix.randNat_mem s.rng (Nat.zero_le (range - 1))
   generalize hdg : s.rng.randNat 0 (range - 1) = dg at hd

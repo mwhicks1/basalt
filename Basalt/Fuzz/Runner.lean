@@ -37,6 +37,19 @@ opaque goImpl (run : ByteArray → IO UInt8) (argv : Array String) (guided trunc
 @[extern "basalt_fuzz_note_cursor"]
 opaque noteCursorImpl (cursor : UInt64) : BaseIO Unit
 
+/-- Hand the C bridge a recorded run's draws (`FuzzResult.trace`), for `--cmp` to write into. -/
+@[extern "basalt_fuzz_note_trace"]
+opaque noteTraceImpl (trace : @& ByteArray) : BaseIO Unit
+
+/-- Arm `--cmp` in the C bridge: plant compared operands into recorded draws, and with `literals` the
+constants offered by `cmpLiteralImpl` too (`fuzz-run/README.md`, "Planting compared values"). -/
+@[extern "basalt_cmp_arm"]
+opaque cmpArmImpl (literals : Bool) : IO Unit
+
+/-- Offer `--cmp` a constant of the target's own (`harvested_literals%`). -/
+@[extern "basalt_cmp_literal"]
+opaque cmpLiteralImpl (n : UInt64) : BaseIO Unit
+
 /-- Count a run's outcome in `counters` and give the C bridge its code: `0` = pass, `1` = failed,
 `2` = discard. A failure is reported by `onFail` with the tests run so far (`runs`, then discards)
 before `1` is returned, since the bridge then aborts. The tally is kept here because libFuzzer's own
@@ -52,11 +65,12 @@ def tally (counters : IO.Ref (Nat × Nat)) (outcome : TestOutcome)
     onFail msg runs discards
     pure 1
 
-/-- Run the property on one input, for the C bridge (`tally`). -/
-def runOneIO (counters : IO.Ref (Nat × Nat)) (T : PropM FuzzGen Unit)
+/-- Run the property on one input, for the C bridge (`tally`); `record` records its draws. -/
+def runOneIO (counters : IO.Ref (Nat × Nat)) (T : PropM FuzzGen Unit) (record : Bool)
     (bytes : ByteArray) : IO UInt8 := do
-  let r := runOne T bytes -- run the property test
+  let r := runOne T bytes record -- run the property test
   noteCursorImpl r.cursor.toUInt64 -- the bytes it read, for `--truncate`
+  if record then noteTraceImpl r.trace
   tally counters r.outcome fun msg runs discards =>
     reportFailure msg
       #[("input bytes", s!"{bytes.toList.map (fun b => b.toNat)}"),
@@ -67,7 +81,7 @@ def runOneIO (counters : IO.Ref (Nat × Nat)) (T : PropM FuzzGen Unit)
 `-runs`, `-max_len`, `-artifact_prefix`, …). A failure aborts the process, with the artifact saved and
 the exit code set by libFuzzer. -/
 def go (T : PropM FuzzGen Unit) (argv : Array String := #[]) (truncate : Bool := false)
-    (counters? : Option (IO.Ref (Nat × Nat)) := none) : IO Unit := do
+    (counters? : Option (IO.Ref (Nat × Nat)) := none) (record : Bool := false) : IO Unit := do
   IO.println s!"[basalt] starting libFuzzer campaign ({argv.toList})"
   -- libFuzzer announces that the linked custom mutator disables `-len_control`; an explicit flag
   -- wins over that default (`withDefaults`), so say so.
@@ -77,7 +91,7 @@ def go (T : PropM FuzzGen Unit) (argv : Array String := #[]) (truncate : Bool :=
   let counters ← match counters? with | some c => pure c | none => IO.mkRef (0, 0)
   -- Report nothing after `goImpl`: libFuzzer `exit()`s when `-runs` is exhausted, so a line placed
   -- there silently never appears (the tally lives in `runOneIO`, the statistics in an `atexit`).
-  goImpl (fun bytes => runOneIO counters T bytes) argv true truncate
+  goImpl (fun bytes => runOneIO counters T record bytes) argv true truncate
 
 /-- Run the property once at `IO`, ignoring libFuzzer's buffer (`tally`). A failure is reported with
 no input bytes: the choices came from the PRNG. -/
@@ -160,7 +174,7 @@ private def strFlag? (argv : Array String) (flag : String) : Option String :=
 
 /-- A hybrid campaign: random and coverage-guided rounds in one libFuzzer loop, switching by `rule`.
 Every round's tests count against the one `-runs` budget. -/
-def goHybrid (T : Property) (rule : SwitchRule) (argv : Array String) (truncate : Bool) :
+def goHybrid (T : Property) (rule : SwitchRule) (argv : Array String) (truncate record : Bool) :
     IO Unit := do
   let budget := (strFlag? argv "-runs=" |>.bind String.toNat?).getD 0
   IO.println s!"[basalt] hybrid campaign: random first, then {match rule with
@@ -173,7 +187,7 @@ def goHybrid (T : Property) (rule : SwitchRule) (argv : Array String) (truncate 
   let (tag, tests, a, b) := rule.encode
   hybridConfigImpl (runOneRecorded counters (T RecordGen) gen artifactPrefix) tag tests a b
     budget.toUInt64
-  go (T FuzzGen) argv truncate counters
+  go (T FuzzGen) argv truncate counters record
 
 /-- A decimal such as `0.5` or `10`. -/
 private def decimal? (s : String) : Option Float :=
@@ -190,6 +204,8 @@ structure FuzzFlags where
   /-- `--truncate`. -/
   truncate : Bool := false
   hybrid : Option SwitchRule := none
+  /-- `--cmp`, and whether it plants the harvested literals too (not under `--no-literals`). -/
+  cmp : Option Bool := none
   /-- What goes to libFuzzer. -/
   rest : Array String := #[]
   /-- The flags given malformed, or given where nothing reads them. -/
@@ -197,7 +213,8 @@ structure FuzzFlags where
 
 /-- Basalt's own fuzz flags, each `--name` or `--name=value`, consumed before libFuzzer sees `argv`,
 which rejects a flag it does not recognize. -/
-private def ours : List String := ["--truncate", "--hybrid", "--stale-scale", "--level", "--confidence"]
+private def ours : List String :=
+  ["--truncate", "--hybrid", "--stale-scale", "--level", "--confidence", "--cmp", "--no-literals"]
 
 /-- The value of `--name=V`, if given. -/
 private def valueOf? (argv : Array String) (name : String) : Option String :=
@@ -225,8 +242,11 @@ def splitFlags (argv : Array String) : FuzzFlags :=
     let window := match r with | some (.window ..) => true | _ => false
     (if given "--stale-scale" && !stale then #["--stale-scale"] else #[]) ++
     #["--level", "--confidence"].filter (fun n => given n && !window)
-  let f : FuzzFlags := { truncate := argv.contains "--truncate", rest := argv.filter (!isOurs ·),
-                         bad := argv.filter (·.startsWith "--truncate=") }
+  let cmp := if argv.contains "--cmp" then some !(argv.contains "--no-literals") else none
+  let f : FuzzFlags := { truncate := argv.contains "--truncate", cmp, rest := argv.filter (!isOurs ·),
+                         bad := argv.filter fun a => a.startsWith "--truncate=" ||
+                           a.startsWith "--cmp=" || a.startsWith "--no-literals=" ||
+                           (a == "--no-literals" && cmp.isNone) }
   match rule with
   | .ok r => { f with hybrid := r, bad := f.bad ++ stray r }
   | .error n => { f with bad := f.bad.push n }
@@ -242,21 +262,22 @@ def withDefaults (hybrid : Bool) (argv : Array String) : Array String :=
   if hybrid then argv |> set "-len_control=" "0" |> set "-max_len=" "65536"
   else argv |> set "-len_control=" "100"
 
-/-- The coverage-guided backend, for `Basalt.PBT.dispatch`. `--truncate` and `--hybrid` are Basalt's own
-(`fuzz-run/README.md`); the rest of `argv` goes to libFuzzer, and a saved artifact — which *is* a
-`FuzzGen` input buffer — can be replayed. -/
+/-- The coverage-guided backend, for `Basalt.PBT.dispatch`. `--truncate`, `--hybrid` and `--cmp` are
+Basalt's own (`fuzz-run/README.md`); the rest of `argv` goes to libFuzzer, and a saved artifact —
+which *is* a `FuzzGen` input buffer — can be replayed. -/
 @[basalt_backend]
 def fuzzBackend : Backend where
   name := "fuzz"
   campaign T argv := do
     let f := splitFlags argv
     if !f.bad.isEmpty then
-      usageError s!"malformed: {f.bad.toList}; --truncate takes no value, --hybrid is stale, window or \
-        a number of tests, --stale-scale (stale only), --level and --confidence (window only) take a \
-        positive decimal"
+      usageError s!"malformed: {f.bad.toList}; --truncate, --cmp and --no-literals take no value, \
+        --no-literals needs --cmp, --hybrid is stale, window or a number of tests, --stale-scale \
+        (stale only), --level and --confidence (window only) take a positive decimal"
+    if let some literals := f.cmp then cmpArmImpl literals
     match f.hybrid with
-    | some rule => goHybrid T rule (withDefaults true f.rest) f.truncate
-    | none => go (T FuzzGen) (withDefaults false f.rest) f.truncate
+    | some rule => goHybrid T rule (withDefaults true f.rest) f.truncate f.cmp.isSome
+    | none => go (T FuzzGen) (withDefaults false f.rest) f.truncate none f.cmp.isSome
   replay? := some (fun T path => replay (T FuzzGen) path)
 
 /-- Random `IO` choices, run and coverage-counted by libFuzzer (`goRandom`): the baseline that

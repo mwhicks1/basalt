@@ -10,7 +10,9 @@ public import Basalt.Fuzz.Runner
 meta import Basalt.Fuzz.Runner
 public import BasaltExamples.BST
 meta import BasaltExamples.BST
+public import Basalt.Fuzz.Literals
 public import BasaltFuzz.BuggyBST
+public import BasaltFuzz.Staged
 
 /-!
 # `FuzzGen` regression tests
@@ -126,6 +128,47 @@ node, `genBST` recurses on both subtrees and each reads a `frequency` byte past 
 /-- info: pass (read 4, short 2) -/
 #guard_msgs in #eval IO.println (renderRead (runOne propBSTsizeNonneg (bytes [1, 5])))
 
+/-! ### Recorded draws
+
+Under `--cmp` a run records its draws, and the bridge writes a value `v` into one by overwriting the
+draw's bytes with `v - lo`, big-endian. These pin the record — `lo`, `hi`, the value, and the cursor
+where the draw's bytes start — and that such a write decodes back to `v`. -/
+
+/-- A trace's words (`FuzzState.trace`). -/
+private def words (t : ByteArray) : List Nat :=
+  (List.range (t.size / 8)).map fun w => (List.range 8).foldr (fun i acc => acc * 256 + (t.get! (8 * w + i)).toNat) 0
+
+/- `[7, 3]`: two one-byte draws in `[0, 9]`, at bytes 0 and 1. -/
+/-- info: [0, 9, 7, 0, 0, 9, 3, 1] -/
+#guard_msgs in #eval IO.println (words (runOne propTwo (bytes [7, 3]) (record := true)).trace)
+
+/- A draw past `2^64` is not recorded: the trace's words could not hold it. -/
+/-- info: [] -/
+#guard_msgs in #eval IO.println
+  (words (runOne (forAll (chooseNat 0 (2 ^ 70)) (fun _ => true)) (bytes [1]) (record := true)).trace)
+
+/- A draw in `[3, 70000]` reads three bytes; `0xDEAD` written there as `0xDEAD - 3` decodes to it. -/
+private def propWide : PropM FuzzGen Unit := do
+  let x ← generate (chooseNat 3 70000)
+  check false s!"{x}"
+
+/-- info: fail: 57005 -/
+#guard_msgs in #eval IO.println (render (runOne propWide (bytes [0x00, 0xDE, 0xAA])))
+
+namespace LiteralPins
+theorem named : (40503 : Nat) * 1 = 40503 := Nat.mul_one 40503
+theorem proved : True := by have : (77777 : Nat) = 77777 := rfl; trivial
+end LiteralPins
+
+/- A theorem's statement contributes its literals; its proof, which never runs, does not. -/
+/-- info: (true, false) -/
+#guard_msgs in #eval IO.println
+  (((harvested_literals% LiteralPins).contains 40503, (harvested_literals% LiteralPins).contains 77777))
+
+/- The needle's constant is among `Staged`'s harvested literals. -/
+/-- info: true -/
+#guard_msgs in #eval IO.println ((harvested_literals% Staged).contains 0xDEADBEEF)
+
 /-! ### One property, every backend
 
 `basalt-fuzz --backend=` rests on one registry entry (a `Basalt.PBT.Property`) running at `FuzzGen`,
@@ -173,7 +216,7 @@ private def agreeOn (bs : List UInt8) : String :=
   let hi := BuggyBST.hiKey
   let orig : FuzzGen String := showOrig <$> BST.Tree.genBST lo hi
   let copy : FuzzGen String := showCopy <$> BuggyBST.genBST lo hi
-  let run (g : FuzzGen String) : Option String := (g.run ⟨⟨bs.toArray⟩, 0⟩).map (·.1)
+  let run (g : FuzzGen String) : Option String := (g.run { buffer := ⟨bs.toArray⟩, cursor := 0 }).map (·.1)
   match run orig, run copy with
   | some a, some b => if a == b then s!"agree: {a}" else s!"DIFFER: example={a} fuzz={b}"
   | _, _ => "one generator failed to produce a value"

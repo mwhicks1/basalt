@@ -184,6 +184,7 @@ seconds, once). Instrumentation itself needs nothing extra.
 fuzz-run/basalt-fuzz [--backend=fuzz|io|plausible|io-libfuzzer] <property> [-runs=N] [-discard_ratio=N] [libFuzzer args...]
 fuzz-run/basalt-fuzz <property> --truncate                 # fuzz backend only, see below
 fuzz-run/basalt-fuzz <property> --hybrid[=stale|window|N]  # fuzz backend only: random first, see below
+fuzz-run/basalt-fuzz <property> --cmp [--no-literals]      # fuzz backend only: plant compared values
 fuzz-run/basalt-fuzz replay <property> <file>      # reproduce a saved input, no fuzzer
 ```
 
@@ -201,6 +202,7 @@ Properties (see `BasaltFuzzMain.lean` and `BasaltFuzz/`):
 | `bst-buggy-delete` | a `delete` that silently drops keys; the output is still a valid BST, so only the model comparison catches it |
 | `chain-2`/`-3`/`-4` | the staged microbenchmark — a bug behind `n` nested guards |
 | `long-16`/`-32`/`-64` | the mirror image: a run of `n` elements where each position accepts half the byte values, so what binds is the buffer's *length* |
+| `needle`/`-2` | `n` 32-bit constants behind equalities, which only [`--cmp`](#planting-compared-values) finds |
 
 Useful libFuzzer flags: `-runs=N` (bounded campaign), `-max_len=N` (input size),
 `-artifact_prefix=./` (where crashing inputs are written), a positional dir for a seed/growing
@@ -208,9 +210,9 @@ corpus. The random backends read `-runs=N` from the same spelling, plus `-discar
 discard budget (`Basalt/PBT/Driver.lean`), and ignore the rest — under `fuzz`, libFuzzer owns the
 loop, so a discarded input is a `-1` return and neither budget applies.
 
-`--backend=`, `--truncate` and the [hybrid](#hybrid-campaigns) flags are Basalt's own and are consumed
-before libFuzzer sees the command line; everything else is forwarded verbatim, and libFuzzer rejects
-a flag it does not know.
+`--backend=`, `--truncate`, the [hybrid](#hybrid-campaigns) flags and
+[`--cmp`](#planting-compared-values) are Basalt's own and are consumed before libFuzzer sees the command
+line; everything else is forwarded verbatim, and libFuzzer rejects a flag it does not know.
 
 ## Backends
 
@@ -383,11 +385,11 @@ most of it, and without `-runs` it has no horizon. It is kept as the comparison 
 **Measured.** `fuzz-run/compare-settings.sh`, 300 campaigns per cell, Amazon Linux 2023 x86_64,
 `-len_control=0 -max_len=65536` throughout:
 
-| property | budget | fuzzing only | `--hybrid` | `--hybrid=window` | `--hybrid=100` |
-|---|---|---|---|---|---|
-| `chain-3` | 1,000 runs | 46.3% ±2.9 | **83.3%** ±2.2 | 67.3% ±2.7 | 58.3% ±2.8 |
-| `chain-4` | 1,200 | 50.0% ±2.9 | **73.0%** ±2.6 | 62.3% ±2.8 | 63.3% ±2.8 |
-| `long-16` | 3,000 | 71.7% ±2.6 | 49.7% ±2.9 | 46.0% ±2.9 | **75.0%** ±2.5 |
+| property | budget | fuzzing only | `--cmp` | `--hybrid` | `--hybrid --cmp` | `--hybrid=window` | `--hybrid=100` |
+|---|---|---|---|---|---|---|---|
+| `chain-3` | 1,000 runs | 39.7% ±2.8 | 75.3% ±2.5 | **83.7%** ±2.1 | 79.7% ±2.3 | 64.0% ±2.8 | 54.0% ±2.9 |
+| `chain-4` | 1,200 | 44.0% ±2.9 | **74.3%** ±2.5 | 72.3% ±2.6 | 68.3% ±2.7 | 60.0% ±2.8 | 64.3% ±2.8 |
+| `long-16` | 3,000 | 70.0% ±2.6 | 69.0% ±2.7 | 47.7% ±2.9 | 46.3% ±2.9 | 41.0% ±2.8 | **73.3%** ±2.6 |
 
 `chain-n`'s first guard is a uniform 1-in-256 byte, which random hits at exactly that rate while
 libFuzzer, starting from an empty input, must first insert a byte and get its value right: random banks
@@ -405,6 +407,56 @@ generator's `RecordGen` specialization rather than its `FuzzGen` one; libFuzzer 
 when it is handed over, so the cost is keeping seeds a `FuzzGen` run would not have, never losing one
 it would, though those finds also count toward both rules' `F`. And the budget is in tests, not time: a random test is cheaper than a fuzzing one, which
 `-max_total_time` does not see.
+
+## Planting compared values
+
+A guard `x == K` on a drawn value gives coverage nothing to climb: no branch separates a near miss,
+so a 32-bit `K` costs a blind search `2³²` tests. libFuzzer's answer is to watch the program's
+comparisons (`trace-cmp`) and write one operand where the other was (`Mutate_AddWordFromTORC`). That
+does not reach a Basalt generator unaided, for two reasons. libFuzzer writes the word into bytes, and
+`choose` reduces bytes modulo its range, so the bytes that hold `K` do not decode to `K`. And Lean's
+`lean_nat_eq`/`_lt`/`_le` compare *tagged* scalars (`2n+1`), so the compare libFuzzer sees is not
+against `K` at all (only boxed `Nat`s above the scalar range reach the uninstrumented
+`lean_nat_big_*`).
+
+`--cmp` is that mutation at the level of draws. Every run records its draws — range, value, and where
+their bytes start (`FuzzState.trace`). A plant needs the draws of the input being mutated: the last
+run's, when libFuzzer mutates the input it just ran, or else those a cache keeps for each input that
+reached a feature new to libFuzzer, which is what libFuzzer keeps in its corpus (the cache stops
+growing at 256 MB, and the run report says how many it turned away). On 1 in 14 of the custom mutator's calls, beside libFuzzer's own 13
+mutations, it takes a pair `(A, B)` the program compared and writes `B` (or `B ± 1`, as libFuzzer
+does) into a draw whose decoded value is `A`, falling back to any draw whose range admits it. The
+write is exact: `v - lo` big-endian in the draw's own bytes, which `drawStep` decodes back to `v`, and
+the run report counts the plants the next run decoded as planted. The pairs come from:
+
+- the `trace-cmp` hooks of the instrumented code, wrapped at link time (`--wrap`; GNU ld only, so on
+  macOS this source is empty), a tagged pair also kept untagged;
+- Lean `Nat` comparisons: `Basalt/Fuzz/nat_hook.h` is force-included into the fuzz targets
+  (`lakefile.toml`; not Basalt's own code, whose comparisons only crowd the table) and hands the
+  *untagged* operands of `lean_nat_eq` and its kin to the bridge, and on to libFuzzer's own table of
+  recent compares;
+- the target's own `Nat` literals (`harvested_literals%`, `Basalt/Fuzz/Literals.lean`), unpaired, so
+  they take the fallback. `--no-literals` drops them.
+
+A value whose plant reached a new feature is kept, and a third of the picks reuse one, as libFuzzer's
+persistent auto-dictionary does. A code-under-test dependency gets the `Nat` hook by adding
+`-include "$BASALT_NAT_HOOK"` to its own C flags when `build.sh` sets that variable.
+
+**Measured.** The needles, 20 trials each at up to 1M tests, `-len_control=0 -max_len=65536`, median
+tests to the find (every trial found it; without `--cmp`, none is found in 5M tests):
+
+| setting | `needle` | `needle-2` |
+|---|---|---|
+| `--cmp` | 504 | 4,046 |
+| `--cmp --no-literals` | 483 | 4,100 |
+| `--hybrid --cmp` | 946 | 8,645 |
+
+With the literals off, the needles are found from comparisons at run time alone, `needle-2`'s second
+constant `0xDEADBEEF + 1` included, which no literal states. On `chain-n`, whose guards compare
+against the literal `7`, `--cmp` raises the share of campaigns that find the bug, and on `long-16`,
+which has nothing to plant, it costs nothing ([Hybrid campaigns](#hybrid-campaigns) has the table).
+Recording the draws costs throughput in proportion to a test's draws against its other work: 40% on
+`bst-insert`, whose tests take microseconds, and 5–13% on Cedar's generators.
 
 ## What a run looks like
 
@@ -456,20 +508,12 @@ The bytes alone are the whole reproduction, and replay takes no flag: zero-exten
 
 ## Writing a fuzz target: what coverage guidance can and cannot see
 
-Coverage guidance is driven by **branch/structure** coverage, not by guessing wide scalars. Do not
-put a demo bug behind a magic-value `Nat` equality: a 32-bit needle (`x == 0xDEADBEEF` over
-`chooseNat 0 4294967295`) is not found in 5M runs, with or without `-use_cmp`. Design bugs to be
-reachable via new *branches* instead — like the equal-key arm of `insertBuggy`, or `chain-n`'s
-nesting — which the fuzzer explores well.
-
-The reason is worth stating precisely, because the obvious explanation is wrong. `lean_nat_eq`/`_le`
-are `LEAN_ALWAYS_INLINE` with a small-scalar fast path, so they *do* inline into instrumented code
-and *do* emit `-trace-cmp` hooks (`__sanitizer_cov_trace_const_cmp8` is present in the BST object
-file). But the value the hook observes is a **tagged** Lean scalar, `2*n+1` — comparing
-`0x1BD5B7DDF`, not `0xDEADBEEF` — so the literals libFuzzer harvests into its table of recent
-compares never match the bytes `choose` reads out of the input buffer. The signal fires and is
-useless. (Only boxed `Nat`s above the scalar range reach the genuinely uninstrumented
-`lean_nat_big_*` in `libleanshared`.)
+Coverage guidance is driven by **branch/structure** coverage, not by guessing wide scalars. A bug
+behind a magic-value equality (`x == 0xDEADBEEF` over `chooseNat 0 4294967295`) is not found in 5M
+runs by coverage alone, and libFuzzer's own `-use_cmp` does not help, for the reasons in [Planting
+compared values](#planting-compared-values); `--cmp` finds it in hundreds. Without `--cmp`, design bugs
+to be reachable via new *branches* — like the equal-key arm of `insertBuggy`, or `chain-n`'s nesting
+— which the fuzzer explores well.
 
 ## Platforms
 
@@ -542,10 +586,8 @@ it.
   values map to the same value (2²⁴ words per outcome over `chooseNat 0 255`), so most mutations of
   that word change nothing the property can see. Whatever replaces it must keep the tight
   bytes → choice map.
-- **A `trace-cmp`-friendly choice encoding.** Modulo reduction could give way to a comparison-exposing
-  encoding (bolero's Lemire scaling), but note the binding constraint measured above is *tagging*,
-  not instrumentation scope: an encoding change alone will not help unless the compared value and the
-  buffered bytes agree, e.g. by comparing on `UInt32`/`UInt8` before widening to `Nat`.
+- **`--cmp` sees 4- and 8-byte comparisons only.** The 1- and 2-byte, `switch` and `memcmp`/string
+  hooks are not wrapped, so a constant compared that way is planted only if it is a harvested literal.
 - **No in-process campaign result.** A failure `abort()`s, so `go` cannot return a `TestOutcome`;
   FuzzChick shows the trade-off, which is that you can return a value only if you own the loop. The
   clean way to have both is a subprocess model: a Lean parent spawns a libFuzzer child that aborts

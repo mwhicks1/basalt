@@ -29,6 +29,10 @@ The cursor is *not* clamped to the buffer, so how far it overshoots is the input
 structure FuzzState where
   buffer : ByteArray
   cursor : Nat
+  /-- When recording, four 64-bit little-endian words per draw of more than one outcome below `2^64`:
+  `lo`, `hi`, the value, and the cursor where the draw's bytes start. Packed, since a boxed word per
+  element would cost an allocation each. -/
+  trace : Option ByteArray := none
 
 /-- A fuzzer-driven interpretation of `Gen`: `choose` reads bytes from an externally supplied buffer.
 
@@ -64,15 +68,34 @@ the overshoot survives as the run's `deficit`. -/
 /-- Read `n` bytes big-endian as a `Nat`, advancing the cursor (zero-filling past end-of-buffer). -/
 @[expose] def readNat (s : FuzzState) (n : Nat) : Nat × FuzzState := readNatFrom 0 s n
 
+/-- `x`'s low eight bytes, little-endian, appended to `b`. -/
+@[expose] def pushWord (b : ByteArray) (x : Nat) : ByteArray :=
+  let w := x.toUInt64
+  b.push w.toUInt8 |>.push (w >>> 8).toUInt8 |>.push (w >>> 16).toUInt8 |>.push (w >>> 24).toUInt8
+    |>.push (w >>> 32).toUInt8 |>.push (w >>> 40).toUInt8 |>.push (w >>> 48).toUInt8
+    |>.push (w >>> 56).toUInt8
+
+/-- One draw in `[lo, hi]`: read `bytesFor (hi - lo + 1)` bytes, recording the draw if the state
+records and the draw fits the trace's words. `raw` is returned; the value is `lo + raw % (hi - lo + 1)`. -/
+@[expose] def drawStep (lo hi : Nat) (s : FuzzState) : Nat × FuzzState :=
+  let range := hi - lo + 1
+  let c0 := s.cursor
+  let (raw, s) := readNat s (bytesFor range)
+  match s.trace with
+  | none => (raw, s)
+  | some t =>
+    if range ≤ 1 || hi ≥ 2 ^ 64 then (raw, s) else
+    -- Clear the field first, so that `t` is unshared and the pushes happen in place.
+    let s := { s with trace := none }
+    (raw, { s with trace := some (pushWord (pushWord (pushWord (pushWord t lo) hi)
+                                    (lo + raw % range)) c0) })
+
 /-- `choose` consumes `bytesFor (hi - lo + 1)` bytes and reduces them into `[lo, hi]`. Total. -/
 instance : RandomChoice FuzzGen where
   choose lo hi h := do
-    let s ← get
-    let range := hi - lo + 1
-    let (raw, s') := readNat s (bytesFor range)
-    set s'
-    have := Nat.mod_lt raw (show range > 0 by omega)
-    pure (ULift.up ⟨lo + raw % range, by omega⟩)
+    let raw ← modifyGet (drawStep lo hi)
+    have := Nat.mod_lt raw (show hi - lo + 1 > 0 by omega)
+    pure (ULift.up ⟨lo + raw % (hi - lo + 1), by omega⟩)
 
 /-- `FuzzGen` has everything a generator needs. -/
 example : Gen FuzzGen := inferInstance
@@ -83,14 +106,19 @@ structure FuzzResult where
   outcome : TestOutcome
   deficit : Nat
   cursor : Nat
+  /-- The draws, if recorded (`FuzzState.trace`). -/
+  trace : ByteArray := .empty
   deriving Inhabited
 
 /-- Run a property on one input buffer — the pure core the C bridge calls per input. The `none` case
 is the `partial_fixpoint` bottom, unreachable for a productive generator; we map it to `discard` for
-totality, with nothing read to report. -/
-def runOne (T : PropM FuzzGen Unit) (bytes : ByteArray) : FuzzResult :=
-  match (runProp T).run { buffer := bytes, cursor := 0 } with
-  | some (outcome, s) => { outcome, deficit := s.cursor - bytes.size, cursor := s.cursor }
+totality, with nothing read to report. `record` records the draws. -/
+def runOne (T : PropM FuzzGen Unit) (bytes : ByteArray) (record : Bool := false) : FuzzResult :=
+  let s0 : FuzzState :=
+    { buffer := bytes, cursor := 0, trace := if record then some (.emptyWithCapacity 1024) else none }
+  match (runProp T).run s0 with
+  | some (outcome, s) => { outcome, deficit := s.cursor - bytes.size, cursor := s.cursor,
+                           trace := s.trace.getD .empty }
   | none              => { outcome := Except.error .discard, deficit := 0, cursor := 0 }
 
 end Basalt.Fuzz
