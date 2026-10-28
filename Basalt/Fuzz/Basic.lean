@@ -51,8 +51,7 @@ def bytesFor (k : Nat) : Nat := (bitsFor k + 7) / 8
 
 /-- Read one byte, advancing the cursor. Past the end of the buffer, read `0`: the buffer is
 zero-extended rather than exhausted, which is what keeps `choose` total. The cursor still advances, so
-the overshoot survives as the run's `deficit` — which is what lets the fuzzer be told to supply the
-missing bytes (`fuzz-run/README.md`). -/
+the overshoot survives as the run's `deficit`. -/
 def readByte (s : FuzzState) : UInt8 × FuzzState :=
   let b := if s.cursor < s.buffer.size then s.buffer.get! s.cursor else 0
   (b, { s with cursor := s.cursor + 1 })
@@ -80,19 +79,20 @@ instance : RandomChoice FuzzGen where
 /-- `FuzzGen` has everything a generator needs. -/
 example : Gen FuzzGen := inferInstance
 
-/-- What one input produced: its outcome, and how many bytes it wanted beyond the ones it was
-given (the `deficit`). -/
+/-- What one input produced: its outcome, how many bytes it read (`cursor`, past the end
+included), and how many of those it was not given (the `deficit`). -/
 structure FuzzResult where
   outcome : TestOutcome
   deficit : Nat
+  cursor : Nat
   deriving Inhabited
 
 /-- Run a property on one input buffer — the pure core the C bridge calls per input. The `none` case
 is the `partial_fixpoint` bottom, unreachable for a productive generator; we map it to `discard` for
-totality, with no deficit to report. -/
+totality, with nothing read to report. -/
 def runOne (T : PropM FuzzGen Unit) (bytes : ByteArray) : FuzzResult :=
   match (runProp T).run { buffer := bytes, cursor := 0 } with
-  | some (outcome, s) => { outcome, deficit := s.cursor - bytes.size }
-  | none              => { outcome := Except.error .discard, deficit := 0 }
+  | some (outcome, s) => { outcome, deficit := s.cursor - bytes.size, cursor := s.cursor }
+  | none              => { outcome := Except.error .discard, deficit := 0, cursor := 0 }
 
 end Basalt.Fuzz
