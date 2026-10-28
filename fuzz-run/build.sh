@@ -281,7 +281,7 @@ fi
 instrumented() { [ "$(nm -u "$1" 2>/dev/null | grep -c __sanitizer_cov_8bit_counters_init || true)" -gt 0 ]; }
 under_test() {           # a dependency that is code under test: its lakefile carries the coverage flags
   local p
-  for p in $FUZZ_UNDER_TEST; do case $1 in "$ROOT/.lake/packages/$p/"*) return 0 ;; esac; done
+  for p in $FUZZ_UNDER_TEST; do case $1 in */.lake/packages/"$p"/*) return 0 ;; esac; done
   return 1
 }
 first_party=0
@@ -291,7 +291,7 @@ while IFS= read -r o; do
     continue
   fi
   case $o in
-    "$ROOT/.lake/packages/"*)
+    */.lake/packages/*)        # a dependency, wherever its packages directory physically is
       ! instrumented "$o" || die "${o##*/.lake/build/ir/} is instrumented: coverage over a dependency's PRNG is noise" ;;
     *)
       instrumented "$o" || die "${o#"$IR"/} is not instrumented: check for overlapping library globs"
